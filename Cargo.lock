@@ -1092,15 +1092,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
-name = "base64-compat"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a8d4d2746f89841e49230dd26917df1876050f95abafafbe34f47cb534b88d7"
-dependencies = [
- "byteorder",
-]
-
-[[package]]
 name = "base64ct"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1269,20 +1260,21 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=fb809b0#fb809b0f3c203064e877fd289a046bb7ef2d6462"
+source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=1aae7cc#1aae7cc11c43b8bce768cf44725750203302b702"
 dependencies = [
  "async-trait",
  "bitcoincore-rpc-json",
- "jsonrpc-async",
  "log",
+ "reqwest 0.12.5",
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]
 name = "bitcoincore-rpc-json"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=fb809b0#fb809b0f3c203064e877fd289a046bb7ef2d6462"
+source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=1aae7cc#1aae7cc11c43b8bce768cf44725750203302b702"
 dependencies = [
  "bitcoin",
  "serde",
@@ -3869,20 +3861,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29c15563dc2726973df627357ce0c9ddddbea194836909d655df6a75d2cf296d"
 dependencies = [
  "wasm-bindgen",
-]
-
-[[package]]
-name = "jsonrpc-async"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a20e8e4ed08ee58717113cbf277b1ecef5cd9554d3e48c114de338289727d466"
-dependencies = [
- "async-trait",
- "base64-compat",
- "serde",
- "serde_derive",
- "serde_json",
- "tokio",
 ]
 
 [[package]]
