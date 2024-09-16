@@ -1,0 +1,2 @@
+proving_mode="$PROVER__PROVING_MODE"
+proof_sampling_number=$PROVER__PROOF_SAMPLING_NUMBER

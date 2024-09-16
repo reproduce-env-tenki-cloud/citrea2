@@ -1,4 +1,4 @@
-name: release
+name: Release
 
 on:
   push:
@@ -11,7 +11,8 @@ env:
 
 jobs:
 
-  x86_64_binary_extraction:
+  linux_amd64_binary_extraction:
+    needs: validate_DA_ID_format
     runs-on: ubicloud-standard-30
     steps:
       - name: Checkout
@@ -25,18 +26,22 @@ jobs:
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          rustup install 1.79.0
+          rustup default 1.79.0
 
       - name: Install Cargo Binstall
         run: |
           source $HOME/.cargo/env
-          cargo install cargo-binstall
+          cargo install --version 1.7.0 cargo-binstall
 
-      - name: Install Cargo Risczero
+      - name: Install cargo-risczero
         run: |
-          cargo binstall -y cargo-risczero
-          cargo risczero install --version v2024-04-22.0
-          # TODO: do below on testnet launch
-          # curl -L https://risczero.com/install | bash; source /home/runner/.bashrc; rzup -v 1.0.5;
+          cargo binstall cargo-risczero@1.0.5 --no-confirm
+
+      - name: Install risc0-zkvm toolchain
+        run: cargo risczero install --version r0.1.79.0-2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Project
         env:
@@ -44,106 +49,34 @@ jobs:
         run: |
           cargo build --release
 
-      - name: Check BITCOIN_DA_ID
-        id: check-id
-        run: |
-          RESULT=$(grep -R "BITCOIN_DA_ID" target/ || echo "Grep failed")
-
-          if echo "$RESULT" | grep -q "${{ env.EXPECTED_BITCOIN_DA_ID }}"; then
-            echo "Check passed successfully."
-          else
-            echo "Check failed. Expected: BITCOIN_DA_ID ${{ env.EXPECTED_BITCOIN_DA_ID }} "
-            echo "Actual: $RESULT"
-            exit 1
-          fi
-
-      - name: Upload x86_64 Binary
+      - name: Upload linux-amd64 Binary
         uses: actions/upload-artifact@v4
         with:
-          name: citrea_${{ github.ref_name }}_x86_64
-          path: target/release/citrea
-
-  osx_arm64_binary_extraction:
-    runs-on: self-hosted-citrea-osx-arm64
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-
-      - name: Install Cargo Binstall
-        run: |
-          source $HOME/.cargo/env
-          cargo install cargo-binstall
-
-      - name: Install Cargo Risczero
-        run: |
-          source $HOME/.cargo/env
-          cargo binstall -y cargo-risczero
-          cargo risczero install --version v2024-04-22.0
-
-      - name: Build Project
-        env:
-          REPR_GUEST_BUILD: 1
-        run: |
-          source $HOME/.cargo/env
-          cargo build --release
-
-      - name: Check BITCOIN_DA_ID
-        id: check-id
-        run: |
-          RESULT=$(grep -R "BITCOIN_DA_ID" target/ || echo "Grep failed")
-          
-          if echo "$RESULT" | grep -q "${{ env.EXPECTED_BITCOIN_DA_ID }}"; then
-            echo "Check passed successfully."
-          else      
-            echo "Check failed. Expected: BITCOIN_DA_ID ${{ env.EXPECTED_BITCOIN_DA_ID }} "
-            echo "Actual: $RESULT"
-            exit 1
-          fi
-
-      - name: Upload osx_arm64 Binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: citrea_${{ github.ref_name }}_osx_arm64
+          name: citrea-${{ github.ref_name }}-linux-amd64
           path: target/release/citrea
 
   release:
-    needs: [ x86_64_binary_extraction, osx_arm64_binary_extraction ]
+    needs: [ linux_amd64_binary_extraction]
     runs-on: ubuntu-latest
     steps:
-      - name: Download x86_64 Binary
+      - name: Download linux-amd64 Binary
         uses: actions/download-artifact@v4
         with:
-          name: citrea_${{ github.ref_name }}_x86_64
+          name: citrea-${{ github.ref_name }}-linux-amd64
           path: release
 
       - name: rename file
         run: |
-          mv release/citrea release/citrea_${{ github.ref_name }}_x86_64
-
-      - name: Download OSX ARM64 Binary
-        uses: actions/download-artifact@v4
-        with:
-          name: citrea_${{ github.ref_name }}_osx_arm64
-          path: release
-
-      - name: rename file
-        run: |
-            mv release/citrea release/citrea_${{ github.ref_name }}_osx_arm64
+          mv release/citrea release/citrea-${{ github.ref_name }}-linux-amd64
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/citrea_${{ github.ref_name }}_osx_arm64
-            release/citrea_${{ github.ref_name }}_x86_64
+            release/citrea-${{ github.ref_name }}-linux-amd64
           name: Release ${{ github.ref_name }}
           body: |
             This is the release for version ${{ github.ref_name }}.
             
             It includes:
-            - citrea_${{ github.ref_name }}_x86_64
-            - citrea_${{ github.ref_name }}_osx_arm64
+            - citrea-${{ github.ref_name }}-linux-amd64
