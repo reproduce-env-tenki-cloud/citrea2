@@ -3,6 +3,10 @@ pub mod spec;
 
 #[cfg(feature = "native")]
 pub mod service;
+
+#[cfg(feature = "native")]
+pub mod monitoring;
+
 pub mod verifier;
 
 #[cfg(feature = "native")]

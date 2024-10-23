@@ -44,6 +44,7 @@ use crate::helpers::parsers::{
     parse_batch_proof_transaction, parse_light_client_transaction, ParsedBatchProofTransaction,
     ParsedLightClientTransaction, VerifyParsed,
 };
+use crate::monitoring::MonitoringService;
 use crate::spec::blob::BlobWithSender;
 use crate::spec::block::BitcoinBlock;
 use crate::spec::header::HeaderWrapper;
@@ -93,13 +94,14 @@ impl citrea_common::FromEnv for BitcoinServiceConfig {
 /// A service that provides data and data availability proofs for Bitcoin
 #[derive(Debug)]
 pub struct BitcoinService {
-    client: Client,
+    client: Arc<Client>,
     network: bitcoin::Network,
     da_private_key: Option<SecretKey>,
     reveal_light_client_prefix: Vec<u8>,
     reveal_batch_prover_prefix: Vec<u8>,
     inscribes_queue: UnboundedSender<Option<SenderWithNotifier<TxidWrapper>>>,
     tx_backup_dir: PathBuf,
+    monitoring: Arc<MonitoringService>,
 }
 
 impl BitcoinService {
@@ -109,11 +111,13 @@ impl BitcoinService {
         chain_params: RollupParams,
         tx: UnboundedSender<Option<SenderWithNotifier<TxidWrapper>>>,
     ) -> Result<Self> {
-        let client = Client::new(
-            &config.node_url,
-            Auth::UserPass(config.node_username, config.node_password),
-        )
-        .await?;
+        let client = Arc::new(
+            Client::new(
+                &config.node_url,
+                Auth::UserPass(config.node_username, config.node_password),
+            )
+            .await?,
+        );
 
         let private_key = config
             .da_private_key
@@ -130,13 +134,18 @@ impl BitcoinService {
             tracing::warn!("No loaded wallet found!");
         }
 
-        // check if config.tx_backup_dir exists
         let tx_backup_dir = std::path::Path::new(&config.tx_backup_dir);
 
         if !tx_backup_dir.exists() {
             std::fs::create_dir_all(tx_backup_dir)
                 .context("Failed to create tx backup directory")?;
         }
+
+        let monitoring = Arc::new(
+            MonitoringService::new(client.clone(), None, None)
+                .await
+                .context("Failed to initialize monitoring service")?,
+        );
 
         Ok(Self {
             client,
@@ -146,6 +155,7 @@ impl BitcoinService {
             reveal_batch_prover_prefix: chain_params.reveal_batch_prover_prefix,
             inscribes_queue: tx,
             tx_backup_dir: tx_backup_dir.to_path_buf(),
+            monitoring,
         })
     }
 
@@ -154,11 +164,13 @@ impl BitcoinService {
         chain_params: RollupParams,
         tx: UnboundedSender<Option<SenderWithNotifier<TxidWrapper>>>,
     ) -> Result<Self> {
-        let client = Client::new(
-            &config.node_url,
-            Auth::UserPass(config.node_username, config.node_password),
-        )
-        .await?;
+        let client = Arc::new(
+            Client::new(
+                &config.node_url,
+                Auth::UserPass(config.node_username, config.node_password),
+            )
+            .await?,
+        );
 
         let da_private_key = config
             .da_private_key
@@ -173,6 +185,13 @@ impl BitcoinService {
             std::fs::create_dir_all(tx_backup_dir)
                 .context("Failed to create tx backup directory")?;
         }
+
+        let monitoring = Arc::new(
+            MonitoringService::new(client.clone(), None, None)
+                .await
+                .context("Failed to initialize monitoring service")?,
+        );
+
         Ok(Self {
             client,
             network: config.network,
@@ -181,6 +200,7 @@ impl BitcoinService {
             reveal_batch_prover_prefix: chain_params.reveal_batch_prover_prefix,
             inscribes_queue: tx,
             tx_backup_dir: tx_backup_dir.to_path_buf(),
+            monitoring,
         })
     }
 
@@ -188,6 +208,8 @@ impl BitcoinService {
         self: Arc<Self>,
         mut rx: UnboundedReceiver<Option<SenderWithNotifier<TxidWrapper>>>,
     ) {
+        self.monitoring.clone().spawn();
+
         tokio::spawn(async move {
             let mut prev_utxo = match self.get_prev_utxo().await {
                 Ok(Some(prev_utxo)) => Some(prev_utxo),
@@ -229,7 +251,7 @@ impl BitcoinService {
                                             )
                                             .await
                                         {
-                                            Ok(tx) => {
+                                            Ok((txids, tx)) => {
                                                 let tx_id = TxidWrapper(tx.id);
                                                 info!(%tx.id, "Sent tx to BitcoinDA");
                                                 prev_utxo = Some(UTXO {
@@ -242,8 +264,11 @@ impl BitcoinService {
                                                     spendable: true,
                                                     solvable: true,
                                                 });
-
                                                 let _ = request.notify.send(Ok(tx_id));
+
+                                                if let Err(e) = self.monitoring.monitor_transaction_chain(txids).await {
+                                                    error!(?e, "Failed to monitored tx chain");
+                                                }
                                             }
                                             Err(e) => {
                                                 error!(?e, "Failed to send transaction to DA layer");
@@ -358,7 +383,7 @@ impl BitcoinService {
         prev_utxo: Option<UTXO>,
         da_data: DaData,
         fee_sat_per_vbyte: u64,
-    ) -> Result<TxWithId, anyhow::Error> {
+    ) -> Result<(Vec<Txid>, TxWithId), anyhow::Error> {
         let network = self.network;
 
         let da_private_key = self.da_private_key.expect("No private key set");
@@ -454,7 +479,7 @@ impl BitcoinService {
         reveal_chunks: Vec<Transaction>,
         commit: Transaction,
         reveal: TxWithId,
-    ) -> Result<TxWithId> {
+    ) -> Result<(Vec<Txid>, TxWithId)> {
         debug!("Sending chunked transaction");
         let mut raw_txs = Vec::with_capacity(commit_chunks.len() * 2 + 2);
 
@@ -488,14 +513,14 @@ impl BitcoinService {
             info!("Blob chunk aggregate tx sent. Hash: {last_txid}");
         }
 
-        Ok(reveal)
+        Ok((txids, reveal))
     }
 
     pub async fn send_complete_transaction(
         &self,
         commit: Transaction,
         reveal: TxWithId,
-    ) -> Result<TxWithId> {
+    ) -> Result<(Vec<Txid>, TxWithId)> {
         let signed_raw_commit_tx = self
             .client
             .sign_raw_transaction_with_wallet(&commit, None, None)
@@ -507,7 +532,7 @@ impl BitcoinService {
 
         let txids = self.send_raw_transactions(&raw_txs).await?;
         info!("Blob inscribe tx sent. Hash: {}", txids[1]);
-        Ok(reveal)
+        Ok((txids, reveal))
     }
 
     #[instrument(level = "trace", skip_all, ret)]
