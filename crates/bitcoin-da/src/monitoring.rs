@@ -25,7 +25,7 @@ pub struct MonitoringMetrics {
     pub pending: usize,
     pub confirmed: usize,
     pub finalized: usize,
-    pub failed: usize,
+    pub evicted: usize,
     pub replaced: usize,
     pub current_height: BlockHeight,
     pub latest_block: BlockHash,
@@ -47,12 +47,10 @@ pub enum TxStatus {
         block_hash: BlockHash,
         block_height: BlockHeight,
     },
-    Failed {
-        reason: String,
-    },
     Replaced {
         by_txid: Txid,
     },
+    Evicted,
 }
 
 #[derive(Debug, Clone)]
@@ -63,36 +61,6 @@ pub struct MonitoredTx {
     pub status: TxStatus,
     pub prev_tx: Option<Txid>, // Previous tx in chain
     pub next_tx: Option<Txid>, // Next tx in chain
-}
-
-#[derive(Debug, Clone)]
-pub enum ChainEvent {
-    NewBlock {
-        hash: BlockHash,
-        height: BlockHeight,
-    },
-    Reorg {
-        old_tip: BlockHash,
-        new_tip: BlockHash,
-        common_ancestor: BlockHash,
-        depth: u64,
-    },
-    TransactionConfirmed {
-        txid: Txid,
-        block_hash: BlockHash,
-        confirmations: u64,
-    },
-    TransactionFinalized {
-        txid: Txid,
-    },
-    TransactionReplaced {
-        old_txid: Txid,
-        new_txid: Txid,
-    },
-    TransactionFailed {
-        txid: Txid,
-        reason: String,
-    },
 }
 
 #[derive(Debug, Clone)]
@@ -485,13 +453,13 @@ impl MonitoringService {
     pub async fn get_metrics(&self) -> MonitoringMetrics {
         let txs = self.monitored_txs.read().await;
 
-        let (pending, confirmed, finalized, failed, replaced) =
+        let (pending, confirmed, finalized, evicted, replaced) =
             txs.values().fold((0, 0, 0, 0, 0), |mut acc, tx| {
                 match tx.status {
                     TxStatus::Pending { .. } => acc.0 += 1,
                     TxStatus::Confirmed { .. } => acc.1 += 1,
                     TxStatus::Finalized { .. } => acc.2 += 1,
-                    TxStatus::Failed { .. } => acc.3 += 1,
+                    TxStatus::Evicted { .. } => acc.3 += 1,
                     TxStatus::Replaced { .. } => acc.4 += 1,
                 }
                 acc
@@ -504,7 +472,7 @@ impl MonitoringService {
             pending,
             confirmed,
             finalized,
-            failed,
+            evicted,
             replaced,
             current_height: state.current_height,
             latest_block: state.current_tip,
