@@ -7,12 +7,11 @@ mod syncing;
 mod system_transactions;
 mod tx_propagation;
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
-use citrea_common::{ProverConfig, SequencerConfig};
+use citrea_common::{BatchProverConfig, SequencerConfig};
 use citrea_evm::smart_contracts::SimpleStorageContract;
 use citrea_stf::genesis_config::GenesisPaths;
 use reth_primitives::{Address, BlockNumberOrTag, U256};
@@ -72,6 +71,7 @@ async fn test_all_flow() {
             seq_port_tx,
             GenesisPaths::from_dir(TEST_DATA_GENESIS_PATH),
             None,
+            None,
             rollup_config,
             Some(sequencer_config),
         )
@@ -90,11 +90,12 @@ async fn test_all_flow() {
         start_rollup(
             prover_node_port_tx,
             GenesisPaths::from_dir(TEST_DATA_GENESIS_PATH),
-            Some(ProverConfig {
+            Some(BatchProverConfig {
                 proving_mode: sov_stf_runner::ProverGuestRunConfig::Execute,
                 proof_sampling_number: 0,
                 enable_recovery: true,
             }),
+            None,
             rollup_config,
             None,
         )
@@ -117,6 +118,7 @@ async fn test_all_flow() {
         start_rollup(
             full_node_port_tx,
             GenesisPaths::from_dir(TEST_DATA_GENESIS_PATH),
+            None,
             None,
             rollup_config,
             None,
@@ -382,6 +384,7 @@ async fn test_ledger_get_head_soft_confirmation() {
             seq_port_tx,
             GenesisPaths::from_dir(TEST_DATA_GENESIS_PATH),
             None,
+            None,
             rollup_config,
             Some(sequencer_config),
         )
@@ -450,6 +453,7 @@ async fn initialize_test(
             seq_port_tx,
             GenesisPaths::from_dir(TEST_DATA_GENESIS_PATH),
             None,
+            None,
             rollup_config,
             Some(sequencer_config),
         )
@@ -472,6 +476,7 @@ async fn initialize_test(
             full_node_port_tx,
             GenesisPaths::from_dir(TEST_DATA_GENESIS_PATH),
             None,
+            None,
             rollup_config,
             None,
         )
@@ -488,25 +493,6 @@ async fn initialize_test(
         full_node_task,
         Address::from_str("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266").unwrap(),
     )
-}
-
-fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
-    if !dst.exists() {
-        fs::create_dir(dst)?;
-    }
-
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let entry_path = entry.path();
-        let target_path = dst.join(entry.file_name());
-
-        if entry_path.is_dir() {
-            copy_dir_recursive(&entry_path, &target_path)?;
-        } else {
-            fs::copy(&entry_path, &target_path)?;
-        }
-    }
-    Ok(())
 }
 
 async fn execute_blocks(

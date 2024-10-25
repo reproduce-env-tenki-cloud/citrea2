@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -14,6 +16,9 @@ use crate::schema::types::{
 
 /// Shared ledger operations
 pub trait SharedLedgerOps {
+    /// Return DB path
+    fn path(&self) -> &Path;
+
     /// Put soft confirmation to db
     fn put_soft_confirmation(
         &self,
@@ -125,6 +130,12 @@ pub trait SharedLedgerOps {
 
     /// Set the last pruned block number
     fn set_last_pruned_l2_height(&self, l2_height: u64) -> Result<()>;
+
+    /// Gets all executed migrations.
+    fn get_executed_migrations(&self) -> anyhow::Result<Vec<(String, u64)>>;
+
+    /// Put a pending commitment l2 range
+    fn put_executed_migration(&self, migration: (String, u64)) -> anyhow::Result<()>;
 }
 
 /// Node ledger operations
@@ -145,7 +156,7 @@ pub trait NodeLedgerOps: SharedLedgerOps {
 }
 
 /// Prover ledger operations
-pub trait ProverLedgerOps: SharedLedgerOps + Send + Sync {
+pub trait BatchProverLedgerOps: SharedLedgerOps + Send + Sync {
     /// Get the witness by L2 height
     fn get_l2_witness<Witness: DeserializeOwned>(&self, l2_height: u64) -> Result<Option<Witness>>;
 
@@ -175,8 +186,11 @@ pub trait ProverLedgerOps: SharedLedgerOps + Send + Sync {
     fn clear_pending_proving_sessions(&self) -> Result<()>;
 }
 
+/// Light client prover ledger operations
+pub trait LightClientProverLedgerOps: SharedLedgerOps + Send + Sync {}
+
 /// Ledger operations for the prover service
-pub trait ProvingServiceLedgerOps: ProverLedgerOps + SharedLedgerOps + Send + Sync {
+pub trait ProvingServiceLedgerOps: BatchProverLedgerOps + SharedLedgerOps + Send + Sync {
     /// Gets all pending sessions and step numbers
     fn get_pending_proving_sessions(&self) -> Result<Vec<Vec<u8>>>;
 
@@ -227,4 +241,11 @@ pub trait SequencerLedgerOps: SharedLedgerOps {
 
     /// Fetch mempool transactions
     fn get_mempool_txs(&self) -> anyhow::Result<Vec<(Vec<u8>, Vec<u8>)>>;
+}
+
+/// Test ledger operations
+#[cfg(test)]
+pub trait TestLedgerOps {
+    fn get_values(&self) -> anyhow::Result<Vec<(u64, (u64, u64))>>;
+    fn put_value(&self, key: u64, value: (u64, u64)) -> anyhow::Result<()>;
 }
