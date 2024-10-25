@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use crate::service::FINALITY_DEPTH;
 
-const DEFAULT_CHECK_INTERVAL: Duration = Duration::from_secs(60); // Default to checking every minute
+const DEFAULT_CHECK_INTERVAL: Duration = Duration::from_secs(60);
 const DEFAULT_HISTORY_LIMIT: usize = 1_000; // Keep track of last 1k txs
 const REORG_DEPTH_THRESHOLD: u64 = FINALITY_DEPTH;
 
@@ -76,6 +76,8 @@ pub enum MonitorError {
     AlreadyMonitored,
     #[error("Transaction not found")]
     TxNotFound,
+    #[error("BlockHash not found")]
+    BlockHashNotFound,
     #[error("Previous transaction not monitored: {0}")]
     PrevTxNotMonitored(Txid),
     #[error("Invalid tx chain, odd number of txs")]
@@ -191,7 +193,7 @@ impl MonitoringService {
         let tx_result = self.client.get_transaction(&txid, None).await?;
         let tx = tx_result.transaction()?;
 
-        let status = self.determine_tx_status(&tx_result).await;
+        let status = self.determine_tx_status(&tx_result).await?;
         let monitored_tx = MonitoredTx {
             tx,
             initial_broadcast: Instant::now(),
@@ -217,7 +219,6 @@ impl MonitoringService {
             let mut current_hash: BlockHash;
             let mut new_blocks = vec![(new_tip, new_height)];
             let mut reorg_detected = false;
-            let mut common_ancestor = None;
             let mut reorg_depth = 0;
 
             for i in 1..=REORG_DEPTH_THRESHOLD {
@@ -233,18 +234,14 @@ impl MonitoringService {
                     if pos != i as usize {
                         reorg_detected = true;
                         reorg_depth = i;
-                        common_ancestor = Some(current_hash);
                     }
                     break;
                 }
             }
 
             if reorg_detected {
-                let old_tip = chain_state.current_tip;
-                let ancestor = common_ancestor.unwrap();
-
                 // Handle transaction status updates due to reorg
-                self.handle_reorg(ancestor, reorg_depth).await?;
+                self.handle_reorg(reorg_depth).await?;
             }
 
             chain_state.current_height = new_height;
@@ -255,7 +252,7 @@ impl MonitoringService {
         Ok(())
     }
 
-    async fn handle_reorg(&self, common_ancestor: BlockHash, depth: u64) -> Result<()> {
+    async fn handle_reorg(&self, depth: u64) -> Result<()> {
         let mut txs = self.monitored_txs.write().await;
 
         for tx in txs.values_mut() {
@@ -265,7 +262,7 @@ impl MonitoringService {
                         .client
                         .get_transaction(&tx.tx.compute_txid(), None)
                         .await?;
-                    tx.status = self.determine_tx_status(&tx_result).await;
+                    tx.status = self.determine_tx_status(&tx_result).await?;
                 }
             }
         }
@@ -284,7 +281,7 @@ impl MonitoringService {
                 | TxStatus::Confirmed { .. }
                 | TxStatus::Replaced { .. } => {
                     let tx_result = self.client.get_transaction(txid, None).await?;
-                    let new_status = self.determine_tx_status(&tx_result).await;
+                    let new_status = self.determine_tx_status(&tx_result).await?;
 
                     monitored_tx.status = new_status;
                 }
@@ -296,12 +293,12 @@ impl MonitoringService {
         Ok(())
     }
 
-    async fn determine_tx_status(&self, tx_result: &GetTransactionResult) -> TxStatus {
-        if tx_result.info.confirmations > 0 {
+    async fn determine_tx_status(&self, tx_result: &GetTransactionResult) -> Result<TxStatus> {
+        let status = if tx_result.info.confirmations > 0 {
             let block_hash = tx_result
                 .info
                 .blockhash
-                .expect("Confirmed tx must have blockhash");
+                .ok_or(MonitorError::BlockHashNotFound)?;
             let block_height = self
                 .client
                 .get_block_info(&block_hash)
@@ -346,7 +343,8 @@ impl MonitoringService {
                 fee_rate,
                 timestamp: Instant::now(),
             }
-        }
+        };
+        Ok(status)
     }
 
     async fn prune_old_transactions(&self) {
