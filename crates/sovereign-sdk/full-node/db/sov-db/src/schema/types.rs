@@ -158,7 +158,7 @@ impl From<StoredStateTransition> for StateTransitionRpcResponse {
 pub fn convert_to_rpc_proof(stored_proof: Proof) -> ProofRpcResponse {
     match stored_proof {
         Proof::Full(data) => ProofRpcResponse::Full(data),
-        Proof::PublicInput(data) => ProofRpcResponse::PublicInput(data),
+        Proof::Mock(data) => ProofRpcResponse::Mock(data),
     }
 }
 

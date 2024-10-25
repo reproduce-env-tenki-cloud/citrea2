@@ -156,7 +156,7 @@ where
         // TODO: maybe extract this to Vm?
         // Extract journal
         let journal = match proof {
-            Proof::PublicInput(journal) => {
+            Proof::Mock(journal) => {
                 let journal: Journal = bincode::deserialize(&journal)?;
                 journal
             }

@@ -334,8 +334,8 @@ where
         .expect("Proof should be deserializable");
 
     match &proof {
-        Proof::PublicInput(_) => {
-            warn!("Proof is public input, skipping");
+        Proof::Mock(_) => {
+            warn!("Proof is mock proof, skipping");
         }
         Proof::Full(data) => {
             info!("Verifying proof!");

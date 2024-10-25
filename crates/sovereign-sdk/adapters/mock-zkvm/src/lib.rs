@@ -171,14 +171,14 @@ impl<ValidityCond: ValidityCondition> sov_rollup_interface::zk::ZkvmHost
     fn run(&mut self, _with_proof: bool) -> Result<sov_rollup_interface::zk::Proof, anyhow::Error> {
         self.worker_thread_notifier.wait();
         let data = self.committed_data.pop_front().unwrap_or_default();
-        Ok(sov_rollup_interface::zk::Proof::PublicInput(data))
+        Ok(sov_rollup_interface::zk::Proof::Mock(data))
     }
 
     fn extract_output<Da: sov_rollup_interface::da::DaSpec, Root: BorshDeserialize>(
         proof: &Proof,
     ) -> Result<sov_rollup_interface::zk::StateTransition<Da, Root>, Self::Error> {
         match proof {
-            sov_rollup_interface::zk::Proof::PublicInput(pub_input) => {
+            sov_rollup_interface::zk::Proof::Mock(pub_input) => {
                 let data: ProofInfo<Da::ValidityCondition> = bincode::deserialize(pub_input)?;
                 let st: StateTransitionData<Root, (), Da> =
                     BorshDeserialize::deserialize(&mut &*data.hint)?;

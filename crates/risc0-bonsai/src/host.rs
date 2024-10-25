@@ -9,7 +9,7 @@ use bonsai_sdk::blocking::Client;
 use borsh::{BorshDeserialize, BorshSerialize};
 use risc0_zkvm::sha::Digest;
 use risc0_zkvm::{
-    compute_image_id, AssumptionReceipt, ExecutorEnvBuilder, ExecutorImpl, Journal, LocalProver,
+    compute_image_id, AssumptionReceipt, ExecutorEnvBuilder, InnerReceipt, LocalProver, ProveInfo,
     Prover, Receipt,
 };
 use sov_db::ledger_db::{LedgerDB, ProvingServiceLedgerOps};
@@ -307,19 +307,32 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
         let proof = match (self.client.as_ref(), with_proof) {
             // Local execution. If mode is Execute, we always do local execution.
             (_, false) => {
+                // Set dev mode to true as this is used for tests
+                std::env::set_var("RISC0_DEV_MODE", "1");
                 let mut env = add_benchmarking_callbacks(ExecutorEnvBuilder::default());
                 for assumption in self.assumptions.iter() {
                     env.add_assumption(assumption.clone()).build().unwrap();
                 }
 
                 let env = env.write_slice(&self.env).build().unwrap();
-                let mut executor = ExecutorImpl::from_elf(env, self.elf)?;
 
-                let session = executor.run()?;
-                let data =
-                    bincode::serialize(&session.journal.expect("Journal shouldn't be empty"))?;
+                let prover = LocalProver::new("citrea-test-prover");
 
-                Ok(Proof::PublicInput(data))
+                let ProveInfo { receipt, stats } = prover.prove(env, self.elf)?;
+
+                // Because the dev mode is set, the proof will generate a fake receipt which does not include the proof
+                // It only includes the journal
+                assert!(matches!(receipt.inner, InnerReceipt::Fake(_)));
+
+                tracing::warn!("Execution Stats: {:?}", stats);
+
+                receipt.verify(self.image_id)?;
+
+                tracing::info!("Verified the fake receipt");
+
+                let serialized_receipt = bincode::serialize(&receipt)?;
+
+                Ok(Proof::Mock(serialized_receipt))
             }
             // Local proving
             (None, true) => {
@@ -407,11 +420,7 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
         proof: &Proof,
     ) -> Result<sov_rollup_interface::zk::StateTransition<Da, Root>, Self::Error> {
         let journal = match proof {
-            Proof::PublicInput(journal) => {
-                let journal: Journal = bincode::deserialize(journal)?;
-                journal
-            }
-            Proof::Full(data) => {
+            Proof::Mock(data) | Proof::Full(data) => {
                 let receipt: Receipt = bincode::deserialize(data)?;
                 receipt.journal
             }

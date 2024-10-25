@@ -243,9 +243,10 @@ pub struct LastVerifiedProofResponse {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProofRpcResponse {
+    /// Mock proof
     /// Only public input was generated.
     #[serde(with = "hex::serde")]
-    PublicInput(Vec<u8>),
+    Mock(Vec<u8>),
     /// The serialized ZK proof.
     #[serde(with = "hex::serde")]
     Full(Vec<u8>),
