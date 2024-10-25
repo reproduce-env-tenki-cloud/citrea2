@@ -14,7 +14,6 @@ use crate::service::FINALITY_DEPTH;
 
 const DEFAULT_CHECK_INTERVAL: Duration = Duration::from_secs(60);
 const DEFAULT_HISTORY_LIMIT: usize = 1_000; // Keep track of last 1k txs
-const REORG_DEPTH_THRESHOLD: u64 = FINALITY_DEPTH;
 
 type BlockHeight = u64;
 type Result<T> = std::result::Result<T, MonitorError>;
@@ -88,13 +87,39 @@ pub enum MonitorError {
     BitcoinEncodeError(#[from] bitcoin::consensus::encode::Error),
 }
 
+#[derive(Debug, Clone)]
+pub struct MonitoringConfig {
+    pub check_interval: Duration,
+    pub history_limit: usize,
+    pub reorg_depth_threshold: u64,
+}
+
+impl Default for MonitoringConfig {
+    fn default() -> Self {
+        Self {
+            check_interval: DEFAULT_CHECK_INTERVAL,
+            history_limit: DEFAULT_HISTORY_LIMIT,
+            reorg_depth_threshold: FINALITY_DEPTH,
+        }
+    }
+}
+
+impl MonitoringConfig {
+    fn new(check_interval: Option<Duration>, history_limit: Option<usize>) -> Self {
+        Self {
+            check_interval: check_interval.unwrap_or(DEFAULT_CHECK_INTERVAL),
+            history_limit: history_limit.unwrap_or(DEFAULT_HISTORY_LIMIT),
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct MonitoringService {
     client: Arc<Client>,
     monitored_txs: RwLock<HashMap<Txid, MonitoredTx>>,
     chain_state: RwLock<ChainState>,
-    check_interval: Duration,
-    history_limit: usize,
+    config: MonitoringConfig,
     last_tx: Mutex<Option<Txid>>,
 }
 
@@ -104,13 +129,15 @@ impl MonitoringService {
         check_interval: Option<Duration>,
         history_limit: Option<usize>,
     ) -> Result<Self> {
+        let config = MonitoringConfig::new(check_interval, history_limit);
+
         let current_height = client.get_block_count().await?;
         let current_tip = client.get_best_block_hash().await?;
 
-        let mut recent_blocks = Vec::with_capacity(REORG_DEPTH_THRESHOLD as usize);
+        let mut recent_blocks = Vec::with_capacity(config.reorg_depth_threshold as usize);
         let mut current_hash: BlockHash;
 
-        for height in (0..REORG_DEPTH_THRESHOLD).map(|i| current_height.saturating_sub(i)) {
+        for height in (0..config.reorg_depth_threshold).map(|i| current_height.saturating_sub(i)) {
             current_hash = client.get_block_hash(height.into()).await?;
             recent_blocks.push((current_hash, height));
         }
@@ -123,8 +150,7 @@ impl MonitoringService {
                 current_tip,
                 recent_blocks,
             }),
-            check_interval: check_interval.unwrap_or(DEFAULT_CHECK_INTERVAL),
-            history_limit: history_limit.unwrap_or(DEFAULT_HISTORY_LIMIT),
+            config,
             last_tx: Mutex::new(None),
         })
     }
@@ -132,7 +158,7 @@ impl MonitoringService {
     /// Spawn a tokio task to keep track of TX status and chain re-orgs
     pub fn spawn(self: Arc<Self>) {
         tokio::spawn(async move {
-            let mut interval = interval(self.check_interval);
+            let mut interval = interval(self.config.check_interval);
             loop {
                 interval.tick().await;
                 if let Err(e) = self.check_chain_state().await {
@@ -221,7 +247,7 @@ impl MonitoringService {
             let mut reorg_detected = false;
             let mut reorg_depth = 0;
 
-            for i in 1..=REORG_DEPTH_THRESHOLD {
+            for i in 1..=self.config.reorg_depth_threshold {
                 let height = new_height.saturating_sub(i);
                 current_hash = self.client.get_block_hash(height.into()).await?;
                 new_blocks.push((current_hash, height));
@@ -306,7 +332,9 @@ impl MonitoringService {
                 .map(|header| header.height as u64)
                 .unwrap_or(0);
 
-            if tx_result.info.confirmations as u64 >= FINALITY_DEPTH {
+            if tx_result.info.confirmations > 0
+                && tx_result.info.confirmations as u64 >= FINALITY_DEPTH
+            {
                 TxStatus::Finalized {
                     block_hash,
                     block_height,
@@ -350,7 +378,7 @@ impl MonitoringService {
     async fn prune_old_transactions(&self) {
         let mut txs = self.monitored_txs.write().await;
 
-        if txs.len() > self.history_limit {
+        if txs.len() > self.config.history_limit {
             let to_remove: Vec<_> = txs
                 .iter()
                 .filter(|(_, tx)| matches!(tx.status, TxStatus::Finalized { .. }))
@@ -361,7 +389,7 @@ impl MonitoringService {
             to_remove.sort_by_key(|&(_, time)| time);
 
             for (txid, _) in to_remove {
-                if txs.len() <= self.history_limit {
+                if txs.len() <= self.config.history_limit {
                     break;
                 }
                 txs.remove(&txid);
