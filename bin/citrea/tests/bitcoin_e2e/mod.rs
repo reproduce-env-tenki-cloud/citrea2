@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
+pub mod batch_prover_test;
 pub mod bitcoin_test;
+pub mod light_client_test;
 // pub mod mempool_accept;
-pub mod prover_test;
 pub mod sequencer_commitments;
 pub mod sequencer_test;
+pub mod tx_chain;
 
 pub(super) fn get_citrea_path() -> PathBuf {
     std::env::var("CITREA_E2E_TEST_BINARY").map_or_else(
