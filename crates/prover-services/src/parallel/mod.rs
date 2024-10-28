@@ -27,7 +27,7 @@ where
     Vm: ZkvmHost,
     V: StateTransitionFunction<Vm::Guest, Da::Spec> + Send + Sync,
 {
-    vm: Vm,
+    pub vm: Vm,
     prover_config: Arc<Mutex<ProofGenConfig<V, Da, Vm>>>,
 
     zk_storage: V::PreState,
@@ -126,9 +126,11 @@ where
     async fn submit_witness(
         &self,
         input: Vec<u8>,
+        assumption: Option<Vec<u8>>,
         da_slot_hash: <Da::Spec as DaSpec>::SlotHash,
     ) -> WitnessSubmissionStatus {
-        self.prover_state.submit_witness(input, da_slot_hash)
+        self.prover_state
+            .submit_witness(input, assumption, da_slot_hash)
     }
 
     async fn prove(

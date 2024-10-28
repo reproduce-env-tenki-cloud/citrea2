@@ -32,6 +32,15 @@ pub enum Proof {
     Full(Vec<u8>),
 }
 
+impl Proof {
+    /// Return inner proof
+    pub fn extract_proof(&self) -> Vec<u8> {
+        match self {
+            Proof::FakeReceipt(proof) | Proof::Full(proof) => proof.clone(),
+        }
+    }
+}
+
 /// A trait implemented by the prover ("host") of a zkVM program.
 pub trait ZkvmHost: Zkvm + Clone {
     /// The associated guest type

@@ -1932,6 +1932,7 @@ name = "citrea-light-client-prover"
 version = "0.5.0-rc.1"
 dependencies = [
  "anyhow",
+ "bincode",
  "borsh",
  "citrea-common",
  "hex",

@@ -13,8 +13,11 @@ use sov_stf_runner::{ProofProcessingStatus, ProverServiceError, WitnessSubmissio
 
 use crate::ProofGenConfig;
 
+pub(crate) type Assumption = Vec<u8>;
+pub(crate) type Input = Vec<u8>;
+
 pub(crate) enum ProverStatus {
-    WitnessSubmitted(Vec<u8>),
+    WitnessSubmitted((Input, Option<Assumption>)),
     ProvingInProgress,
     #[allow(dead_code)]
     Proved(Proof),
@@ -96,10 +99,11 @@ where
     pub(crate) fn submit_witness(
         &self,
         input: Vec<u8>,
+        assumption: Option<Vec<u8>>,
         da_slot_hash: <Da::Spec as DaSpec>::SlotHash,
     ) -> WitnessSubmissionStatus {
         let header_hash = da_slot_hash;
-        let data = ProverStatus::WitnessSubmitted(input);
+        let data = ProverStatus::WitnessSubmitted((input, assumption));
 
         let mut prover_state = self.prover_state.lock();
         let entry = prover_state.prover_status.entry(header_hash);
@@ -133,12 +137,15 @@ where
             .ok_or_else(|| anyhow::anyhow!("Missing witness for block: {:?}", block_header_hash))?;
 
         match prover_status {
-            ProverStatus::WitnessSubmitted(state_transition_data) => {
+            ProverStatus::WitnessSubmitted((state_transition_data, assumption)) => {
                 let start_prover = prover_state.inc_task_count_if_not_busy(self.num_threads);
                 // Initiate a new proving job only if the prover is not busy.
                 if start_prover {
                     prover_state.set_to_proving(block_header_hash.clone());
                     vm.add_hint(state_transition_data);
+                    if let Some(assumption) = assumption {
+                        vm.add_assumption(assumption);
+                    }
 
                     self.pool.spawn(move || {
                         tracing::debug_span!("guest_execution").in_scope(|| {

@@ -44,7 +44,7 @@ pub fn run_circuit<DaV: DaVerifier>(
 
     // do what you want with proofs
     // complete proof has raw bytes inside
-    // to extract *and* verift the proof you need to use the zkguest
+    // to extract *and* verify the proof you need to use the zk guest
     // can be passed from the guest code to this function
 
     Ok(LightClientCircuitOutput {

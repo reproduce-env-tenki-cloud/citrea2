@@ -9,4 +9,6 @@ pub struct LightClientCircuitInput<Da: DaSpec> {
     pub da_block_header: Da::BlockHeader,
 
     pub batch_prover_da_pub_key: Vec<u8>,
+    pub batch_prover_method_id: Vec<u8>,
+    pub batch_prover_journal: Option<Vec<u8>>,
 }

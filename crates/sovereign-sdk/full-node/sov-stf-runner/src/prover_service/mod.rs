@@ -93,6 +93,7 @@ pub trait ProverService<Vm: Zkvm> {
     async fn submit_witness(
         &self,
         input: Vec<u8>,
+        assumption: Option<Vec<u8>>,
         da_slot_hash: <<Self::DaService as DaService>::Spec as DaSpec>::SlotHash,
     ) -> WitnessSubmissionStatus;
 

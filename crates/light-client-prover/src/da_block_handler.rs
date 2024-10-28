@@ -149,10 +149,31 @@ where
 
         // Do any kind of ordering etc. on batch proofs here
         // If you do so, don't forget to do the same inside zk
+        let batch_prover_method_id = self
+            ._batch_proof_code_commitments_by_spec
+            .get(&SpecId::Genesis)
+            .expect("Batch proof code commitment not found");
 
-        let circuit_input = self.create_circuit_input(da_data, l1_block).await;
+        let mut assumption = None;
+        let mut journal = None;
+        if !batch_proofs.is_empty() {
+            (assumption, journal) = match batch_proofs[0].clone() {
+                DaDataLightClient::Complete(proof) => {
+                    let data = proof.extract_proof();
+                    // Handle err
+                    let output = Vm::verify(&data, &batch_prover_method_id).unwrap();
 
-        let circuit_output = self.prove(circuit_input).await?;
+                    (Some(data), Some(output))
+                }
+                _ => (None, None),
+            };
+        }
+
+        let circuit_input = self
+            .create_circuit_input(da_data, l1_block, batch_prover_method_id, journal)
+            .await;
+
+        let circuit_output = self.prove(circuit_input, assumption).await?;
 
         tracing::info!(
             "Generated proof for L1 block: {l1_height} output={:?}",
@@ -197,11 +218,15 @@ where
         &self,
         da_data: Vec<<<Da as DaService>::Spec as DaSpec>::BlobTransaction>,
         l1_block: &Da::FilteredBlock,
+        batch_prover_code_commitment: &<Vm as Zkvm>::CodeCommitment,
+        journal: Option<Vec<u8>>,
     ) -> LightClientCircuitInput<Da::Spec> {
         let (inclusion_proof, completeness_proof) = self
             .da_service
             .get_extraction_proof_light_client(l1_block)
             .await;
+        let serialized_method_id = bincode::serialize(batch_prover_code_commitment)
+            .expect("Serializing batch proof method id");
 
         LightClientCircuitInput {
             da_data,
@@ -209,18 +234,25 @@ where
             completeness_proof,
             da_block_header: l1_block.header().clone(),
             batch_prover_da_pub_key: self.batch_prover_da_pub_key.clone(),
+            batch_prover_method_id: serialized_method_id,
+            batch_prover_journal: journal,
         }
     }
 
     async fn prove(
         &self,
         circuit_input: LightClientCircuitInput<<Da as DaService>::Spec>,
+        assumption: Option<Vec<u8>>,
     ) -> Result<LightClientCircuitOutput, anyhow::Error> {
         let da_slot_hash = circuit_input.da_block_header.hash();
         let prover_service = self.prover_service.as_ref();
 
         prover_service
-            .submit_witness(borsh::to_vec(&circuit_input)?, da_slot_hash.clone())
+            .submit_witness(
+                borsh::to_vec(&circuit_input)?,
+                assumption,
+                da_slot_hash.clone(),
+            )
             .await;
 
         prover_service.prove(da_slot_hash.clone()).await?;
