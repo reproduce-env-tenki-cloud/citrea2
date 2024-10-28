@@ -27,7 +27,6 @@ use crate::spec::SpecId;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Proof {
     /// Mock proof
-    /// Only public input was generated.
     FakeReceipt(Vec<u8>),
     /// The serialized ZK proof.
     Full(Vec<u8>),

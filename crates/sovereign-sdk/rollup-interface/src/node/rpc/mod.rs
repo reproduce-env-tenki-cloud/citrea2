@@ -244,7 +244,6 @@ pub struct LastVerifiedProofResponse {
 #[serde(rename_all = "camelCase")]
 pub enum ProofRpcResponse {
     /// Mock proof
-    /// Only public input was generated.
     #[serde(with = "hex::serde")]
     FakeReceipt(Vec<u8>),
     /// The serialized ZK proof.
