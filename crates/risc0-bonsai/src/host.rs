@@ -1,7 +1,5 @@
 //! This module implements the [`ZkvmHost`] trait for the RISC0 VM.
 use core::str;
-use std::path::PathBuf;
-use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
@@ -17,7 +15,6 @@ use risc0_zkvm::{
 };
 use sov_db::ledger_db::{LedgerDB, ProvingServiceLedgerOps};
 use sov_risc0_adapter::guest::Risc0Guest;
-use sov_risc0_adapter::host::add_benchmarking_callbacks;
 use sov_rollup_interface::zk::{Proof, Zkvm, ZkvmHost};
 use tracing::{error, info, warn};
 
@@ -306,12 +303,20 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
         let proof = match (self.client.as_ref(), with_proof) {
             // Local execution. If mode is Execute, we always do local execution.
             (_, false) => {
-                let mut env = ExecutorEnvBuilder::default();
-                add_benchmarking_callbacks(&mut env);
-                let env = env.write_slice(&self.env).build().unwrap();
+                let env = ExecutorEnvBuilder::default()
+                    .write_slice(&self.env)
+                    .build()
+                    .expect("Proving environment should be built");
                 let mut executor = ExecutorImpl::from_elf(env, self.elf)?;
 
                 let session = executor.run()?;
+
+                tracing::info!(
+                    "Local execution completed.\nProving stats:\nSegments: {}\nTotal Cycles: {}\nUser Cycles: {}",
+                    session.segments.len(),
+                    session.total_cycles,
+                    session.user_cycles
+                );
                 let data =
                     bincode::serialize(&session.journal.expect("Journal shouldn't be empty"))?;
 
@@ -319,14 +324,16 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
             }
             // Local proving
             (None, true) => {
-                let mut env = ExecutorEnvBuilder::default();
-                env.segment_limit_po2(21);
-                add_benchmarking_callbacks(&mut env);
-                let env = env.write_slice(&self.env).build().unwrap();
+                let env = ExecutorEnvBuilder::default()
+                    .segment_limit_po2(21)
+                    .write_slice(&self.env)
+                    .build()
+                    .expect("Proving environment should be built");
 
-                // let prover = LocalProver::new("citrea");
-                let prover =
-                    ExternalProver::new("citrea", "/home/ubuntu/risc0/target/release/r0vm");
+                // RISC0_SERVER_PATH is used to specify the path to the r0vm binary
+                // As per https://github.com/chainwayxyz/citrea/issues/1381, it's a good idea to
+                // start using ric0 env var names
+                let prover = ExternalProver::new("citrea", std::env::var("RISC0_SERVER_PATH")?);
 
                 let start = std::time::Instant::now();
                 let proving_session =
@@ -337,12 +344,9 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
 
                 proving_session.receipt.verify(self.image_id)?;
 
-                tracing::info!("Verified the receipt");
-
-                tracing::error!(
-                    "Proving stats:\tuser cycles: {}\ttotal cycles: {}\ttotal time: {}",
-                    proving_session.stats.user_cycles,
-                    proving_session.stats.total_cycles,
+                tracing::info!(
+                    "Proving stats:\n{:?}\nTime: {}",
+                    proving_session.stats,
                     (end - start).as_secs_f64()
                 );
 
@@ -488,18 +492,4 @@ impl<'host> Zkvm for Risc0BonsaiHost<'host> {
             &mut receipt.journal.bytes.as_slice(),
         )?)
     }
-}
-
-fn get_r0vm_path() -> PathBuf {
-    let output = Command::new("which")
-        .arg("r0vm")
-        .output()
-        .expect("Failed to execute `which r0vm` command");
-    assert!(
-        output.status.success(),
-        "r0vm binary must be available in PATH"
-    );
-
-    let path = str::from_utf8(&output.stdout).expect("Invalid UTF-8 output");
-    path.trim().into()
 }
