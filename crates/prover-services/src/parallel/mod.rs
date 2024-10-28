@@ -156,11 +156,7 @@ where
         // TODO: maybe extract this to Vm?
         // Extract journal
         let journal = match proof {
-            Proof::FakeReceipt(journal) => {
-                let journal: Journal = bincode::deserialize(&journal)?;
-                journal
-            }
-            Proof::Full(data) => {
+            Proof::FakeReceipt(data) | Proof::Full(data) => {
                 let receipt: Receipt = bincode::deserialize(&data)?;
                 receipt.journal
             }
