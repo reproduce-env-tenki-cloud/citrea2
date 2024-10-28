@@ -6,7 +6,7 @@ use borsh::BorshDeserialize;
 use citrea_stf::verifier::StateTransitionVerifier;
 use parking_lot::Mutex;
 use prover::Prover;
-use risc0_zkvm::{Journal, Receipt};
+use risc0_zkvm::Receipt;
 use sov_db::ledger_db::{LedgerDB, ProvingServiceLedgerOps};
 use sov_rollup_interface::da::{DaData, DaSpec};
 use sov_rollup_interface::services::da::DaService;
