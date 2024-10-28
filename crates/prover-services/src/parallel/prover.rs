@@ -212,10 +212,10 @@ where
 {
     let mut config = config.lock();
     match config.deref_mut() {
-        ProofGenConfig::Skip => Ok(Proof::Mock(Vec::default())),
+        ProofGenConfig::Skip => Ok(Proof::FakeReceipt(Vec::default())),
         ProofGenConfig::Simulate(ref mut verifier) => verifier
             .run_sequencer_commitments_in_da_slot(vm.simulate_with_hints(), zk_storage)
-            .map(|_| Proof::Mock(Vec::default()))
+            .map(|_| Proof::FakeReceipt(Vec::default()))
             .map_err(|e| anyhow::anyhow!("Guest execution must succeed but failed with {:?}", e)),
         ProofGenConfig::Execute => vm.run(false),
         ProofGenConfig::Prover => vm.run(true),

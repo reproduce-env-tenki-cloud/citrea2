@@ -334,8 +334,8 @@ where
         .expect("Proof should be deserializable");
 
     match &proof {
-        Proof::Mock(_) => {
-            warn!("Proof is mock proof, skipping");
+        Proof::FakeReceipt(_) => {
+            warn!("Proof is fake receipt, skipping");
         }
         Proof::Full(data) => {
             info!("Verifying proof!");

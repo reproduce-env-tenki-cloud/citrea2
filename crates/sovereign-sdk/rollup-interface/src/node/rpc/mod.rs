@@ -246,7 +246,7 @@ pub enum ProofRpcResponse {
     /// Mock proof
     /// Only public input was generated.
     #[serde(with = "hex::serde")]
-    Mock(Vec<u8>),
+    FakeReceipt(Vec<u8>),
     /// The serialized ZK proof.
     #[serde(with = "hex::serde")]
     Full(Vec<u8>),

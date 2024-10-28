@@ -28,7 +28,7 @@ use crate::spec::SpecId;
 pub enum Proof {
     /// Mock proof
     /// Only public input was generated.
-    Mock(Vec<u8>),
+    FakeReceipt(Vec<u8>),
     /// The serialized ZK proof.
     Full(Vec<u8>),
 }

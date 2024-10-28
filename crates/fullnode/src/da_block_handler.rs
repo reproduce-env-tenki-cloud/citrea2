@@ -318,10 +318,10 @@ where
                 Vm::verify(data, code_commitment)
                     .map_err(|err| anyhow!("Failed to verify proof: {:?}. Skipping it...", err))?;
             }
-            Proof::Mock(_) => {
+            Proof::FakeReceipt(_) => {
                 if !self.accept_public_input_as_proven {
                     return Err(anyhow!(
-                        "Found mock proof in da block number: {}, Skipping to next proof..",
+                        "Found fake proof in da block number: {}, Skipping to next proof..",
                         l1_block.header().height(),
                     )
                     .into());
