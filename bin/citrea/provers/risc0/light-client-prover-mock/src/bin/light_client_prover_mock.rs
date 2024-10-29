@@ -5,7 +5,7 @@ use citrea_light_client_prover::input::LightClientCircuitInput;
 use risc0_zkvm::guest::env;
 use sov_mock_da::{MockDaSpec, MockDaVerifier};
 use sov_risc0_adapter::guest::Risc0Guest;
-use sov_rollup_interface::zk::ZkvmGuest;
+use sov_rollup_interface::zk::{Zkvm, ZkvmGuest};
 
 #[cfg(feature = "bench")]
 fn report_bench_metrics(start_cycles: u64, end_cycles: u64) {
@@ -32,6 +32,9 @@ pub fn main() {
     let start_cycles = env::cycle_count();
 
     let input: LightClientCircuitInput<MockDaSpec> = guest.read_from_host();
+    let batch_prover_journal = input.batch_prover_journal.clone();
+    let batch_prover_method_id = input.batch_prover_method_id.clone();
+    Risc0Guest::verify(&batch_prover_journal.unwrap(), &batch_prover_method_id).unwrap();
 
     let da_verifier = MockDaVerifier {};
 
