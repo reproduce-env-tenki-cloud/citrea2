@@ -144,7 +144,8 @@ where
                     prover_state.set_to_proving(block_header_hash.clone());
                     vm.add_hint(state_transition_data);
                     if let Some(assumption) = assumption {
-                        vm.add_assumption(assumption);
+                        vm.add_assumption(assumption.clone());
+                        tracing::warn!("added assumption: {:?}", assumption);
                     }
 
                     self.pool.spawn(move || {

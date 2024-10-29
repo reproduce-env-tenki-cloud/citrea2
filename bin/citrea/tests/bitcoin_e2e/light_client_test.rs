@@ -9,6 +9,7 @@ use citrea_e2e::config::{
 use citrea_e2e::framework::TestFramework;
 use citrea_e2e::test_case::{TestCase, TestCaseRunner};
 use citrea_e2e::Result;
+use tokio::time::sleep;
 
 const TEN_MINS: Duration = Duration::from_secs(10 * 60);
 
@@ -99,6 +100,8 @@ impl TestCase for LightClientProvingTest {
             .wait_for_l1_height(batch_proof_l1_height, Some(TEN_MINS))
             .await
             .unwrap();
+
+        sleep(Duration::from_secs(600)).await;
 
         Ok(())
     }

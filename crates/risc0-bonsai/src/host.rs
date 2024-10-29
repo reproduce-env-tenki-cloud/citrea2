@@ -312,12 +312,14 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
                 let mut env = add_benchmarking_callbacks(ExecutorEnvBuilder::default());
                 for assumption in self.assumptions.iter() {
                     env.add_assumption(assumption.clone()).build().unwrap();
+                    tracing::info!("added assumption to the env");
                 }
 
                 let env = env.write_slice(&self.env).build().unwrap();
 
                 let prover = LocalProver::new("citrea-test-prover");
 
+                tracing::info!("Starting risc0 proving");
                 let ProveInfo { receipt, stats } = prover.prove(env, self.elf)?;
 
                 // Because the dev mode is set, the proof will generate a fake receipt which does not include the proof
