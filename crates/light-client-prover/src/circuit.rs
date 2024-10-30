@@ -1,6 +1,7 @@
 use borsh::BorshDeserialize;
 use sov_modules_api::BlobReaderTrait;
 use sov_rollup_interface::da::{DaDataLightClient, DaVerifier};
+use sov_rollup_interface::zk::{Zkvm, ZkvmGuest};
 
 use crate::input::LightClientCircuitInput;
 use crate::output::LightClientCircuitOutput;
@@ -10,9 +11,10 @@ pub enum LightClientVerificationError {
     DaTxsCouldntBeVerified,
 }
 
-pub fn run_circuit<DaV: DaVerifier>(
+pub fn run_circuit<DaV: DaVerifier, G: ZkvmGuest>(
     input: LightClientCircuitInput<DaV::Spec>,
     da_verifier: DaV,
+    guest: &G,
 ) -> Result<LightClientCircuitOutput, LightClientVerificationError> {
     // Veriy data from da
     let _validity_condition = da_verifier
@@ -40,6 +42,13 @@ pub fn run_circuit<DaV: DaVerifier>(
                 }
             }
         }
+    }
+
+    let batch_proof_journals = input.batch_proof_journals.clone();
+    let batch_proof_method_id = input.batch_proof_method_id.clone();
+    // TODO: Handle ordering
+    for journal in batch_proof_journals {
+        G::verify(&journal, &batch_proof_method_id.into()).unwrap();
     }
 
     // do what you want with proofs
