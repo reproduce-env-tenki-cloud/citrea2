@@ -7,10 +7,10 @@ use backoff::exponential::ExponentialBackoffBuilder;
 use backoff::{retry as retry_backoff, SystemClock};
 use bonsai_sdk::blocking::Client;
 use borsh::{BorshDeserialize, BorshSerialize};
-use risc0_zkvm::sha::Digest;
+use risc0_zkvm::sha::{Digest, Digestible};
 use risc0_zkvm::{
-    compute_image_id, AssumptionReceipt, ExecutorEnvBuilder, InnerReceipt, LocalProver, ProveInfo,
-    Prover, Receipt,
+    compute_image_id, AssumptionReceipt, ExecutorEnvBuilder, InnerReceipt, Journal, LocalProver,
+    ProveInfo, Prover, Receipt,
 };
 use sov_db::ledger_db::{LedgerDB, ProvingServiceLedgerOps};
 use sov_risc0_adapter::guest::Risc0Guest;
@@ -98,6 +98,7 @@ impl<'a> Risc0BonsaiHost<'a> {
         // Compute the image_id, then upload the ELF with the image_id as its key.
         // handle error
         let image_id = compute_image_id(elf).unwrap();
+        println!("computed image id: {:?}", image_id);
 
         tracing::trace!("Calculated image id: {:?}", image_id.as_words());
 
@@ -298,7 +299,11 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
 
     fn add_assumption(&mut self, receipt_buf: Vec<u8>) {
         let receipt: Receipt = bincode::deserialize(&receipt_buf).expect("Receipt should be valid");
-        self.assumptions.push(receipt.into());
+        let ass: AssumptionReceipt = receipt.into();
+        let a = ass.clone().claim_digest().unwrap();
+        println!("Digest of assumption: {:?}", a);
+
+        self.assumptions.push(ass);
     }
 
     /// Only with_proof = true is supported.
@@ -321,6 +326,11 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
 
                 tracing::info!("Starting risc0 proving");
                 let ProveInfo { receipt, stats } = prover.prove(env, self.elf)?;
+
+                println!(
+                    "\n\n\nreceipt journal after proving: {:?} \n\n\n",
+                    receipt.journal
+                );
 
                 // Because the dev mode is set, the proof will generate a fake receipt which does not include the proof
                 // It only includes the journal
@@ -472,9 +482,19 @@ impl<'host> Zkvm for Risc0BonsaiHost<'host> {
         code_commitment: &Self::CodeCommitment,
     ) -> Result<Vec<u8>, Self::Error> {
         let receipt: Receipt = bincode::deserialize(serialized_proof)?;
+        let cl = receipt.claim().unwrap();
+        let dg = cl.digest();
+        tracing::error!("receipt digest: {:?}", dg);
+        tracing::error!("receipt digest bytes: {:?}", dg.as_bytes());
+        tracing::error!("receipt digest words: {:?}", dg.as_words());
 
         #[allow(clippy::clone_on_copy)]
         receipt.verify(code_commitment.clone())?;
+
+        println!(
+            "\n\n\nreceipt journal after verifying (in the assumption): {:?} \n\n\n",
+            receipt.journal
+        );
 
         Ok(receipt.journal.bytes)
     }

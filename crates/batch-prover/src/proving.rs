@@ -270,7 +270,7 @@ where
     Witness: BorshSerialize,
 {
     prover_service
-        .submit_witness(borsh::to_vec(&transition_data)?, None, hash.clone())
+        .submit_witness(borsh::to_vec(&transition_data)?, vec![], hash.clone())
         .await;
 
     prover_service.prove(hash.clone()).await?;
@@ -334,11 +334,18 @@ where
         .expect("Proof should be deserializable");
 
     match &proof {
-        Proof::FakeReceipt(_) => {
+        Proof::FakeReceipt(data) => {
+            println!("FULL fake proof DATA: {:?}", data);
             warn!("Proof is fake receipt, skipping");
+            let code_commitment = code_commitments_by_spec
+                .get(&transition_data.last_active_spec_id)
+                .expect("Proof public input must contain valid spec id");
+            Vm::verify(data, code_commitment)
+                .map_err(|err| anyhow!("Failed to verify proof: {:?}. Skipping it...", err))?;
         }
         Proof::Full(data) => {
             info!("Verifying proof!");
+            println!("FULL proof DATA: {:?}", data);
             let code_commitment = code_commitments_by_spec
                 .get(&transition_data.last_active_spec_id)
                 .expect("Proof public input must contain valid spec id");

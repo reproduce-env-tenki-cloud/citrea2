@@ -79,7 +79,15 @@ pub trait ZkvmHost: Zkvm + Clone {
 /// Must support recursive proofs.
 pub trait Zkvm: Send + Sync {
     /// A commitment to the zkVM program which is being proven
-    type CodeCommitment: Clone + Debug + Serialize + DeserializeOwned + Send + Sync + 'static;
+    type CodeCommitment: Clone
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + BorshSerialize
+        + BorshDeserialize
+        + Send
+        + Sync
+        + 'static;
 
     /// The error type which is returned when a proof fails to verify
     type Error: Debug;

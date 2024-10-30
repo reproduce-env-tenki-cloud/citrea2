@@ -5,6 +5,7 @@
 
 use borsh::BorshDeserialize;
 use risc0_zkvm::guest::env;
+use risc0_zkvm::sha::Digest;
 use risc0_zkvm::Receipt;
 use sov_rollup_interface::zk::Zkvm;
 
@@ -35,6 +36,8 @@ impl Zkvm for Risc0Guest {
         code_commitment: &Self::CodeCommitment,
     ) -> Result<Vec<u8>, Self::Error> {
         let cc = vec_to_u32_array(code_commitment.clone()).unwrap();
+        println!("Commitment converted!!: {:?}", cc);
+        // let cc = Digest::ZERO;
         env::verify(cc, journal).expect("Guest side verification error should be Infallible");
         Ok(journal.to_vec())
     }

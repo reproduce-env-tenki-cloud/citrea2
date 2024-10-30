@@ -17,7 +17,7 @@ pub(crate) type Assumption = Vec<u8>;
 pub(crate) type Input = Vec<u8>;
 
 pub(crate) enum ProverStatus {
-    WitnessSubmitted((Input, Option<Assumption>)),
+    WitnessSubmitted((Input, Vec<Assumption>)),
     ProvingInProgress,
     #[allow(dead_code)]
     Proved(Proof),
@@ -99,11 +99,11 @@ where
     pub(crate) fn submit_witness(
         &self,
         input: Vec<u8>,
-        assumption: Option<Vec<u8>>,
+        assumptions: Vec<Vec<u8>>,
         da_slot_hash: <Da::Spec as DaSpec>::SlotHash,
     ) -> WitnessSubmissionStatus {
         let header_hash = da_slot_hash;
-        let data = ProverStatus::WitnessSubmitted((input, assumption));
+        let data = ProverStatus::WitnessSubmitted((input, assumptions));
 
         let mut prover_state = self.prover_state.lock();
         let entry = prover_state.prover_status.entry(header_hash);
@@ -137,13 +137,13 @@ where
             .ok_or_else(|| anyhow::anyhow!("Missing witness for block: {:?}", block_header_hash))?;
 
         match prover_status {
-            ProverStatus::WitnessSubmitted((state_transition_data, assumption)) => {
+            ProverStatus::WitnessSubmitted((state_transition_data, assumptions)) => {
                 let start_prover = prover_state.inc_task_count_if_not_busy(self.num_threads);
                 // Initiate a new proving job only if the prover is not busy.
                 if start_prover {
                     prover_state.set_to_proving(block_header_hash.clone());
                     vm.add_hint(state_transition_data);
-                    if let Some(assumption) = assumption {
+                    for assumption in assumptions {
                         vm.add_assumption(assumption.clone());
                         tracing::warn!("added assumption: {:?}", assumption);
                     }
