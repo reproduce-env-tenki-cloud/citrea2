@@ -23,9 +23,6 @@ pub use native::Risc0Guest;
 #[cfg(target_os = "zkvm")]
 pub use zkvm::Risc0Guest;
 
-// Here goes the common implementation:
-
-// This is a dummy impl because T: ZkvmGuest where T: Zkvm.
 impl Zkvm for Risc0Guest {
     type CodeCommitment = Risc0MethodId;
 
@@ -35,23 +32,19 @@ impl Zkvm for Risc0Guest {
         journal: &[u8],
         code_commitment: &Self::CodeCommitment,
     ) -> Result<Vec<u8>, Self::Error> {
-        // let cc = Digest::ZERO;
         env::verify(code_commitment.0, journal)
             .expect("Guest side verification error should be Infallible");
         Ok(journal.to_vec())
     }
 
     fn verify_and_extract_output<Da: sov_rollup_interface::da::DaSpec, Root: BorshDeserialize>(
-        serialized_proof: &[u8],
+        journal: &[u8],
         code_commitment: &Self::CodeCommitment,
     ) -> Result<sov_rollup_interface::zk::StateTransition<Da, Root>, Self::Error> {
-        // let receipt: Receipt = bincode::deserialize(serialized_proof)?;
-        // env::verify(code_commitment.0, receipt.journal.bytes.as_slice())
-        //     .expect("Guest side verification error should be Infallible");
-
-        // Ok(BorshDeserialize::deserialize(
-        //     &mut receipt.journal.bytes.as_slice(),
-        // )?)
-        unimplemented!()
+        env::verify(code_commitment.0, journal)
+            .expect("Guest side verification error should be Infallible");
+        Ok(BorshDeserialize::deserialize(
+            &mut journal.to_vec().as_slice(),
+        )?)
     }
 }
