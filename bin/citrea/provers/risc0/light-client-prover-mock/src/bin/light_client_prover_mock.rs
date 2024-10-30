@@ -11,9 +11,9 @@ pub fn main() {
     let guest = Risc0Guest::new();
 
     let input: LightClientCircuitInput<MockDaSpec> = guest.read_from_host();
-    // let batch_prover_journal = input.batch_prover_journal.clone();
+    // let batch_proof_journal = input.batch_proof_journal.clone();
     // let batch_proof_method_id = input.batch_proof_method_id.clone();
-    // Risc0Guest::verify(&batch_prover_journal.unwrap(), &batch_proof_method_id).unwrap();
+    // Risc0Guest::verify(&batch_proof_journal.unwrap(), &batch_proof_method_id).unwrap();
 
     let da_verifier = MockDaVerifier {};
 

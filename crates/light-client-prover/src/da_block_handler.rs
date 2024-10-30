@@ -234,7 +234,7 @@ where
             da_block_header: l1_block.header().clone(),
             batch_prover_da_pub_key: self.batch_prover_da_pub_key.clone(),
             batch_proof_method_id: batch_prover_code_commitment.clone().into(),
-            batch_prover_journals: journals,
+            batch_proof_journals: journals,
         }
     }
 

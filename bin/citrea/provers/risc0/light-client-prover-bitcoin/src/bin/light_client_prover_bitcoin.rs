@@ -15,10 +15,10 @@ pub fn main() {
     let guest = Risc0Guest::new();
 
     let input: LightClientCircuitInput<BitcoinSpec> = guest.read_from_host();
-    let batch_prover_journals = input.batch_prover_journals.clone();
+    let batch_proof_journals = input.batch_proof_journals.clone();
     let batch_proof_method_id = input.batch_proof_method_id.clone();
     // TODO: Handle ordering
-    for journal in batch_prover_journals {
+    for journal in batch_proof_journals {
         Risc0Guest::verify(&journal, &Risc0MethodId::new(batch_proof_method_id)).unwrap();
     }
 
