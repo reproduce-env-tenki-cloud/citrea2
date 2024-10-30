@@ -27,7 +27,7 @@ pub use zkvm::Risc0Guest;
 
 // This is a dummy impl because T: ZkvmGuest where T: Zkvm.
 impl Zkvm for Risc0Guest {
-    type CodeCommitment = Vec<u8>;
+    type CodeCommitment = Risc0MethodId;
 
     type Error = anyhow::Error;
 
@@ -35,10 +35,9 @@ impl Zkvm for Risc0Guest {
         journal: &[u8],
         code_commitment: &Self::CodeCommitment,
     ) -> Result<Vec<u8>, Self::Error> {
-        let cc = vec_to_u32_array(code_commitment.clone()).unwrap();
-        println!("Commitment converted!!: {:?}", cc);
         // let cc = Digest::ZERO;
-        env::verify(cc, journal).expect("Guest side verification error should be Infallible");
+        env::verify(code_commitment.0, journal)
+            .expect("Guest side verification error should be Infallible");
         Ok(journal.to_vec())
     }
 
@@ -55,24 +54,4 @@ impl Zkvm for Risc0Guest {
         // )?)
         unimplemented!()
     }
-}
-
-fn vec_to_u32_array(vec: Vec<u8>) -> Result<[u32; 8], &'static str> {
-    // Ensure the Vec has exactly 32 elements (8 u32s x 4 u8s)
-    if vec.len() != 32 {
-        return Err("Input Vec must have exactly 32 elements");
-    }
-
-    // Initialize an array of u32s with a length of 8
-    let mut array = [0u32; 8];
-
-    // Fill the array by combining every four u8 elements into a u32
-    for i in 0..8 {
-        array[i] = ((vec[i * 4] as u32) << 24)
-            | ((vec[i * 4 + 1] as u32) << 16)
-            | ((vec[i * 4 + 2] as u32) << 8)
-            | (vec[i * 4 + 3] as u32);
-    }
-
-    Ok(array)
 }

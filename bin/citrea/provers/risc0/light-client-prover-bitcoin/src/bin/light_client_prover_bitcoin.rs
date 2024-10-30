@@ -5,6 +5,7 @@ use citrea_light_client_prover::circuit::run_circuit;
 use citrea_light_client_prover::input::LightClientCircuitInput;
 use citrea_primitives::{REVEAL_BATCH_PROOF_PREFIX, REVEAL_LIGHT_CLIENT_PREFIX};
 use sov_risc0_adapter::guest::Risc0Guest;
+use sov_risc0_adapter::Risc0MethodId;
 use sov_rollup_interface::da::DaVerifier;
 use sov_rollup_interface::zk::{Zkvm, ZkvmGuest};
 
@@ -18,7 +19,7 @@ pub fn main() {
     let batch_prover_method_id = input.batch_prover_method_id.clone();
     // TODO: Handle ordering
     for journal in batch_prover_journals {
-        Risc0Guest::verify(&journal, &batch_prover_method_id).unwrap();
+        Risc0Guest::verify(&journal, &Risc0MethodId::new(batch_prover_method_id)).unwrap();
     }
 
     let da_verifier = BitcoinVerifier::new(RollupParams {

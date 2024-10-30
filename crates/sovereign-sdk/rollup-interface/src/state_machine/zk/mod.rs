@@ -83,8 +83,8 @@ pub trait Zkvm: Send + Sync {
         + Debug
         + Serialize
         + DeserializeOwned
-        + BorshSerialize
-        + BorshDeserialize
+        + From<[u32; 8]>
+        + Into<[u32; 8]>
         + Send
         + Sync
         + 'static;
