@@ -149,7 +149,7 @@ where
 
         // Do any kind of ordering etc. on batch proofs here
         // If you do so, don't forget to do the same inside zk
-        let batch_prover_method_id = self
+        let batch_proof_method_id = self
             ._batch_proof_code_commitments_by_spec
             .get(&SpecId::Genesis)
             .expect("Batch proof code commitment not found");
@@ -160,14 +160,14 @@ where
             if let DaDataLightClient::Complete(proof) = batch_proof {
                 let data = proof.extract_proof();
                 // Handle err
-                let output = Vm::verify(&data, &batch_prover_method_id).unwrap();
+                let output = Vm::verify(&data, &batch_proof_method_id).unwrap();
                 assumptions.push(data);
                 journals.push(output);
             }
         }
 
         let circuit_input = self
-            .create_circuit_input(da_data, l1_block, batch_prover_method_id, journals)
+            .create_circuit_input(da_data, l1_block, batch_proof_method_id, journals)
             .await;
 
         let circuit_output = self.prove(circuit_input, assumptions).await?;
@@ -233,7 +233,7 @@ where
             completeness_proof,
             da_block_header: l1_block.header().clone(),
             batch_prover_da_pub_key: self.batch_prover_da_pub_key.clone(),
-            batch_prover_method_id: batch_prover_code_commitment.clone().into(),
+            batch_proof_method_id: batch_prover_code_commitment.clone().into(),
             batch_prover_journals: journals,
         }
     }

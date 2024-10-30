@@ -16,10 +16,10 @@ pub fn main() {
 
     let input: LightClientCircuitInput<BitcoinSpec> = guest.read_from_host();
     let batch_prover_journals = input.batch_prover_journals.clone();
-    let batch_prover_method_id = input.batch_prover_method_id.clone();
+    let batch_proof_method_id = input.batch_proof_method_id.clone();
     // TODO: Handle ordering
     for journal in batch_prover_journals {
-        Risc0Guest::verify(&journal, &Risc0MethodId::new(batch_prover_method_id)).unwrap();
+        Risc0Guest::verify(&journal, &Risc0MethodId::new(batch_proof_method_id)).unwrap();
     }
 
     let da_verifier = BitcoinVerifier::new(RollupParams {
