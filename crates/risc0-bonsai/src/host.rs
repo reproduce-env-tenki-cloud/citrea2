@@ -316,7 +316,7 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
                 std::env::set_var("RISC0_DEV_MODE", "1");
                 let mut env = add_benchmarking_callbacks(ExecutorEnvBuilder::default());
                 for assumption in self.assumptions.iter() {
-                    env.add_assumption(assumption.clone()).build().unwrap();
+                    env.add_assumption(assumption.clone());
                     tracing::info!("added assumption to the env");
                 }
 
@@ -350,7 +350,7 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
             (None, true) => {
                 let mut env = add_benchmarking_callbacks(ExecutorEnvBuilder::default());
                 for assumption in self.assumptions.iter() {
-                    env.add_assumption(assumption.clone()).build().unwrap();
+                    env.add_assumption(assumption.clone());
                 }
                 let env = env.write_slice(&self.env).build().unwrap();
 
