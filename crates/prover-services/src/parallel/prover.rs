@@ -107,7 +107,7 @@ where
         }
     }
 
-    pub(crate) fn submit_witness(
+    pub(crate) fn submit_input(
         &self,
         input: Vec<u8>,
         da_slot_hash: <Da::Spec as DaSpec>::SlotHash,

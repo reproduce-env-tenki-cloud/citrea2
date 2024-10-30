@@ -132,12 +132,12 @@ where
             .submit_assumptions(assumptions, da_slot_hash);
     }
 
-    async fn submit_witness(
+    async fn submit_input(
         &self,
         input: Vec<u8>,
         da_slot_hash: <Da::Spec as DaSpec>::SlotHash,
     ) -> WitnessSubmissionStatus {
-        self.prover_state.submit_witness(input, da_slot_hash)
+        self.prover_state.submit_input(input, da_slot_hash)
     }
 
     async fn prove(

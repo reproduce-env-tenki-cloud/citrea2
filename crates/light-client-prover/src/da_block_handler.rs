@@ -247,7 +247,7 @@ where
         let prover_service = self.prover_service.as_ref();
 
         prover_service
-            .submit_witness(borsh::to_vec(&circuit_input)?, da_slot_hash.clone())
+            .submit_input(borsh::to_vec(&circuit_input)?, da_slot_hash.clone())
             .await;
 
         prover_service
