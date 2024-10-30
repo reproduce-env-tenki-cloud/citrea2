@@ -123,14 +123,21 @@ where
 {
     type DaService = Da;
 
+    async fn submit_assumptions(
+        &self,
+        assumptions: Vec<Vec<u8>>,
+        da_slot_hash: <Da::Spec as DaSpec>::SlotHash,
+    ) {
+        self.prover_state
+            .submit_assumptions(assumptions, da_slot_hash);
+    }
+
     async fn submit_witness(
         &self,
         input: Vec<u8>,
-        assumption: Vec<Vec<u8>>,
         da_slot_hash: <Da::Spec as DaSpec>::SlotHash,
     ) -> WitnessSubmissionStatus {
-        self.prover_state
-            .submit_witness(input, assumption, da_slot_hash)
+        self.prover_state.submit_witness(input, da_slot_hash)
     }
 
     async fn prove(

@@ -247,11 +247,11 @@ where
         let prover_service = self.prover_service.as_ref();
 
         prover_service
-            .submit_witness(
-                borsh::to_vec(&circuit_input)?,
-                assumptions,
-                da_slot_hash.clone(),
-            )
+            .submit_witness(borsh::to_vec(&circuit_input)?, da_slot_hash.clone())
+            .await;
+
+        prover_service
+            .submit_assumptions(assumptions, da_slot_hash)
             .await;
 
         prover_service.prove(da_slot_hash.clone()).await?;

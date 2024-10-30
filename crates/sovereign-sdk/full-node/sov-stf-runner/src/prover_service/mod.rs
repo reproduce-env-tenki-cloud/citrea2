@@ -89,11 +89,17 @@ pub trait ProverService<Vm: Zkvm> {
     /// Data Availability service.
     type DaService: DaService;
 
+    /// Submits assumptions for guest side verification
+    async fn submit_assumptions(
+        &self,
+        assumptions: Vec<Vec<u8>>,
+        da_slot_hash: <<Self::DaService as DaService>::Spec as DaSpec>::SlotHash,
+    );
+
     /// Submit a witness for proving.
     async fn submit_witness(
         &self,
         input: Vec<u8>,
-        assumptions: Vec<Vec<u8>>,
         da_slot_hash: <<Self::DaService as DaService>::Spec as DaSpec>::SlotHash,
     ) -> WitnessSubmissionStatus;
 

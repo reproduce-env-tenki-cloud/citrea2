@@ -96,14 +96,24 @@ where
         })
     }
 
+    pub(crate) fn submit_assumptions(
+        &self,
+        assumptions: Vec<Vec<u8>>,
+        da_slot_hash: <Da::Spec as DaSpec>::SlotHash,
+    ) {
+        let mut prover_status = self.prover_state.lock().prover_status.get_mut(header_hash);
+        if let Some(ProverStatus::WitnessSubmitted(mut data)) = prover_status {
+            data.1 = assumptions
+        }
+    }
+
     pub(crate) fn submit_witness(
         &self,
         input: Vec<u8>,
-        assumptions: Vec<Vec<u8>>,
         da_slot_hash: <Da::Spec as DaSpec>::SlotHash,
     ) -> WitnessSubmissionStatus {
         let header_hash = da_slot_hash;
-        let data = ProverStatus::WitnessSubmitted((input, assumptions));
+        let data = ProverStatus::WitnessSubmitted((input, vec![]));
 
         let mut prover_state = self.prover_state.lock();
         let entry = prover_state.prover_status.entry(header_hash);

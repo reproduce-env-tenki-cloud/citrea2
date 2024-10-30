@@ -270,7 +270,7 @@ where
     Witness: BorshSerialize,
 {
     prover_service
-        .submit_witness(borsh::to_vec(&transition_data)?, vec![], hash.clone())
+        .submit_witness(borsh::to_vec(&transition_data)?, hash.clone())
         .await;
 
     prover_service.prove(hash.clone()).await?;
