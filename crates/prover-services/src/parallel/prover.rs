@@ -101,8 +101,10 @@ where
         assumptions: Vec<Vec<u8>>,
         da_slot_hash: <Da::Spec as DaSpec>::SlotHash,
     ) {
-        let mut prover_status = self.prover_state.lock().prover_status.get_mut(header_hash);
-        if let Some(ProverStatus::WitnessSubmitted(mut data)) = prover_status {
+        let header_hash = da_slot_hash;
+        let mut prover_state = self.prover_state.lock();
+        let mut prover_status = prover_state.prover_status.get_mut(&header_hash);
+        if let Some(ProverStatus::WitnessSubmitted(data)) = prover_status {
             data.1 = assumptions
         }
     }
@@ -230,10 +232,10 @@ where
 {
     let mut config = config.lock();
     match config.deref_mut() {
-        ProofGenConfig::Skip => Ok(Proof::FakeReceipt(Vec::default())),
+        ProofGenConfig::Skip => Ok(Vec::default()),
         ProofGenConfig::Simulate(ref mut verifier) => verifier
             .run_sequencer_commitments_in_da_slot(vm.simulate_with_hints(), zk_storage)
-            .map(|_| Proof::FakeReceipt(Vec::default()))
+            .map(|_| Vec::default())
             .map_err(|e| anyhow::anyhow!("Guest execution must succeed but failed with {:?}", e)),
         ProofGenConfig::Execute => vm.run(false),
         ProofGenConfig::Prover => vm.run(true),

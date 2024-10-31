@@ -190,37 +190,29 @@ impl<ValidityCond: ValidityCondition> sov_rollup_interface::zk::ZkvmHost
 
     fn run(&mut self, _with_proof: bool) -> Result<sov_rollup_interface::zk::Proof, anyhow::Error> {
         self.worker_thread_notifier.wait();
-        let data = self.committed_data.pop_front().unwrap_or_default();
-        Ok(sov_rollup_interface::zk::Proof::FakeReceipt(data))
+        Ok(self.committed_data.pop_front().unwrap_or_default())
     }
 
     fn extract_output<Da: sov_rollup_interface::da::DaSpec, Root: BorshDeserialize>(
         proof: &Proof,
     ) -> Result<sov_rollup_interface::zk::StateTransition<Da, Root>, Self::Error> {
-        match proof {
-            sov_rollup_interface::zk::Proof::FakeReceipt(pub_input) => {
-                let data: ProofInfo<Da::ValidityCondition> = bincode::deserialize(pub_input)?;
-                let st: StateTransitionData<Root, (), Da> =
-                    BorshDeserialize::deserialize(&mut &*data.hint)?;
+        let data: ProofInfo<Da::ValidityCondition> = bincode::deserialize(proof)?;
+        let st: StateTransitionData<Root, (), Da> =
+            BorshDeserialize::deserialize(&mut &*data.hint)?;
 
-                Ok(sov_rollup_interface::zk::StateTransition {
-                    initial_state_root: st.initial_state_root,
-                    final_state_root: st.final_state_root,
-                    initial_batch_hash: st.initial_batch_hash,
-                    validity_condition: data.validity_condition,
-                    state_diff: Default::default(),
-                    da_slot_hash: st.da_block_header_of_commitments.hash(),
-                    sequencer_public_key: vec![],
-                    sequencer_da_public_key: vec![],
-                    sequencer_commitments_range: (0, 0),
-                    last_active_spec_id: SpecId::Genesis,
-                    preproven_commitments: vec![],
-                })
-            }
-            sov_rollup_interface::zk::Proof::Full(_) => {
-                panic!("Mock DA doesn't generate real proofs")
-            }
-        }
+        Ok(sov_rollup_interface::zk::StateTransition {
+            initial_state_root: st.initial_state_root,
+            final_state_root: st.final_state_root,
+            initial_batch_hash: st.initial_batch_hash,
+            validity_condition: data.validity_condition,
+            state_diff: Default::default(),
+            da_slot_hash: st.da_block_header_of_commitments.hash(),
+            sequencer_public_key: vec![],
+            sequencer_da_public_key: vec![],
+            sequencer_commitments_range: (0, 0),
+            last_active_spec_id: SpecId::Genesis,
+            preproven_commitments: vec![],
+        })
     }
 
     fn recover_proving_sessions(&self) -> Result<Vec<Proof>, anyhow::Error> {

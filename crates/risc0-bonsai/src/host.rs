@@ -266,9 +266,7 @@ impl<'a> Risc0BonsaiHost<'a> {
 
                     tracing::info!("Snark proof!: {snark_receipt:?}");
 
-                    // now we convert the snark_receipt to a full receipt
-
-                    return Ok(Proof::Full(snark_receipt_buf));
+                    return Ok(snark_receipt_buf);
                 }
                 _ => {
                     return Err(anyhow!(
@@ -344,7 +342,7 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
 
                 let serialized_receipt = bincode::serialize(&receipt)?;
 
-                Ok(Proof::FakeReceipt(serialized_receipt))
+                Ok(serialized_receipt)
             }
             // Local proving
             (None, true) => {
@@ -365,7 +363,7 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
 
                 let serialized_receipt = bincode::serialize(&receipt)?;
 
-                Ok(Proof::Full(serialized_receipt))
+                Ok(serialized_receipt)
             }
             // Bonsai proving
             (Some(client), true) => {
@@ -431,12 +429,9 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
     fn extract_output<Da: sov_rollup_interface::da::DaSpec, Root: BorshDeserialize>(
         proof: &Proof,
     ) -> Result<sov_rollup_interface::zk::StateTransition<Da, Root>, Self::Error> {
-        let journal = match proof {
-            Proof::FakeReceipt(data) | Proof::Full(data) => {
-                let receipt: Receipt = bincode::deserialize(data)?;
-                receipt.journal
-            }
-        };
+        let receipt: Receipt = bincode::deserialize(proof)?;
+        let journal = receipt.journal;
+
         Ok(BorshDeserialize::try_from_slice(&journal.bytes)?)
     }
 

@@ -158,10 +158,9 @@ where
         let mut journals = vec![];
         for batch_proof in batch_proofs {
             if let DaDataLightClient::Complete(proof) = batch_proof {
-                let data = proof.extract_proof();
                 // Handle err
-                let output = Vm::verify(&data, &batch_proof_method_id).unwrap();
-                assumptions.push(data);
+                let output = Vm::verify(proof.as_slice(), &batch_proof_method_id).unwrap();
+                assumptions.push(proof);
                 journals.push(output);
             }
         }
@@ -251,7 +250,7 @@ where
             .await;
 
         prover_service
-            .submit_assumptions(assumptions, da_slot_hash)
+            .submit_assumptions(assumptions, da_slot_hash.clone())
             .await;
 
         prover_service.prove(da_slot_hash.clone()).await?;

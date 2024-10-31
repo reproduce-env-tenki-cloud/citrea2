@@ -309,25 +309,12 @@ where
             ).into());
         }
 
-        match &proof {
-            Proof::Full(data) => {
-                let code_commitment = self
-                    .code_commitments_by_spec
-                    .get(&state_transition.last_active_spec_id)
-                    .expect("Proof public input must contain valid spec id");
-                Vm::verify(data, code_commitment)
-                    .map_err(|err| anyhow!("Failed to verify proof: {:?}. Skipping it...", err))?;
-            }
-            Proof::FakeReceipt(_) => {
-                if !self.accept_public_input_as_proven {
-                    return Err(anyhow!(
-                        "Found fake proof in da block number: {}, Skipping to next proof..",
-                        l1_block.header().height(),
-                    )
-                    .into());
-                }
-            }
-        }
+        let code_commitment = self
+            .code_commitments_by_spec
+            .get(&state_transition.last_active_spec_id)
+            .expect("Proof public input must contain valid spec id");
+        Vm::verify(proof.as_slice(), code_commitment)
+            .map_err(|err| anyhow!("Failed to verify proof: {:?}. Skipping it...", err))?;
 
         let stored_state_transition = StoredStateTransition {
             initial_state_root: state_transition.initial_state_root.as_ref().to_vec(),

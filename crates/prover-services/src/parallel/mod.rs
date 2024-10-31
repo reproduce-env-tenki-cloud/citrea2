@@ -164,12 +164,9 @@ where
 
         // TODO: maybe extract this to Vm?
         // Extract journal
-        let journal = match proof {
-            Proof::FakeReceipt(data) | Proof::Full(data) => {
-                let receipt: Receipt = bincode::deserialize(&data)?;
-                receipt.journal
-            }
-        };
+
+        let receipt: Receipt = bincode::deserialize(&proof)?;
+        let journal = receipt.journal;
 
         self.ledger_db.clear_pending_proving_sessions()?;
 

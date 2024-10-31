@@ -101,8 +101,6 @@ impl TestCase for LightClientProvingTest {
             .await
             .unwrap();
 
-        sleep(Duration::from_secs(600)).await;
-
         Ok(())
     }
 }
