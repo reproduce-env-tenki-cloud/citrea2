@@ -13,7 +13,7 @@ risc0-build = { workspace = true }
 methods = [
     "batch-proof-bitcoin",
     "batch-proof-mock",
-    "light-client-prover-bitcoin",
+    "light-client-proof-bitcoin",
     "light-client-prover-mock",
 ]
 
