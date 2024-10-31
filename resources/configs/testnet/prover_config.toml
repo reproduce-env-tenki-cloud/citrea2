@@ -1,3 +1,0 @@
-proving_mode = "execute"
-proof_sampling_number = 50000000000000
-enable_recovery = false

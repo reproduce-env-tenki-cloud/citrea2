@@ -14,7 +14,7 @@ methods = [
     "batch-proof-bitcoin",
     "batch-proof-mock",
     "light-client-proof-bitcoin",
-    "light-client-prover-mock",
+    "light-client-proof-mock",
 ]
 
 [features]

@@ -96,7 +96,7 @@ impl RollupBlueprint for MockDemoRollup {
     }
 
     fn get_light_client_prover_code_commitment(&self) -> <Self::Vm as Zkvm>::CodeCommitment {
-        Digest::new(citrea_risc0::LIGHT_CLIENT_PROVER_MOCK_ID)
+        Digest::new(citrea_risc0::LIGHT_CLIENT_PROOF_MOCK_ID)
     }
 
     async fn create_da_service(
@@ -146,7 +146,7 @@ impl RollupBlueprint for MockDemoRollup {
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
         let vm = Risc0BonsaiHost::new(
-            citrea_risc0::LIGHT_CLIENT_PROVER_MOCK_ELF,
+            citrea_risc0::LIGHT_CLIENT_PROOF_MOCK_ELF,
             std::env::var("BONSAI_API_URL").unwrap_or("".to_string()),
             std::env::var("BONSAI_API_KEY").unwrap_or("".to_string()),
             ledger_db.clone(),
