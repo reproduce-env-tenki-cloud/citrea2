@@ -49,7 +49,6 @@ where
     sequencer_da_pub_key: Vec<u8>,
     prover_da_pub_key: Vec<u8>,
     code_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
-    accept_public_input_as_proven: bool,
     l1_block_cache: Arc<Mutex<L1BlockCache<Da>>>,
     pending_l1_blocks: VecDeque<<Da as DaService>::FilteredBlock>,
     _context: PhantomData<C>,
@@ -78,7 +77,6 @@ where
         sequencer_da_pub_key: Vec<u8>,
         prover_da_pub_key: Vec<u8>,
         code_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
-        accept_public_input_as_proven: bool,
         l1_block_cache: Arc<Mutex<L1BlockCache<Da>>>,
     ) -> Self {
         Self {
@@ -88,7 +86,6 @@ where
             sequencer_da_pub_key,
             prover_da_pub_key,
             code_commitments_by_spec,
-            accept_public_input_as_proven,
             l1_block_cache,
             pending_l1_blocks: VecDeque::new(),
             _context: PhantomData,
