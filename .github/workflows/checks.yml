@@ -453,7 +453,7 @@ jobs:
           name: citrea-build
           path: target/release
 
-      - name: Check BATCH_PROVER_BITCOIN_ID
+      - name: Check BATCH_PROOF_BITCOIN_ID
         id: check-id
         uses: ./.github/actions/validate-bitcoin-da
         with:
