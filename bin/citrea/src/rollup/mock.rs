@@ -90,7 +90,7 @@ impl RollupBlueprint for MockDemoRollup {
         let mut map = HashMap::new();
         map.insert(
             SpecId::Genesis,
-            Digest::new(citrea_risc0::BATCH_PROVER_MOCK_ID),
+            Digest::new(citrea_risc0::BATCH_PROOF_MOCK_ID),
         );
         map
     }
@@ -118,7 +118,7 @@ impl RollupBlueprint for MockDemoRollup {
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
         let vm = Risc0BonsaiHost::new(
-            citrea_risc0::BATCH_PROVER_MOCK_ELF,
+            citrea_risc0::BATCH_PROOF_MOCK_ELF,
             std::env::var("BONSAI_API_URL").unwrap_or("".to_string()),
             std::env::var("BONSAI_API_KEY").unwrap_or("".to_string()),
             ledger_db.clone(),
