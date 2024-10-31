@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use anyhow::bail;
 use async_trait::async_trait;
-use bitcoin::hashes::Hash;
 use bitcoin_da::service::FINALITY_DEPTH;
 use bitcoincore_rpc::json::IndexStatus;
 use bitcoincore_rpc::RpcApi;
@@ -160,7 +159,6 @@ impl TestCase for BitcoinReorgTest {
 
         let mempool0 = da0.get_raw_mempool().await?;
         assert_eq!(mempool0.len(), 2);
-        println!("mempool0 : {:?}", mempool0);
         let mempool1 = da1.get_raw_mempool().await?;
         assert_eq!(mempool1.len(), 0);
 
@@ -186,11 +184,14 @@ impl TestCase for BitcoinReorgTest {
         let mempool0 = da0.get_raw_mempool().await?;
         assert_eq!(mempool0.len(), 2);
 
-        // Seq TXs should be rebroadcasted afte re-org
+        // Wait for re-org monitoring
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        // Seq TXs should be rebroadcasted after re-org
         let mempool1 = da1.get_raw_mempool().await?;
         assert_eq!(mempool1.len(), 2);
 
-        da0.generate(1, None).await?;
+        da1.generate(1, None).await?;
         let height = da0.get_block_count().await?;
         let hash = da0.get_block_hash(height).await?;
         let block = da0.get_block(&hash).await?;
@@ -202,6 +203,9 @@ impl TestCase for BitcoinReorgTest {
         batch_prover
             .wait_for_l1_height(finalized_height, None)
             .await?;
+
+        // Generate on da1 and wait for da0 to be back in sync
+        f.bitcoin_nodes.wait_for_sync(None).await?;
 
         // Verify that commitments are included
         let original_commitments = batch_prover

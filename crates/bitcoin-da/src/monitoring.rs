@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::interval;
-use tracing::{error, instrument};
+use tracing::{error, info, instrument};
 
 use bitcoin::{BlockHash, Transaction, Txid};
 use bitcoincore_rpc::json::GetTransactionResult;
@@ -12,7 +12,9 @@ use thiserror::Error;
 
 use crate::service::FINALITY_DEPTH;
 
-const DEFAULT_CHECK_INTERVAL: Duration = Duration::from_secs(60);
+// Todo pass down lower value for test
+// const DEFAULT_CHECK_INTERVAL: Duration = Duration::from_secs(60);
+const DEFAULT_CHECK_INTERVAL: Duration = Duration::from_millis(10);
 const DEFAULT_HISTORY_LIMIT: usize = 1_000; // Keep track of last 1k txs
 
 type BlockHeight = u64;
@@ -281,14 +283,17 @@ impl MonitoringService {
     async fn handle_reorg(&self, depth: u64) -> Result<()> {
         let mut txs = self.monitored_txs.write().await;
 
-        for tx in txs.values_mut() {
+        for (txid, tx) in txs.iter_mut() {
             if let TxStatus::Confirmed { confirmations, .. } = tx.status {
                 if confirmations <= depth {
-                    let tx_result = self
-                        .client
-                        .get_transaction(&tx.tx.compute_txid(), None)
-                        .await?;
+                    let tx_result = self.client.get_transaction(&txid, None).await?;
                     tx.status = self.determine_tx_status(&tx_result).await?;
+
+                    if let TxStatus::Pending { .. } = tx.status {
+                        info!("Rebroadcasting tx {tx:?}");
+                        let raw_tx = self.client.get_raw_transaction_hex(&txid, None).await?;
+                        self.client.send_raw_transaction(raw_tx).await?;
+                    }
                 }
             }
         }
@@ -397,111 +402,110 @@ impl MonitoringService {
         }
     }
 
-    // Helper methods for querying transaction status
-    pub async fn get_tx_status(&self, txid: &Txid) -> Option<TxStatus> {
-        self.monitored_txs
-            .read()
-            .await
-            .get(txid)
-            .map(|tx| tx.status.clone())
-    }
+    // pub async fn get_tx_status(&self, txid: &Txid) -> Option<TxStatus> {
+    //     self.monitored_txs
+    //         .read()
+    //         .await
+    //         .get(txid)
+    //         .map(|tx| tx.status.clone())
+    // }
 
-    pub async fn get_chain_details(&self) -> (BlockHash, BlockHeight) {
-        let state = self.chain_state.read().await;
-        (state.current_tip, state.current_height)
-    }
+    // pub async fn get_chain_details(&self) -> (BlockHash, BlockHeight) {
+    //     let state = self.chain_state.read().await;
+    //     (state.current_tip, state.current_height)
+    // }
 
-    pub async fn get_tx_chain(&self, txid: &Txid) -> Option<Vec<Txid>> {
-        let txs = self.monitored_txs.read().await;
-        let mut chain = Vec::new();
-        let mut current_txid = *txid;
+    // pub async fn get_tx_chain(&self, txid: &Txid) -> Option<Vec<Txid>> {
+    //     let txs = self.monitored_txs.read().await;
+    //     let mut chain = Vec::new();
+    //     let mut current_txid = *txid;
 
-        while let Some(tx) = txs.get(&current_txid) {
-            if let Some(prev_txid) = tx.prev_tx {
-                chain.insert(0, prev_txid);
-                current_txid = prev_txid;
-            } else {
-                break;
-            }
-        }
+    //     while let Some(tx) = txs.get(&current_txid) {
+    //         if let Some(prev_txid) = tx.prev_tx {
+    //             chain.insert(0, prev_txid);
+    //             current_txid = prev_txid;
+    //         } else {
+    //             break;
+    //         }
+    //     }
 
-        chain.push(*txid);
+    //     chain.push(*txid);
 
-        current_txid = *txid;
-        while let Some(tx) = txs.get(&current_txid) {
-            if let Some(next_txid) = tx.next_tx {
-                chain.push(next_txid);
-                current_txid = next_txid;
-            } else {
-                break;
-            }
-        }
+    //     current_txid = *txid;
+    //     while let Some(tx) = txs.get(&current_txid) {
+    //         if let Some(next_txid) = tx.next_tx {
+    //             chain.push(next_txid);
+    //             current_txid = next_txid;
+    //         } else {
+    //             break;
+    //         }
+    //     }
 
-        if chain.is_empty() {
-            None
-        } else {
-            Some(chain)
-        }
-    }
+    //     if chain.is_empty() {
+    //         None
+    //     } else {
+    //         Some(chain)
+    //     }
+    // }
 
-    pub async fn get_chain_status(&self, txid: &Txid) -> Option<Vec<(Txid, TxStatus)>> {
-        let chain = self.get_tx_chain(txid).await?;
-        let txs = self.monitored_txs.read().await;
+    // pub async fn get_chain_status(&self, txid: &Txid) -> Option<Vec<(Txid, TxStatus)>> {
+    //     let chain = self.get_tx_chain(txid).await?;
+    //     let txs = self.monitored_txs.read().await;
 
-        Some(
-            chain
-                .into_iter()
-                .filter_map(|tx_id| txs.get(&tx_id).map(|tx| (tx_id, tx.status.clone())))
-                .collect(),
-        )
-    }
+    //     Some(
+    //         chain
+    //             .into_iter()
+    //             .filter_map(|tx_id| txs.get(&tx_id).map(|tx| (tx_id, tx.status.clone())))
+    //             .collect(),
+    //     )
+    // }
 
-    pub async fn get_monitored_transactions(&self) -> Vec<(Txid, MonitoredTx)> {
-        self.monitored_txs
-            .read()
-            .await
-            .iter()
-            .map(|(txid, tx)| (*txid, tx.clone()))
-            .collect()
-    }
+    // pub async fn get_monitored_transactions(&self) -> Vec<(Txid, MonitoredTx)> {
+    //     self.monitored_txs
+    //         .read()
+    //         .await
+    //         .iter()
+    //         .map(|(txid, tx)| (*txid, tx.clone()))
+    //         .collect()
+    // }
 
-    pub async fn get_pending_transactions(&self) -> Vec<(Txid, MonitoredTx)> {
-        self.monitored_txs
-            .read()
-            .await
-            .iter()
-            .filter(|(_, tx)| matches!(tx.status, TxStatus::Pending { .. }))
-            .map(|(txid, tx)| (*txid, tx.clone()))
-            .collect()
-    }
+    // pub async fn get_pending_transactions(&self) -> Vec<(Txid, MonitoredTx)> {
+    //     self.monitored_txs
+    //         .read()
+    //         .await
+    //         .iter()
+    //         .filter(|(_, tx)| matches!(tx.status, TxStatus::Pending { .. }))
+    //         .map(|(txid, tx)| (*txid, tx.clone()))
+    //         .collect()
+    // }
 
-    #[instrument(skip(self))]
-    pub async fn get_metrics(&self) -> MonitoringMetrics {
-        let txs = self.monitored_txs.read().await;
+    // #[instrument(skip(self))]
+    // pub async fn get_metrics(&self) -> MonitoringMetrics {
+    //     let txs = self.monitored_txs.read().await;
 
-        let (pending, confirmed, finalized, evicted, replaced) =
-            txs.values().fold((0, 0, 0, 0, 0), |mut acc, tx| {
-                match tx.status {
-                    TxStatus::Pending { .. } => acc.0 += 1,
-                    TxStatus::Confirmed { .. } => acc.1 += 1,
-                    TxStatus::Finalized { .. } => acc.2 += 1,
-                    TxStatus::Evicted { .. } => acc.3 += 1,
-                    TxStatus::Replaced { .. } => acc.4 += 1,
-                }
-                acc
-            });
+    //     let (pending, confirmed, finalized, evicted, replaced) =
+    //         txs.values().fold((0, 0, 0, 0, 0), |mut acc, tx| {
+    //             match tx.status {
+    //                 TxStatus::Pending { .. } => acc.0 += 1,
+    //                 TxStatus::Confirmed { .. } => acc.1 += 1,
+    //                 TxStatus::Finalized { .. } => acc.2 += 1,
+    //                 TxStatus::Evicted { .. } => acc.3 += 1,
+    //                 TxStatus::Replaced { .. } => acc.4 += 1,
+    //             }
+    //             acc
+    //         });
 
-        let state = self.chain_state.read().await;
+    //     let state = self.chain_state.read().await;
 
-        MonitoringMetrics {
-            total_monitored: txs.len(),
-            pending,
-            confirmed,
-            finalized,
-            evicted,
-            replaced,
-            current_height: state.current_height,
-            latest_block: state.current_tip,
-        }
-    }
+    //     MonitoringMetrics {
+    //         total_monitored: txs.len(),
+    //         pending,
+    //         confirmed,
+    //         finalized,
+    //         evicted,
+    //         replaced,
+    //         current_height: state.current_height,
+    //         latest_block: state.current_tip,
+    //     }
+    // }
 }
