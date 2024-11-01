@@ -352,27 +352,18 @@ impl MonitoringService {
                 }
             }
         } else {
-            let in_mempool = self
+            let fee_rate = self
                 .client
                 .get_mempool_entry(&tx_result.info.txid)
                 .await
-                .is_ok();
-
-            let fee_rate = if in_mempool {
-                self.client
-                    .get_mempool_entry(&tx_result.info.txid)
-                    .await
-                    .ok()
-                    .map(|entry| {
-                        entry.fees.base.to_sat() as f64
-                            / tx_result.transaction().unwrap().vsize() as f64
-                    })
-            } else {
-                None
-            };
+                .ok()
+                .map(|entry| {
+                    entry.fees.base.to_sat() as f64
+                        / tx_result.transaction().unwrap().vsize() as f64
+                });
 
             TxStatus::Pending {
-                in_mempool,
+                in_mempool: fee_rate.is_some(),
                 fee_rate,
                 timestamp: Instant::now(),
             }
