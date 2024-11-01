@@ -20,17 +20,17 @@ const DEFAULT_HISTORY_LIMIT: usize = 1_000; // Keep track of last 1k txs
 type BlockHeight = u64;
 type Result<T> = std::result::Result<T, MonitorError>;
 
-#[derive(Debug, Clone)]
-pub struct MonitoringMetrics {
-    pub total_monitored: usize,
-    pub pending: usize,
-    pub confirmed: usize,
-    pub finalized: usize,
-    pub evicted: usize,
-    pub replaced: usize,
-    pub current_height: BlockHeight,
-    pub latest_block: BlockHash,
-}
+// #[derive(Debug, Clone)]
+// pub struct MonitoringMetrics {
+//     pub total_monitored: usize,
+//     pub pending: usize,
+//     pub confirmed: usize,
+//     pub finalized: usize,
+//     pub evicted: usize,
+//     pub replaced: usize,
+//     pub current_height: BlockHeight,
+//     pub latest_block: BlockHash,
+// }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TxStatus {
@@ -58,6 +58,7 @@ pub enum TxStatus {
 pub struct MonitoredTx {
     pub tx: Transaction,
     pub initial_broadcast: Instant,
+    pub initial_height: BlockHeight,
     pub last_checked: Instant,
     pub status: TxStatus,
     pub prev_tx: Option<Txid>, // Previous tx in chain
@@ -218,6 +219,7 @@ impl MonitoringService {
             }
         }
 
+        let current_height = self.client.get_block_count().await?;
         let tx_result = self.client.get_transaction(&txid, None).await?;
         let tx = tx_result.transaction()?;
 
@@ -225,6 +227,7 @@ impl MonitoringService {
         let monitored_tx = MonitoredTx {
             tx,
             initial_broadcast: Instant::now(),
+            initial_height: current_height,
             last_checked: Instant::now(),
             status,
             prev_tx,
