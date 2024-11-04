@@ -22,7 +22,7 @@ use sov_rollup_interface::da::{BlockHeaderTrait, SequencerCommitment};
 use sov_rollup_interface::rpc::SoftConfirmationStatus;
 use sov_rollup_interface::services::da::{DaService, SlotData};
 use sov_rollup_interface::spec::SpecId;
-use sov_rollup_interface::zk::{Proof, ZkvmHost};
+use sov_rollup_interface::zk::{Proof, StateTransition, ZkvmHost};
 use tokio::select;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{sleep, Duration};
@@ -296,8 +296,11 @@ where
         );
         tracing::debug!("ZK proof: {:?}", proof);
 
-        let state_transition = Vm::extract_output::<<Da as DaService>::Spec, StateRoot>(&proof)
-            .expect("Proof should be deserializable");
+        let state_transition = Vm::extract_output::<
+            <Da as DaService>::Spec,
+            StateTransition<<Da as DaService>::Spec, StateRoot>,
+        >(&proof)
+        .expect("Proof should be deserializable");
         if state_transition.sequencer_da_public_key != self.sequencer_da_pub_key
             || state_transition.sequencer_public_key != self.sequencer_pub_key
         {

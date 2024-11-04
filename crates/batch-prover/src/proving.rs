@@ -15,7 +15,7 @@ use sov_modules_api::{BlobReaderTrait, SlotData, SpecId, Zkvm};
 use sov_rollup_interface::da::{BlockHeaderTrait, DaSpec, SequencerCommitment};
 use sov_rollup_interface::rpc::SoftConfirmationStatus;
 use sov_rollup_interface::services::da::DaService;
-use sov_rollup_interface::zk::{Proof, StateTransitionData, ZkvmHost};
+use sov_rollup_interface::zk::{Proof, StateTransition, StateTransitionData, ZkvmHost};
 use sov_stf_runner::ProverService;
 use tokio::sync::Mutex;
 use tracing::info;
@@ -329,9 +329,12 @@ where
     let tx_id_u8 = tx_id.into();
 
     // l1_height => (tx_id, proof, transition_data)
-    // save proof along with tx id to db, should be queriable by slot number or slot hash
-    let transition_data = Vm::extract_output::<<Da as DaService>::Spec, StateRoot>(&proof)
-        .expect("Proof should be deserializable");
+    // save proof along with tx id to db, should be queryable by slot number or slot hash
+    let transition_data = Vm::extract_output::<
+        <Da as DaService>::Spec,
+        StateTransition<<Da as DaService>::Spec, StateRoot>,
+    >(&proof)
+    .expect("Proof should be deserializable");
 
     info!("Verifying proof!");
 

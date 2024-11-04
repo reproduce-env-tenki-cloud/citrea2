@@ -133,9 +133,9 @@ impl ZkvmHost for SP1Host {
         }
     }
 
-    fn extract_output<Da: sov_rollup_interface::da::DaSpec, Root: BorshDeserialize>(
+    fn extract_output<Da: sov_rollup_interface::da::DaSpec, T: BorshDeserialize>(
         proof: &Proof,
-    ) -> Result<sov_rollup_interface::zk::StateTransition<Da, Root>, Self::Error> {
+    ) -> Result<T, Self::Error> {
         let public_values = match proof {
             Proof::PublicInput(data) => {
                 let public_values: SP1PublicValues = bincode::deserialize(data)?;
