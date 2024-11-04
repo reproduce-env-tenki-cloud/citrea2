@@ -185,7 +185,7 @@ impl TestCase for BitcoinReorgTest {
         assert_eq!(mempool0.len(), 2);
 
         // Wait for re-org monitoring
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        // tokio::time::sleep(Duration::from_secs(5)).await;
 
         // Seq TXs should be rebroadcasted after re-org
         let mempool1 = da1.get_raw_mempool().await?;

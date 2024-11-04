@@ -178,6 +178,7 @@ impl TestCase for SkipPreprovenCommitmentsTest {
                 .join("tx_backup_dir")
                 .display()
                 .to_string(),
+            monitoring: Default::default(),
         };
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         // Keep sender for cleanup

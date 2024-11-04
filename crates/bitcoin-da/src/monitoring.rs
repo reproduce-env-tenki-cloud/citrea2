@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -12,9 +13,7 @@ use thiserror::Error;
 
 use crate::service::FINALITY_DEPTH;
 
-// Todo pass down lower value for test
-// const DEFAULT_CHECK_INTERVAL: Duration = Duration::from_secs(60);
-const DEFAULT_CHECK_INTERVAL: Duration = Duration::from_millis(10);
+const DEFAULT_CHECK_INTERVAL: u64 = 60;
 const DEFAULT_HISTORY_LIMIT: usize = 1_000; // Keep track of last 1k txs
 
 type BlockHeight = u64;
@@ -90,11 +89,10 @@ pub enum MonitorError {
     BitcoinEncodeError(#[from] bitcoin::consensus::encode::Error),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct MonitoringConfig {
-    pub check_interval: Duration,
+    pub check_interval: u64,
     pub history_limit: usize,
-    pub reorg_depth_threshold: u64,
 }
 
 impl Default for MonitoringConfig {
@@ -102,17 +100,6 @@ impl Default for MonitoringConfig {
         Self {
             check_interval: DEFAULT_CHECK_INTERVAL,
             history_limit: DEFAULT_HISTORY_LIMIT,
-            reorg_depth_threshold: FINALITY_DEPTH,
-        }
-    }
-}
-
-impl MonitoringConfig {
-    fn new(check_interval: Option<Duration>, history_limit: Option<usize>) -> Self {
-        Self {
-            check_interval: check_interval.unwrap_or(DEFAULT_CHECK_INTERVAL),
-            history_limit: history_limit.unwrap_or(DEFAULT_HISTORY_LIMIT),
-            ..Default::default()
         }
     }
 }
@@ -127,20 +114,14 @@ pub struct MonitoringService {
 }
 
 impl MonitoringService {
-    pub async fn new(
-        client: Arc<Client>,
-        check_interval: Option<Duration>,
-        history_limit: Option<usize>,
-    ) -> Result<Self> {
-        let config = MonitoringConfig::new(check_interval, history_limit);
-
+    pub async fn new(client: Arc<Client>, config: MonitoringConfig) -> Result<Self> {
         let current_height = client.get_block_count().await?;
         let current_tip = client.get_best_block_hash().await?;
 
-        let mut recent_blocks = Vec::with_capacity(config.reorg_depth_threshold as usize);
+        let mut recent_blocks = Vec::with_capacity(FINALITY_DEPTH as usize);
         let mut current_hash: BlockHash;
 
-        for height in (0..config.reorg_depth_threshold).map(|i| current_height.saturating_sub(i)) {
+        for height in (0..FINALITY_DEPTH).map(|i| current_height.saturating_sub(i)) {
             current_hash = client.get_block_hash(height.into()).await?;
             recent_blocks.push((current_hash, height));
         }
@@ -161,7 +142,7 @@ impl MonitoringService {
     /// Spawn a tokio task to keep track of TX status and chain re-orgs
     pub fn spawn(self: Arc<Self>) {
         tokio::spawn(async move {
-            let mut interval = interval(self.config.check_interval);
+            let mut interval = interval(Duration::from_secs(self.config.check_interval));
             loop {
                 interval.tick().await;
                 if let Err(e) = self.check_chain_state().await {
@@ -252,7 +233,7 @@ impl MonitoringService {
             let mut reorg_detected = false;
             let mut reorg_depth = 0;
 
-            for i in 1..=self.config.reorg_depth_threshold {
+            for i in 1..=FINALITY_DEPTH {
                 let height = new_height.saturating_sub(i);
                 current_hash = self.client.get_block_hash(height.into()).await?;
                 new_blocks.push((current_hash, height));
@@ -321,6 +302,7 @@ impl MonitoringService {
                 }
                 _ => {}
             }
+
             monitored_tx.last_checked = Instant::now();
         }
 

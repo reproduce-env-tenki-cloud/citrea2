@@ -44,7 +44,7 @@ use crate::helpers::parsers::{
     parse_batch_proof_transaction, parse_light_client_transaction, ParsedBatchProofTransaction,
     ParsedLightClientTransaction, VerifyParsed,
 };
-use crate::monitoring::MonitoringService;
+use crate::monitoring::{MonitoringConfig, MonitoringService};
 use crate::spec::blob::BlobWithSender;
 use crate::spec::block::BitcoinBlock;
 use crate::spec::header::HeaderWrapper;
@@ -78,7 +78,10 @@ pub struct BitcoinServiceConfig {
 
     // absolute path to the directory where the txs will be written to
     pub tx_backup_dir: String,
+
+    pub monitoring: MonitoringConfig,
 }
+
 impl citrea_common::FromEnv for BitcoinServiceConfig {
     fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
@@ -88,6 +91,10 @@ impl citrea_common::FromEnv for BitcoinServiceConfig {
             network: serde_json::from_str(&format!("\"{}\"", std::env::var("NETWORK")?))?,
             da_private_key: std::env::var("DA_PRIVATE_KEY").ok(),
             tx_backup_dir: std::env::var("TX_BACKUP_DIR")?,
+            monitoring: MonitoringConfig {
+                check_interval: std::env::var("DA_MONITORING_CHECK_INTERVAL")?.parse()?,
+                history_limit: std::env::var("DA_MONITORING_TX_HISTORY_SIZE")?.parse()?,
+            },
         })
     }
 }
@@ -142,7 +149,7 @@ impl BitcoinService {
         }
 
         let monitoring = Arc::new(
-            MonitoringService::new(client.clone(), None, None)
+            MonitoringService::new(client.clone(), config.monitoring)
                 .await
                 .context("Failed to initialize monitoring service")?,
         );
@@ -187,7 +194,7 @@ impl BitcoinService {
         }
 
         let monitoring = Arc::new(
-            MonitoringService::new(client.clone(), None, None)
+            MonitoringService::new(client.clone(), config.monitoring)
                 .await
                 .context("Failed to initialize monitoring service")?,
         );
