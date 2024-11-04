@@ -267,7 +267,7 @@ impl BitcoinService {
                                                 let _ = request.notify.send(Ok(tx_id));
 
                                                 if let Err(e) = self.monitoring.monitor_transaction_chain(txids).await {
-                                                    error!(?e, "Failed to monitored tx chain");
+                                                    error!(?e, "Failed to monitor tx chain");
                                                 }
                                             }
                                             Err(e) => {
