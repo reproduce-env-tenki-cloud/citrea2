@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use citrea_common::rpc::register_healthcheck_rpc;
 use citrea_common::{BatchProverConfig, FullNodeConfig, LightClientProverConfig};
 // use citrea_sp1::host::SP1Host;
-use citrea_risc0_bonsai_adapter::host::Risc0BonsaiHost;
-use citrea_risc0_bonsai_adapter::Digest;
+use citrea_risc0_adapter::host::Risc0BonsaiHost;
+use citrea_risc0_adapter::Digest;
 use citrea_stf::genesis_config::StorageConfig;
 use citrea_stf::runtime::Runtime;
 use citrea_stf::verifier::StateTransitionVerifier;
@@ -120,12 +120,7 @@ impl RollupBlueprint for MockDemoRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let vm = Risc0BonsaiHost::new(
-            citrea_risc0::BATCH_PROOF_MOCK_ELF,
-            std::env::var("BONSAI_API_URL").unwrap_or("".to_string()),
-            std::env::var("BONSAI_API_KEY").unwrap_or("".to_string()),
-            ledger_db.clone(),
-        );
+        let vm = Risc0BonsaiHost::new(citrea_risc0::BATCH_PROOF_MOCK_ELF, ledger_db.clone());
 
         let zk_stf = StfBlueprint::new();
         let zk_storage = ZkStorage::new();
@@ -152,12 +147,7 @@ impl RollupBlueprint for MockDemoRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let vm = Risc0BonsaiHost::new(
-            citrea_risc0::LIGHT_CLIENT_PROOF_MOCK_ELF,
-            std::env::var("BONSAI_API_URL").unwrap_or("".to_string()),
-            std::env::var("BONSAI_API_KEY").unwrap_or("".to_string()),
-            ledger_db.clone(),
-        );
+        let vm = Risc0BonsaiHost::new(citrea_risc0::LIGHT_CLIENT_PROOF_MOCK_ELF, ledger_db.clone());
         let zk_stf = StfBlueprint::new();
         let zk_storage = ZkStorage::new();
         let da_verifier = Default::default();

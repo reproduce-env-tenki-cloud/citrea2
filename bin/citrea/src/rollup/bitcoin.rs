@@ -8,8 +8,8 @@ use bitcoin_da::verifier::BitcoinVerifier;
 use citrea_common::rpc::register_healthcheck_rpc;
 use citrea_common::{BatchProverConfig, FullNodeConfig, LightClientProverConfig};
 use citrea_primitives::{TO_BATCH_PROOF_PREFIX, TO_LIGHT_CLIENT_PREFIX};
-use citrea_risc0_bonsai_adapter::host::Risc0BonsaiHost;
-use citrea_risc0_bonsai_adapter::Digest;
+use citrea_risc0_adapter::host::Risc0BonsaiHost;
+use citrea_risc0_adapter::Digest;
 // use citrea_sp1::host::SP1Host;
 use citrea_stf::genesis_config::StorageConfig;
 use citrea_stf::runtime::Runtime;
@@ -174,12 +174,7 @@ impl RollupBlueprint for BitcoinRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let vm = Risc0BonsaiHost::new(
-            citrea_risc0::BATCH_PROOF_BITCOIN_ELF,
-            std::env::var("BONSAI_API_URL").unwrap_or("".to_string()),
-            std::env::var("BONSAI_API_KEY").unwrap_or("".to_string()),
-            ledger_db.clone(),
-        );
+        let vm = Risc0BonsaiHost::new(citrea_risc0::BATCH_PROOF_BITCOIN_ELF, ledger_db.clone());
         // let vm = SP1Host::new(
         //     include_bytes!("../../provers/sp1/batch-prover-bitcoin/elf/zkvm-elf"),
         //     ledger_db.clone(),
@@ -223,8 +218,6 @@ impl RollupBlueprint for BitcoinRollup {
     ) -> Self::ProverService {
         let vm = Risc0BonsaiHost::new(
             citrea_risc0::LIGHT_CLIENT_PROOF_BITCOIN_ELF,
-            std::env::var("BONSAI_API_URL").unwrap_or("".to_string()),
-            std::env::var("BONSAI_API_KEY").unwrap_or("".to_string()),
             ledger_db.clone(),
         );
         let zk_stf = StfBlueprint::new();
