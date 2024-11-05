@@ -19,18 +19,6 @@ const DEFAULT_HISTORY_LIMIT: usize = 1_000; // Keep track of last 1k txs
 type BlockHeight = u64;
 type Result<T> = std::result::Result<T, MonitorError>;
 
-// #[derive(Debug, Clone)]
-// pub struct MonitoringMetrics {
-//     pub total_monitored: usize,
-//     pub pending: usize,
-//     pub confirmed: usize,
-//     pub finalized: usize,
-//     pub evicted: usize,
-//     pub replaced: usize,
-//     pub current_height: BlockHeight,
-//     pub latest_block: BlockHash,
-// }
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TxStatus {
     Pending {
@@ -460,34 +448,4 @@ impl MonitoringService {
             .map(|(txid, tx)| (*txid, tx.clone()))
             .collect()
     }
-
-    // #[instrument(skip(self))]
-    // pub async fn get_metrics(&self) -> MonitoringMetrics {
-    //     let txs = self.monitored_txs.read().await;
-
-    //     let (pending, confirmed, finalized, evicted, replaced) =
-    //         txs.values().fold((0, 0, 0, 0, 0), |mut acc, tx| {
-    //             match tx.status {
-    //                 TxStatus::Pending { .. } => acc.0 += 1,
-    //                 TxStatus::Confirmed { .. } => acc.1 += 1,
-    //                 TxStatus::Finalized { .. } => acc.2 += 1,
-    //                 TxStatus::Evicted { .. } => acc.3 += 1,
-    //                 TxStatus::Replaced { .. } => acc.4 += 1,
-    //             }
-    //             acc
-    //         });
-
-    //     let state = self.chain_state.read().await;
-
-    //     MonitoringMetrics {
-    //         total_monitored: txs.len(),
-    //         pending,
-    //         confirmed,
-    //         finalized,
-    //         evicted,
-    //         replaced,
-    //         current_height: state.current_height,
-    //         latest_block: state.current_tip,
-    //     }
-    // }
 }
