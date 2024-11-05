@@ -163,7 +163,7 @@ where
         let input: BatchProofCircuitInput<StateRoot, Witness, Da::Spec> = BatchProofCircuitInput {
             initial_state_root,
             final_state_root,
-            initial_batch_hash,
+            prev_soft_confirmation_hash: initial_batch_hash,
             da_data: da_data.clone(),
             da_block_header_of_commitments: da_block_header_of_commitments.clone(),
             inclusion_proof: inclusion_proof.clone(),
