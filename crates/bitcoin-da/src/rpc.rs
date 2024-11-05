@@ -1,8 +1,30 @@
 use crate::{monitoring::TxStatus, service::BitcoinService};
 
-use citrea_common::rpc::da::{DaRpcServer, ListPendingTransactionsResponse};
+use bitcoin::Txid;
 use jsonrpsee::core::RpcResult;
+use jsonrpsee::proc_macros::rpc;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+// use tracing::{debug, error};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListPendingTransactionsResponse {
+    pub txid: Txid,
+    pub fee_rate: Option<f64>,
+    pub initial_broadcast: u64,
+    pub initial_height: u64,
+    pub prev_tx: Option<Txid>,
+    pub next_tx: Option<Txid>,
+}
+
+#[rpc(client, server, namespace = "da")]
+pub trait DaRpc {
+    #[method(name = "getPendingTransactions")]
+    async fn da_get_pending_transactions(&self) -> RpcResult<Vec<ListPendingTransactionsResponse>>;
+
+    #[method(name = "getTxStatus")]
+    async fn da_get_tx_status(&self, txid: Txid) -> RpcResult<Option<TxStatus>>;
+}
 
 #[async_trait::async_trait]
 impl DaRpcServer for DaRpcServerImpl {
@@ -30,6 +52,9 @@ impl DaRpcServer for DaRpcServerImpl {
             .collect::<Vec<_>>();
 
         Ok(txs)
+    }
+    async fn da_get_tx_status(&self, txid: Txid) -> RpcResult<Option<TxStatus>> {
+        Ok(self.da.monitoring.get_tx_status(&txid).await)
     }
 }
 

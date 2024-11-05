@@ -29,7 +29,7 @@ serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
 thiserror = { workspace = true }
 tracing = { workspace = true, optional = true }
-jsonrpsee = { workspace = true, optional = true, default-features = false }
+jsonrpsee = { workspace = true, optional = true }
 
 bitcoin = { workspace = true }
 futures.workspace = true

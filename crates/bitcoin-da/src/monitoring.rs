@@ -31,12 +31,12 @@ type Result<T> = std::result::Result<T, MonitorError>;
 //     pub latest_block: BlockHash,
 // }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TxStatus {
     Pending {
         in_mempool: bool,
         fee_rate: Option<f64>,
-        timestamp: Instant,
+        timestamp: u64,
     },
     Confirmed {
         block_hash: BlockHash,
@@ -353,7 +353,10 @@ impl MonitoringService {
             TxStatus::Pending {
                 in_mempool: fee_rate.is_some(),
                 fee_rate,
-                timestamp: Instant::now(),
+                timestamp: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
             }
         };
         Ok(status)
@@ -381,13 +384,13 @@ impl MonitoringService {
         }
     }
 
-    // pub async fn get_tx_status(&self, txid: &Txid) -> Option<TxStatus> {
-    //     self.monitored_txs
-    //         .read()
-    //         .await
-    //         .get(txid)
-    //         .map(|tx| tx.status.clone())
-    // }
+    pub async fn get_tx_status(&self, txid: &Txid) -> Option<TxStatus> {
+        self.monitored_txs
+            .read()
+            .await
+            .get(txid)
+            .map(|tx| tx.status.clone())
+    }
 
     // pub async fn get_chain_details(&self) -> (BlockHash, BlockHeight) {
     //     let state = self.chain_state.read().await;
