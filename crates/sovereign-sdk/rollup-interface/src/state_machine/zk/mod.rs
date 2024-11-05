@@ -123,13 +123,13 @@ pub trait ValidityCondition:
 /// State diff produced by the Zk proof
 pub type CumulativeStateDiff = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
 
-/// The public output of a SNARK proof in Sovereign, this struct makes a claim that
+/// The public output of a SNARK batch proof in Sovereign, this struct makes a claim that
 /// the state of the rollup has transitioned from `initial_state_root` to `final_state_root`
-/// if and only if the condition `validity_condition` is satisfied.
 ///
-/// The period of time covered by a state transition proof may be a single slot, or a range of slots on the DA layer.
+/// The period of time covered by a state transition proof is a range of L2 blocks whose sequencer
+/// commitments are included in the DA slot with hash `da_slot_hash`. The range is inclusive.
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
-pub struct StateTransition<Da: DaSpec, Root> {
+pub struct BatchProofCircuitOutput<Da: DaSpec, Root> {
     /// The state of the rollup before the transition
     pub initial_state_root: Root,
     /// The state of the rollup after the transition
@@ -179,7 +179,7 @@ pub trait Matches<T> {
 // StateTransitionFunction, DA, and Zkvm traits.
 #[serde(bound = "StateRoot: Serialize + DeserializeOwned, Witness: Serialize + DeserializeOwned")]
 /// Data required to verify a state transition.
-pub struct StateTransitionData<StateRoot, Witness, Da: DaSpec> {
+pub struct BatchProofCircuitInput<StateRoot, Witness, Da: DaSpec> {
     /// The state root before the state transition
     pub initial_state_root: StateRoot,
     /// The state root after the state transition
