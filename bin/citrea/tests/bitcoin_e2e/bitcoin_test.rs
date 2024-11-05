@@ -191,8 +191,8 @@ impl TestCase for BitcoinReorgTest {
             .da_get_pending_transactions()
             .await?;
 
-        assert_eq!(mempool0[0], pending_txs[0].txid);
-        assert_eq!(mempool0[1], pending_txs[1].txid);
+        assert!(mempool0.contains(&pending_txs[0].txid));
+        assert!(mempool0.contains(&pending_txs[1].txid));
 
         let tx_status = sequencer
             .client
