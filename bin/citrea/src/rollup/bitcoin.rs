@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bitcoin_da::rpc::create_rpc_module as create_da_rpc_module;
 use bitcoin_da::service::{BitcoinService, BitcoinServiceConfig, TxidWrapper};
 use bitcoin_da::spec::{BitcoinSpec, RollupParams};
 use bitcoin_da::verifier::BitcoinVerifier;
@@ -90,6 +91,9 @@ impl RollupBlueprint for BitcoinRollup {
         )?;
 
         register_healthcheck_rpc(&mut rpc_methods, ledger_db.clone())?;
+
+        let da_methods = create_da_rpc_module(da_service.clone());
+        rpc_methods.merge(da_methods)?;
 
         Ok(rpc_methods)
     }

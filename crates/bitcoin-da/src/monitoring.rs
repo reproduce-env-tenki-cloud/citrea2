@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::interval;
 use tracing::{error, info, instrument};
@@ -56,7 +56,7 @@ pub enum TxStatus {
 #[derive(Debug, Clone)]
 pub struct MonitoredTx {
     pub tx: Transaction,
-    pub initial_broadcast: Instant,
+    pub initial_broadcast: u64,
     pub initial_height: BlockHeight,
     pub last_checked: Instant,
     pub status: TxStatus,
@@ -207,7 +207,10 @@ impl MonitoringService {
         let status = self.determine_tx_status(&tx_result).await?;
         let monitored_tx = MonitoredTx {
             tx,
-            initial_broadcast: Instant::now(),
+            initial_broadcast: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
             initial_height: current_height,
             last_checked: Instant::now(),
             status,
@@ -445,15 +448,15 @@ impl MonitoringService {
     //         .collect()
     // }
 
-    // pub async fn get_pending_transactions(&self) -> Vec<(Txid, MonitoredTx)> {
-    //     self.monitored_txs
-    //         .read()
-    //         .await
-    //         .iter()
-    //         .filter(|(_, tx)| matches!(tx.status, TxStatus::Pending { .. }))
-    //         .map(|(txid, tx)| (*txid, tx.clone()))
-    //         .collect()
-    // }
+    pub async fn get_pending_transactions(&self) -> Vec<(Txid, MonitoredTx)> {
+        self.monitored_txs
+            .read()
+            .await
+            .iter()
+            .filter(|(_, tx)| matches!(tx.status, TxStatus::Pending { .. }))
+            .map(|(txid, tx)| (*txid, tx.clone()))
+            .collect()
+    }
 
     // #[instrument(skip(self))]
     // pub async fn get_metrics(&self) -> MonitoringMetrics {

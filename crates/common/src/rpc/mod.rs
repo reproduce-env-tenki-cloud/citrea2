@@ -1,4 +1,5 @@
 //! Common RPC crate provides helper methods that are needed in rpc servers
+pub mod da;
 use std::time::Duration;
 
 use futures::future::BoxFuture;

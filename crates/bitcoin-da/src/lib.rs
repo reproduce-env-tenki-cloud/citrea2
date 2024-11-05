@@ -7,6 +7,9 @@ pub mod service;
 #[cfg(feature = "native")]
 pub mod monitoring;
 
+#[cfg(feature = "native")]
+pub mod rpc;
+
 pub mod verifier;
 
 #[cfg(feature = "native")]

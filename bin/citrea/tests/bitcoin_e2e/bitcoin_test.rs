@@ -1,17 +1,17 @@
 use std::time::Duration;
 
+use super::get_citrea_path;
 use anyhow::bail;
 use async_trait::async_trait;
 use bitcoin_da::service::FINALITY_DEPTH;
 use bitcoincore_rpc::json::IndexStatus;
 use bitcoincore_rpc::RpcApi;
+use citrea_common::rpc::da::DaRpcClient;
 use citrea_e2e::config::{BitcoinConfig, TestCaseConfig};
 use citrea_e2e::framework::TestFramework;
 use citrea_e2e::test_case::{TestCase, TestCaseRunner};
 use citrea_e2e::traits::Restart;
 use citrea_e2e::Result;
-
-use super::get_citrea_path;
 
 struct BasicSyncTest;
 
@@ -184,8 +184,17 @@ impl TestCase for BitcoinReorgTest {
         let mempool0 = da0.get_raw_mempool().await?;
         assert_eq!(mempool0.len(), 2);
 
+        let pending_txs = sequencer
+            .client
+            .http_client()
+            .da_get_pending_transactions()
+            .await?;
+
+        assert_eq!(mempool0[0], pending_txs[0].txid);
+        assert_eq!(mempool0[1], pending_txs[1].txid);
+
         // Wait for re-org monitoring
-        // tokio::time::sleep(Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
 
         // Seq TXs should be rebroadcasted after re-org
         let mempool1 = da1.get_raw_mempool().await?;

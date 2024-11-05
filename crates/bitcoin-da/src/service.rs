@@ -108,7 +108,7 @@ pub struct BitcoinService {
     reveal_batch_prover_prefix: Vec<u8>,
     inscribes_queue: UnboundedSender<Option<SenderWithNotifier<TxidWrapper>>>,
     tx_backup_dir: PathBuf,
-    monitoring: Arc<MonitoringService>,
+    pub monitoring: Arc<MonitoringService>,
 }
 
 impl BitcoinService {
@@ -1275,6 +1275,7 @@ mod tests {
     use super::{get_fee_rate_from_mempool_space, BitcoinService};
     use crate::helpers::parsers::parse_hex_transaction;
     use crate::helpers::test_utils::{get_mock_data, get_mock_txs};
+    use crate::monitoring::MonitoringConfig;
     use crate::service::BitcoinServiceConfig;
     use crate::spec::block::BitcoinBlock;
     use crate::spec::header::HeaderWrapper;
@@ -1307,6 +1308,7 @@ mod tests {
                 "E9873D79C6D87DC0FB6A5778633389F4453213303DA61F20BD67FC233AA33262".to_string(), // Test key, safe to publish
             ),
             tx_backup_dir: get_tx_backup_dir(),
+            monitoring: MonitoringConfig::default(),
         };
 
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1338,6 +1340,7 @@ mod tests {
                 "E9873D79C6D87DC0FB6A5778633389F4453213303DA61F20BD67FC233AA33262".to_string(), // Test key, safe to publish
             ),
             tx_backup_dir: get_tx_backup_dir(),
+            monitoring: MonitoringConfig::default(),
         };
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1370,6 +1373,7 @@ mod tests {
                 "E9873D79C6D87DC0FB6A5778633389F4453213303DA61F20BD67FC233AA33263".to_string(), // Test key, safe to publish
             ),
             tx_backup_dir: get_tx_backup_dir(),
+            monitoring: MonitoringConfig::default(),
         };
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1603,6 +1607,7 @@ mod tests {
                 "E9873D79C6D87DC0FB6A5778633389F4453213303DA61F20BD67FC233AA33261".to_string(), // Test key, safe to publish
             ),
             tx_backup_dir: get_tx_backup_dir(),
+            monitoring: MonitoringConfig::default(),
         };
 
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
