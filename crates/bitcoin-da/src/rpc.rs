@@ -5,7 +5,7 @@ use jsonrpsee::core::RpcResult;
 use std::sync::Arc;
 
 #[async_trait::async_trait]
-impl DaRpcServer for DaRpcServerImpl<BitcoinService> {
+impl DaRpcServer for DaRpcServerImpl {
     async fn da_get_pending_transactions(&self) -> RpcResult<Vec<ListPendingTransactionsResponse>> {
         let txs = self
             .da
@@ -33,20 +33,19 @@ impl DaRpcServer for DaRpcServerImpl<BitcoinService> {
     }
 }
 
-pub struct DaRpcServerImpl<Da> {
-    da: Arc<Da>,
+pub struct DaRpcServerImpl {
+    da: Arc<BitcoinService>,
 }
 
-impl<Da> DaRpcServerImpl<Da> {
-    pub fn new(da: Arc<Da>) -> Self {
+impl DaRpcServerImpl {
+    pub fn new(da: Arc<BitcoinService>) -> Self {
         Self { da }
     }
 }
 
-pub fn create_rpc_module<Da>(da: Arc<Da>) -> jsonrpsee::RpcModule<DaRpcServerImpl<Da>>
+pub fn create_rpc_module(da: Arc<BitcoinService>) -> jsonrpsee::RpcModule<DaRpcServerImpl>
 where
-    Da: Send + Sync + 'static,
-    DaRpcServerImpl<Da>: DaRpcServer,
+    DaRpcServerImpl: DaRpcServer,
 {
     let server = DaRpcServerImpl::new(da);
 
