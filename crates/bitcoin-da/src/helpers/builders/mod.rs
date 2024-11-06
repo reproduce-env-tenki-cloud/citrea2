@@ -110,6 +110,7 @@ fn build_commit_transaction(
 
         let (chosen_utxos, sum, leftover_utxos) =
             choose_utxos(prev_utxo.clone(), &utxos, input_total)?;
+
         let has_change = (sum - input_total) >= REVEAL_OUTPUT_AMOUNT;
         let direct_return = !has_change;
 

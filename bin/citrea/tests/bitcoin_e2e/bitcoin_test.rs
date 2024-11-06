@@ -6,13 +6,12 @@ use async_trait::async_trait;
 use bitcoin_da::monitoring::TxStatus;
 use bitcoin_da::rpc::DaRpcClient;
 use bitcoin_da::service::FINALITY_DEPTH;
-use bitcoincore_rpc::json::IndexStatus;
 use bitcoincore_rpc::RpcApi;
-use citrea_e2e::config::{BitcoinConfig, TestCaseConfig};
+use citrea_e2e::config::TestCaseConfig;
 use citrea_e2e::framework::TestFramework;
 use citrea_e2e::test_case::{TestCase, TestCaseRunner};
-use citrea_e2e::traits::Restart;
 use citrea_e2e::Result;
+use tokio::time::sleep;
 
 struct BitcoinReorgTest;
 
@@ -134,6 +133,131 @@ impl TestCase for BitcoinReorgTest {
 #[tokio::test]
 async fn test_bitcoin_reorg() -> Result<()> {
     TestCaseRunner::new(BitcoinReorgTest)
+        .set_citrea_path(get_citrea_path())
+        .run()
+        .await
+}
+
+struct CpfpFeeBumpingTest;
+
+#[async_trait]
+impl TestCase for CpfpFeeBumpingTest {
+    fn test_config() -> TestCaseConfig {
+        TestCaseConfig {
+            with_sequencer: true,
+            with_batch_prover: true,
+            ..Default::default()
+        }
+    }
+
+    async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        let sequencer = f.sequencer.as_mut().unwrap();
+        let batch_prover = f.batch_prover.as_mut().unwrap();
+        let da = f.bitcoin_nodes.get(0).unwrap();
+
+        // Generate seqcommitments
+        for _ in 0..sequencer.min_soft_confirmations_per_commitment() {
+            sequencer.client.send_publish_batch_request().await?;
+        }
+
+        // Wait for seqcommitments txs to hit mempool
+        da.wait_mempool_len(2, None).await?;
+
+        // Get the last txid in chain
+        let reveal_tx = sequencer
+            .client
+            .http_client()
+            .da_get_last_monitored_tx()
+            .await?
+            .unwrap();
+        let parent_txid = &reveal_tx.txid;
+        let parent_base_fee = reveal_tx.base_fee.unwrap();
+        let parent_fee_rate = parent_base_fee as f64 / reveal_tx.vsize as f64;
+
+        let target_fee_rate = parent_fee_rate * 2.0;
+        let cpfp_txid = sequencer
+            .client
+            .http_client()
+            .da_bump_transaction_fee_cpfp(Some(*parent_txid), target_fee_rate)
+            .await?;
+
+        // Wait for child transaction
+        da.wait_mempool_len(3, None).await?;
+
+        let cpfp_entry = da.get_mempool_entry(&cpfp_txid).await?;
+        let cpfp_fee_rate = cpfp_entry.fees.base.to_sat() as f64 / cpfp_entry.vsize as f64;
+
+        // Verify the child tx has higher fee rate to accomodate for child + parent
+        assert!(cpfp_fee_rate >= target_fee_rate);
+
+        // Verify that child spends from reveal tx and keeps a correct chain of utxo spending
+        let cpfp_tx = da.get_raw_transaction(&cpfp_txid, None).await?;
+        assert_eq!(cpfp_tx.input[0].previous_output.txid, *parent_txid);
+
+        da.generate(1, None).await?;
+        let hash = da.get_best_block_hash().await?;
+        let block = da.get_block(&hash).await?;
+
+        let txids = block
+            .txdata
+            .iter()
+            .skip(1) // Skip coinbase
+            .map(|tx| tx.compute_txid())
+            .collect::<Vec<_>>();
+
+        // Assert proper tx ordering
+        assert_eq!(
+            &txids,
+            &[reveal_tx.prev_tx.unwrap(), *parent_txid, cpfp_txid]
+        );
+
+        da.generate(FINALITY_DEPTH - 1, None).await?;
+        let finalized_height = da.get_finalized_height().await?;
+
+        batch_prover
+            .wait_for_l1_height(finalized_height, None)
+            .await?;
+
+        let commitments = batch_prover
+            .client
+            .ledger_get_sequencer_commitments_on_slot_by_number(finalized_height)
+            .await?
+            .unwrap();
+
+        assert_eq!(commitments.len(), 1);
+
+        // Mine prover tx before re-generating seqcommitments lest it conflicts
+        da.wait_mempool_len(2, None).await?;
+        da.generate(1, None).await?;
+
+        // Generate another seqcommitments to assert that it spends from cpfp output
+        for _ in 0..sequencer.min_soft_confirmations_per_commitment() {
+            sequencer.client.send_publish_batch_request().await?;
+        }
+
+        // Wait for seqcommitments txs to hit mempool
+        da.wait_mempool_len(2, None).await?;
+        da.generate(1, None).await?;
+        let hash = da.get_best_block_hash().await?;
+        let block = da.get_block(&hash).await?;
+
+        // Assert that commit tx spend from cpfp output
+        let commit_tx = &block.txdata[1];
+        let reveal_tx = &block.txdata[2];
+
+        assert_eq!(commit_tx.input[0].previous_output.txid, cpfp_txid);
+        assert_eq!(
+            reveal_tx.input[0].previous_output.txid,
+            commit_tx.compute_txid()
+        );
+
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn test_cpfp_fee_bump() -> Result<()> {
+    TestCaseRunner::new(CpfpFeeBumpingTest)
         .set_citrea_path(get_citrea_path())
         .run()
         .await

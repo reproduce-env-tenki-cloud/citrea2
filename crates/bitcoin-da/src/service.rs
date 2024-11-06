@@ -389,7 +389,7 @@ impl BitcoinService {
     #[instrument(level = "trace", fields(prev_utxo), ret, err)]
     pub async fn send_transaction_with_fee_rate(
         &self,
-        prev_utxo: Option<UTXO>,
+        mut prev_utxo: Option<UTXO>,
         da_data: DaData,
         fee_sat_per_vbyte: u64,
     ) -> Result<(Vec<Txid>, TxWithId), anyhow::Error> {
@@ -399,6 +399,14 @@ impl BitcoinService {
 
         // get all available utxos
         let utxos = self.get_utxos().await?;
+
+        // If Utxo has already been spent, fallback to get_prev_utxo
+        // Would happen in case of cpfp spending reveal output
+        if let Some(prev) = &prev_utxo {
+            if let None = utxos.iter().find(|utxo| utxo == &prev) {
+                prev_utxo = self.get_prev_utxo().await?;
+            }
+        }
 
         // get address from a utxo
         let address = utxos[0]
