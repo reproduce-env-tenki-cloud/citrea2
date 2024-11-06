@@ -632,7 +632,7 @@ impl BitcoinService {
     /// Bump TX fee via cpfp.
     /// If txid is None, resolves to the latest TX in chain
     pub async fn bump_fee_cpfp(&self, txid: Option<Txid>, fee_rate: f64) -> Result<Txid> {
-        // Look for passed tx or resolve to last_tx monitored
+        // Look for input tx or resolve to monitored last_tx
         let parent_txid = match txid {
             None => {
                 self.monitoring
