@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use super::get_citrea_path;
 use anyhow::bail;
 use async_trait::async_trait;
 use bitcoin_da::monitoring::TxStatus;
@@ -11,7 +10,8 @@ use citrea_e2e::config::TestCaseConfig;
 use citrea_e2e::framework::TestFramework;
 use citrea_e2e::test_case::{TestCase, TestCaseRunner};
 use citrea_e2e::Result;
-use tokio::time::sleep;
+
+use super::get_citrea_path;
 
 struct BitcoinReorgTest;
 

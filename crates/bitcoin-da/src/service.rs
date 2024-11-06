@@ -403,7 +403,7 @@ impl BitcoinService {
         // If Utxo has already been spent, fallback to get_prev_utxo
         // Would happen in case of cpfp spending reveal output
         if let Some(prev) = &prev_utxo {
-            if let None = utxos.iter().find(|utxo| utxo == &prev) {
+            if !utxos.iter().any(|utxo| utxo == prev) {
                 prev_utxo = self.get_prev_utxo().await?;
             }
         }

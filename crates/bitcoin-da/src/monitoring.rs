@@ -1,18 +1,18 @@
-use bitcoin::absolute::LockTime;
-use bitcoin::blockdata::script;
-use bitcoin::transaction::Version;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::{Mutex, RwLock};
-use tokio::time::interval;
-use tracing::{debug, error, info, instrument};
 
+use bitcoin::absolute::LockTime;
+use bitcoin::blockdata::script;
+use bitcoin::transaction::Version;
 use bitcoin::{Amount, BlockHash, OutPoint, Sequence, Transaction, TxIn, TxOut, Txid, Witness};
 use bitcoincore_rpc::json::GetTransactionResult;
 use bitcoincore_rpc::{Client, RpcApi};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::sync::{Mutex, RwLock};
+use tokio::time::interval;
+use tracing::{debug, error, info, instrument};
 
 use crate::service::FINALITY_DEPTH;
 
@@ -121,7 +121,7 @@ impl MonitoringService {
         let mut current_hash: BlockHash;
 
         for height in (0..FINALITY_DEPTH).map(|i| current_height.saturating_sub(i)) {
-            current_hash = client.get_block_hash(height.into()).await?;
+            current_hash = client.get_block_hash(height).await?;
             recent_blocks.push((current_hash, height));
         }
 
@@ -237,7 +237,7 @@ impl MonitoringService {
 
             for i in 1..=FINALITY_DEPTH {
                 let height = new_height.saturating_sub(i);
-                current_hash = self.client.get_block_hash(height.into()).await?;
+                current_hash = self.client.get_block_hash(height).await?;
                 new_blocks.push((current_hash, height));
 
                 if let Some(pos) = chain_state
@@ -272,12 +272,12 @@ impl MonitoringService {
         for (txid, tx) in txs.iter_mut() {
             if let TxStatus::Confirmed { confirmations, .. } = tx.status {
                 if confirmations <= depth {
-                    let tx_result = self.client.get_transaction(&txid, None).await?;
+                    let tx_result = self.client.get_transaction(txid, None).await?;
                     tx.status = self.determine_tx_status(&tx_result).await?;
 
                     if let TxStatus::Pending { .. } = tx.status {
                         info!("Rebroadcasting tx {tx:?}");
-                        let raw_tx = self.client.get_raw_transaction_hex(&txid, None).await?;
+                        let raw_tx = self.client.get_raw_transaction_hex(txid, None).await?;
                         self.client.send_raw_transaction(raw_tx).await?;
                     }
                 }
@@ -516,7 +516,7 @@ impl MonitoringService {
         let child_vsize = child_tx.vsize() as f64;
         let total_vsize = parent_vsize + child_vsize;
 
-        let total_required_fee = (fee_rate as f64 * total_vsize).ceil() as u64;
+        let total_required_fee = (fee_rate * total_vsize).ceil() as u64;
 
         let child_required_fee = total_required_fee.saturating_sub(parent_fee);
         let required_fee = Amount::from_sat(child_required_fee);
