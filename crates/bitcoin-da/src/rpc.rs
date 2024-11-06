@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::monitoring::{MonitoredTx, TxStatus};
 use crate::service::BitcoinService;
-// use tracing::{debug, error};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitoredTxResponse {
