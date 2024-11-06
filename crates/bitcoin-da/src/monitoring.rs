@@ -2,17 +2,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use bitcoin::absolute::LockTime;
-use bitcoin::blockdata::script;
-use bitcoin::transaction::Version;
-use bitcoin::{Amount, BlockHash, OutPoint, Sequence, Transaction, TxIn, TxOut, Txid, Witness};
+use bitcoin::{BlockHash, Transaction, Txid};
 use bitcoincore_rpc::json::GetTransactionResult;
 use bitcoincore_rpc::{Client, RpcApi};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::interval;
-use tracing::{debug, error, info, instrument};
+use tracing::{error, info, instrument};
 
 use crate::service::FINALITY_DEPTH;
 
@@ -78,14 +75,6 @@ pub enum MonitorError {
     BitcoinRpcError(#[from] bitcoincore_rpc::Error),
     #[error(transparent)]
     BitcoinEncodeError(#[from] bitcoin::consensus::encode::Error),
-    #[error("Empty tx monitoring chain")]
-    EmptyChain,
-    #[error("Unexpected TX status {0:?}")]
-    WrongStatus(TxStatus),
-    #[error("Insufficient funds to cover fee bump")]
-    InsufficientFunds,
-    #[error("Tx not accepted in mempool : {0}")]
-    MempoolRejection(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -380,11 +369,11 @@ impl MonitoringService {
     }
 
     pub async fn get_tx_status(&self, txid: &Txid) -> Option<TxStatus> {
-        self.monitored_txs
-            .read()
-            .await
-            .get(txid)
-            .map(|tx| tx.status.clone())
+        self.get_monitored_tx(txid).await.map(|tx| tx.status)
+    }
+
+    pub async fn get_monitored_tx(&self, txid: &Txid) -> Option<MonitoredTx> {
+        self.monitored_txs.read().await.get(txid).cloned()
     }
 
     // pub async fn get_chain_details(&self) -> (BlockHash, BlockHeight) {
@@ -462,124 +451,10 @@ impl MonitoringService {
         Some((last_txid, tx))
     }
 
-    /// Bump TX fee via cpfp.
-    /// If txid is None, resolves to the latest TX in chain
-    pub async fn bump_fee_cpfp(&self, txid: Option<Txid>, fee_rate: f64) -> Result<Txid> {
-        // Look for passed tx or resolve to last_tx monitored
-        let parent_txid = match txid {
-            None => self.last_tx.lock().await.ok_or(MonitorError::EmptyChain)?,
-            Some(txid) => txid,
-        };
-
-        let monitored_tx = self
-            .monitored_txs
-            .read()
-            .await
-            .get(&parent_txid)
-            .cloned()
-            .ok_or(MonitorError::TxNotFound)?;
-
-        let TxStatus::Pending {
-            base_fee: parent_fee,
-            ..
-        } = monitored_tx.status
-        else {
-            return Err(MonitorError::WrongStatus(monitored_tx.status.to_owned()));
-        };
-        debug!("Creating cpfp TX for {parent_txid}");
-
-        let parent_tx = &monitored_tx.tx;
-        let output_index = 0;
-        let output_value = parent_tx.output[output_index].value;
-
-        let create_tx_input = |outpoint: OutPoint| TxIn {
-            previous_output: outpoint,
-            script_sig: script::Builder::new().into_script(),
-            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-            witness: Witness::new(),
-        };
-
-        let mut child_tx = Transaction {
-            version: Version(2),
-            lock_time: LockTime::ZERO,
-            input: vec![create_tx_input(OutPoint {
-                txid: parent_txid,
-                vout: output_index as u32,
-            })],
-            output: vec![TxOut {
-                value: output_value,
-                script_pubkey: parent_tx.output[output_index].script_pubkey.clone(),
-            }],
-        };
-
-        let parent_vsize = parent_tx.vsize() as f64;
-        let child_vsize = child_tx.vsize() as f64;
-        let total_vsize = parent_vsize + child_vsize;
-
-        let total_required_fee = (fee_rate * total_vsize).ceil() as u64;
-
-        let child_required_fee = total_required_fee.saturating_sub(parent_fee);
-        let required_fee = Amount::from_sat(child_required_fee);
-
-        let mut total_input = output_value;
-        if total_input <= required_fee {
-            // If first input value is not enough, use parent tx remaning outputs
-            // else take any available utxo
-            for (idx, utxo) in parent_tx.output.iter().enumerate().skip(1) {
-                if total_input > required_fee {
-                    break;
-                }
-                child_tx.input.push(create_tx_input(OutPoint {
-                    txid: parent_txid,
-                    vout: idx as u32,
-                }));
-                total_input += utxo.value;
-            }
-
-            let unspent = self
-                .client
-                .list_unspent(None, None, None, None, None)
-                .await?;
-
-            for utxo in unspent {
-                if total_input > required_fee {
-                    break;
-                }
-
-                child_tx.input.push(create_tx_input(OutPoint {
-                    txid: utxo.txid,
-                    vout: utxo.vout,
-                }));
-
-                total_input += utxo.amount;
-            }
-
-            if total_input <= required_fee {
-                return Err(MonitorError::InsufficientFunds);
-            }
-        }
-
-        child_tx.output[0].value = total_input - required_fee;
-
-        let signed_tx = self
-            .client
-            .sign_raw_transaction_with_wallet(&child_tx, None, None)
-            .await?;
-
-        if let Err(e) = self.client.test_mempool_accept(&[&signed_tx.hex]).await {
-            return Err(MonitorError::MempoolRejection(e.to_string()));
-        }
-
-        let child_txid = self.client.send_raw_transaction(&signed_tx.hex).await?;
-
-        self.monitor_transaction(child_txid, Some(parent_txid), None)
-            .await?;
-
+    pub async fn set_next_tx(&self, txid: &Txid, next_txid: Txid) {
         let mut monitored_txs = self.monitored_txs.write().await;
-        if let Some(parent) = monitored_txs.get_mut(&parent_txid) {
-            parent.next_tx = Some(child_txid);
+        if let Some(parent) = monitored_txs.get_mut(txid) {
+            parent.next_tx = Some(next_txid);
         }
-
-        Ok(child_txid)
     }
 }

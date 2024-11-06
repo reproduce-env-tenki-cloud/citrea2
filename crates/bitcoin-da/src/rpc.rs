@@ -88,17 +88,13 @@ impl DaRpcServer for DaRpcServerImpl {
         txid: Option<Txid>,
         fee_rate: f64,
     ) -> RpcResult<Txid> {
-        self.da
-            .monitoring
-            .bump_fee_cpfp(txid, fee_rate)
-            .await
-            .map_err(|e| {
-                ErrorObjectOwned::owned(
-                    INTERNAL_ERROR_CODE,
-                    INTERNAL_ERROR_MSG,
-                    Some(format!("{e}",)),
-                )
-            })
+        self.da.bump_fee_cpfp(txid, fee_rate).await.map_err(|e| {
+            ErrorObjectOwned::owned(
+                INTERNAL_ERROR_CODE,
+                INTERNAL_ERROR_MSG,
+                Some(format!("{e}",)),
+            )
+        })
     }
 }
 

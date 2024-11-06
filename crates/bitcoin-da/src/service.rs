@@ -12,11 +12,17 @@ use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoff;
+use bitcoin::absolute::LockTime;
 use bitcoin::block::Header;
+use bitcoin::blockdata::script;
 use bitcoin::consensus::{encode, Decodable};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::{Amount, BlockHash, CompactTarget, Transaction, Txid, Wtxid};
+use bitcoin::transaction::Version;
+use bitcoin::{
+    Amount, BlockHash, CompactTarget, OutPoint, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
+    Wtxid,
+};
 use bitcoincore_rpc::json::TestMempoolAcceptResult;
 use bitcoincore_rpc::{Auth, Client, Error, RpcApi, RpcError};
 use borsh::BorshDeserialize;
@@ -46,7 +52,7 @@ use crate::helpers::parsers::{
     parse_batch_proof_transaction, parse_light_client_transaction, ParsedBatchProofTransaction,
     ParsedLightClientTransaction, VerifyParsed,
 };
-use crate::monitoring::{MonitoringConfig, MonitoringService};
+use crate::monitoring::{MonitoringConfig, MonitoringService, TxStatus};
 use crate::spec::blob::BlobWithSender;
 use crate::spec::block::BitcoinBlock;
 use crate::spec::header::HeaderWrapper;
@@ -621,6 +627,128 @@ impl BitcoinService {
 
         tracing::debug!("Fee rate: {} sat/vb", sat_vkb / 1000);
         Ok(sat_vkb / 1000)
+    }
+
+    /// Bump TX fee via cpfp.
+    /// If txid is None, resolves to the latest TX in chain
+    pub async fn bump_fee_cpfp(&self, txid: Option<Txid>, fee_rate: f64) -> Result<Txid> {
+        // Look for passed tx or resolve to last_tx monitored
+        let parent_txid = match txid {
+            None => {
+                self.monitoring
+                    .get_last_tx()
+                    .await
+                    .context("No monitored tx")?
+                    .0
+            }
+            Some(txid) => txid,
+        };
+
+        let monitored_tx = self
+            .monitoring
+            .get_monitored_tx(&parent_txid)
+            .await
+            .context("Parent tx not found")?;
+
+        let TxStatus::Pending {
+            base_fee: parent_fee,
+            ..
+        } = monitored_tx.status
+        else {
+            bail!("Unexpected TX status {:?}", monitored_tx.status)
+        };
+        debug!("Creating cpfp TX for {parent_txid}");
+
+        let parent_tx = &monitored_tx.tx;
+        let output_index = 0;
+        let output_value = parent_tx.output[output_index].value;
+
+        let create_tx_input = |outpoint: OutPoint| TxIn {
+            previous_output: outpoint,
+            script_sig: script::Builder::new().into_script(),
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+            witness: Witness::new(),
+        };
+
+        let mut child_tx = Transaction {
+            version: Version(2),
+            lock_time: LockTime::ZERO,
+            input: vec![create_tx_input(OutPoint {
+                txid: parent_txid,
+                vout: output_index as u32,
+            })],
+            output: vec![TxOut {
+                value: output_value,
+                script_pubkey: parent_tx.output[output_index].script_pubkey.clone(),
+            }],
+        };
+
+        let parent_vsize = parent_tx.vsize() as f64;
+        let child_vsize = child_tx.vsize() as f64;
+        let total_vsize = parent_vsize + child_vsize;
+
+        let total_required_fee = (fee_rate * total_vsize).ceil() as u64;
+
+        let child_required_fee = total_required_fee.saturating_sub(parent_fee);
+        let required_fee = Amount::from_sat(child_required_fee);
+
+        let mut total_input = output_value;
+        if total_input <= required_fee {
+            // If first input value is not enough, use parent tx remaning outputs
+            // else take any available utxo
+            for (idx, utxo) in parent_tx.output.iter().enumerate().skip(1) {
+                if total_input > required_fee {
+                    break;
+                }
+                child_tx.input.push(create_tx_input(OutPoint {
+                    txid: parent_txid,
+                    vout: idx as u32,
+                }));
+                total_input += utxo.value;
+            }
+
+            let unspent = self
+                .client
+                .list_unspent(None, None, None, None, None)
+                .await?;
+
+            for utxo in unspent {
+                if total_input > required_fee {
+                    break;
+                }
+
+                child_tx.input.push(create_tx_input(OutPoint {
+                    txid: utxo.txid,
+                    vout: utxo.vout,
+                }));
+
+                total_input += utxo.amount;
+            }
+
+            if total_input <= required_fee {
+                bail!("Insufficient funds to cover fee bump");
+            }
+        }
+
+        child_tx.output[0].value = total_input - required_fee;
+
+        let signed_tx = self
+            .client
+            .sign_raw_transaction_with_wallet(&child_tx, None, None)
+            .await?;
+
+        if let Err(e) = self.client.test_mempool_accept(&[&signed_tx.hex]).await {
+            bail!("Tx not accepted in mempool : {e}");
+        }
+
+        let child_txid = self.client.send_raw_transaction(&signed_tx.hex).await?;
+
+        self.monitoring
+            .monitor_transaction(child_txid, Some(parent_txid), None)
+            .await?;
+        self.monitoring.set_next_tx(&parent_txid, child_txid).await;
+
+        Ok(child_txid)
     }
 }
 
