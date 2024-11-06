@@ -87,7 +87,7 @@ pub struct BitcoinServiceConfig {
     // absolute path to the directory where the txs will be written to
     pub tx_backup_dir: String,
 
-    pub monitoring: MonitoringConfig,
+    pub monitoring: Option<MonitoringConfig>,
 }
 
 impl citrea_common::FromEnv for BitcoinServiceConfig {
@@ -99,10 +99,10 @@ impl citrea_common::FromEnv for BitcoinServiceConfig {
             network: serde_json::from_str(&format!("\"{}\"", std::env::var("NETWORK")?))?,
             da_private_key: std::env::var("DA_PRIVATE_KEY").ok(),
             tx_backup_dir: std::env::var("TX_BACKUP_DIR")?,
-            monitoring: MonitoringConfig {
+            monitoring: Some(MonitoringConfig {
                 check_interval: std::env::var("DA_MONITORING_CHECK_INTERVAL")?.parse()?,
                 history_limit: std::env::var("DA_MONITORING_TX_HISTORY_SIZE")?.parse()?,
-            },
+            }),
         })
     }
 }
@@ -1357,7 +1357,6 @@ mod tests {
     use super::{get_fee_rate_from_mempool_space, get_relevant_blobs_from_txs, BitcoinService};
     use crate::helpers::parsers::parse_hex_transaction;
     use crate::helpers::test_utils::{get_mock_data, get_mock_txs};
-    use crate::monitoring::MonitoringConfig;
     use crate::service::BitcoinServiceConfig;
     use crate::spec::block::BitcoinBlock;
     use crate::spec::header::HeaderWrapper;
@@ -1390,7 +1389,7 @@ mod tests {
                 "E9873D79C6D87DC0FB6A5778633389F4453213303DA61F20BD67FC233AA33262".to_string(), // Test key, safe to publish
             ),
             tx_backup_dir: get_tx_backup_dir(),
-            monitoring: MonitoringConfig::default(),
+            monitoring: None,
         };
 
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1422,7 +1421,7 @@ mod tests {
                 "E9873D79C6D87DC0FB6A5778633389F4453213303DA61F20BD67FC233AA33262".to_string(), // Test key, safe to publish
             ),
             tx_backup_dir: get_tx_backup_dir(),
-            monitoring: MonitoringConfig::default(),
+            monitoring: None,
         };
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1455,7 +1454,7 @@ mod tests {
                 "E9873D79C6D87DC0FB6A5778633389F4453213303DA61F20BD67FC233AA33263".to_string(), // Test key, safe to publish
             ),
             tx_backup_dir: get_tx_backup_dir(),
-            monitoring: MonitoringConfig::default(),
+            monitoring: None,
         };
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1654,7 +1653,7 @@ mod tests {
                 "E9873D79C6D87DC0FB6A5778633389F4453213303DA61F20BD67FC233AA33261".to_string(), // Test key, safe to publish
             ),
             tx_backup_dir: get_tx_backup_dir(),
-            monitoring: MonitoringConfig::default(),
+            monitoring: None,
         };
 
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();

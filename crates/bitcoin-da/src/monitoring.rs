@@ -102,7 +102,7 @@ pub struct MonitoringService {
 }
 
 impl MonitoringService {
-    pub async fn new(client: Arc<Client>, config: MonitoringConfig) -> Result<Self> {
+    pub async fn new(client: Arc<Client>, config: Option<MonitoringConfig>) -> Result<Self> {
         let current_height = client.get_block_count().await?;
         let current_tip = client.get_best_block_hash().await?;
 
@@ -122,7 +122,7 @@ impl MonitoringService {
                 current_tip,
                 recent_blocks,
             }),
-            config,
+            config: config.unwrap_or_default(),
             last_tx: Mutex::new(None),
         })
     }
