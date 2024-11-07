@@ -1281,7 +1281,7 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=ede8097#ede8097e0f0fce5d69e9cab6f85fda39e788a97b"
+source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=5ce1bed#5ce1beda710e6579e4eec3e12ffa02437cfa2fa4"
 dependencies = [
  "async-trait",
  "bitcoincore-rpc-json",
@@ -1296,7 +1296,7 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc-json"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=ede8097#ede8097e0f0fce5d69e9cab6f85fda39e788a97b"
+source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=5ce1bed#5ce1beda710e6579e4eec3e12ffa02437cfa2fa4"
 dependencies = [
  "bitcoin",
  "serde",
