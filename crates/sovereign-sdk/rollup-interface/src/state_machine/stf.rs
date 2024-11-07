@@ -58,9 +58,6 @@ mod sealed {
 pub struct TransactionReceipt<R> {
     /// The canonical hash of this transaction
     pub tx_hash: [u8; 32],
-    /// The canonically serialized body of the transaction, if it should be persisted
-    /// in the database
-    pub body_to_save: Option<Vec<u8>>,
     /// The events output by this transaction
     pub events: Vec<Event>,
     /// Any additional structured data to be saved in the database and served over RPC
@@ -83,6 +80,16 @@ pub struct BatchReceipt<BatchReceiptContents, TxReceiptContents> {
     pub tx_receipts: Vec<TransactionReceipt<TxReceiptContents>>,
     /// Any additional structured data to be saved in the database and served over RPC
     pub phantom_data: PhantomData<BatchReceiptContents>,
+}
+
+/// The output of the function that applies sequencer commitments to the state in the verifier
+pub struct ApplySequencerCommitmentsOutput<StateRoot> {
+    /// Final state root after all sequencer commitments were applied
+    pub final_state_root: StateRoot,
+    /// State diff generated after applying
+    pub state_diff: CumulativeStateDiff,
+    /// Last processed L2 block height
+    pub last_l2_height: u64,
 }
 
 /// A receipt for a soft confirmation of transactions. These receipts are stored in the rollup's database
@@ -306,7 +313,7 @@ pub trait StateTransitionFunction<Vm: Zkvm, Da: DaSpec> {
         soft_confirmations: VecDeque<Vec<SignedSoftConfirmation>>,
         preproven_commitment_indicies: Vec<usize>,
         forks: Vec<Fork>,
-    ) -> (Self::StateRoot, CumulativeStateDiff, SpecId);
+    ) -> ApplySequencerCommitmentsOutput<Self::StateRoot>;
 }
 
 #[derive(Debug)]
