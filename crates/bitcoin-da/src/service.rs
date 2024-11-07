@@ -655,7 +655,10 @@ impl BitcoinService {
             ..
         } = monitored_tx.status
         else {
-            bail!("Unexpected TX status {:?}", monitored_tx.status)
+            bail!(
+                "Cannot bump fee for TX with status: {:?}. Transaction must be in mempool",
+                monitored_tx.status
+            )
         };
         debug!("Creating cpfp TX for {parent_txid}");
 
@@ -684,29 +687,16 @@ impl BitcoinService {
         };
 
         let parent_vsize = parent_tx.vsize() as f64;
-        let child_vsize = child_tx.vsize() as f64;
-        let total_vsize = parent_vsize + child_vsize;
+        let calculate_child_fee = |tx: &Transaction| -> Amount {
+            let child_vsize = tx.vsize() as f64;
+            let total_vsize = parent_vsize + child_vsize;
+            let total_required_fee = (fee_rate * total_vsize).ceil() as u64;
+            Amount::from_sat(total_required_fee.saturating_sub(parent_fee))
+        };
 
-        let total_required_fee = (fee_rate * total_vsize).ceil() as u64;
-
-        let child_required_fee = total_required_fee.saturating_sub(parent_fee);
-        let required_fee = Amount::from_sat(child_required_fee);
-
+        let mut required_fee = calculate_child_fee(&child_tx);
         let mut total_input = output_value;
         if total_input <= required_fee {
-            // If first input value is not enough, use parent tx remaning outputs
-            // else take any available utxo
-            for (idx, utxo) in parent_tx.output.iter().enumerate().skip(1) {
-                if total_input > required_fee {
-                    break;
-                }
-                child_tx.input.push(create_tx_input(OutPoint {
-                    txid: parent_txid,
-                    vout: idx as u32,
-                }));
-                total_input += utxo.value;
-            }
-
             let unspent = self
                 .client
                 .list_unspent(None, None, None, None, None)
@@ -723,6 +713,7 @@ impl BitcoinService {
                 }));
 
                 total_input += utxo.amount;
+                required_fee = calculate_child_fee(&child_tx);
             }
 
             if total_input <= required_fee {
