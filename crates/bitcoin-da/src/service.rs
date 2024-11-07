@@ -100,7 +100,8 @@ impl citrea_common::FromEnv for BitcoinServiceConfig {
             tx_backup_dir: std::env::var("TX_BACKUP_DIR")?,
             monitoring: Some(MonitoringConfig {
                 check_interval: std::env::var("DA_MONITORING_CHECK_INTERVAL")?.parse()?,
-                history_limit: std::env::var("DA_MONITORING_TX_HISTORY_SIZE")?.parse()?,
+                history_limit: std::env::var("DA_MONITORING_HISTORY_LIMIT")?.parse()?,
+                max_history_size: std::env::var("DA_MONITORING_MAX_HISTORY_SIZE")?.parse()?,
             }),
         })
     }

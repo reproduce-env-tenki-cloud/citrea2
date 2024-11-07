@@ -6,6 +6,7 @@ use bitcoin::{BlockHash, Transaction, Txid};
 use bitcoincore_rpc::json::GetTransactionResult;
 use bitcoincore_rpc::{Client, RpcApi};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::interval;
@@ -15,6 +16,7 @@ use crate::service::FINALITY_DEPTH;
 
 const DEFAULT_CHECK_INTERVAL: u64 = 60;
 const DEFAULT_HISTORY_LIMIT: usize = 1_000; // Keep track of last 1k txs
+const DEFAULT_MAX_HISTORY_SIZE: usize = 200_000_000; // Default max monitored tx total size to 200mb
 
 type BlockHeight = u64;
 type Result<T> = std::result::Result<T, MonitorError>;
@@ -82,6 +84,7 @@ pub enum MonitorError {
 pub struct MonitoringConfig {
     pub check_interval: u64,
     pub history_limit: usize,
+    pub max_history_size: usize,
 }
 
 impl Default for MonitoringConfig {
@@ -89,6 +92,7 @@ impl Default for MonitoringConfig {
         Self {
             check_interval: DEFAULT_CHECK_INTERVAL,
             history_limit: DEFAULT_HISTORY_LIMIT,
+            max_history_size: DEFAULT_MAX_HISTORY_SIZE,
         }
     }
 }
@@ -99,7 +103,11 @@ pub struct MonitoringService {
     monitored_txs: RwLock<HashMap<Txid, MonitoredTx>>,
     chain_state: RwLock<ChainState>,
     config: MonitoringConfig,
+    // Last tx in queue
     last_tx: Mutex<Option<Txid>>,
+    // Keep track of total monitored transaciton size
+    // Only takes into account inner tx field from MonitoredTx
+    total_size: AtomicUsize,
 }
 
 impl MonitoringService {
@@ -125,6 +133,7 @@ impl MonitoringService {
             }),
             config: config.unwrap_or_default(),
             last_tx: Mutex::new(None),
+            total_size: AtomicUsize::new(0),
         };
 
         // Revive monitoring service from mempool
@@ -209,6 +218,8 @@ impl MonitoringService {
         let current_height = self.client.get_block_count().await?;
         let tx_result = self.client.get_transaction(&txid, None).await?;
         let tx = tx_result.transaction()?;
+
+        self.total_size.fetch_add(tx.total_size(), Ordering::SeqCst);
 
         let status = self.determine_tx_status(&tx_result).await?;
         let monitored_tx = MonitoredTx {
@@ -366,8 +377,9 @@ impl MonitoringService {
 
     async fn prune_old_transactions(&self) {
         let mut txs = self.monitored_txs.write().await;
+        let current_size = self.total_size.load(Ordering::SeqCst);
 
-        if txs.len() > self.config.history_limit {
+        if txs.len() > self.config.history_limit || current_size > self.config.max_history_size {
             let to_remove: Vec<_> = txs
                 .iter()
                 .filter(|(_, tx)| matches!(tx.status, TxStatus::Finalized { .. }))
@@ -378,10 +390,16 @@ impl MonitoringService {
             to_remove.sort_by_key(|&(_, time)| time);
 
             for (txid, _) in to_remove {
-                if txs.len() <= self.config.history_limit {
+                if txs.len() <= self.config.history_limit
+                    && self.total_size.load(Ordering::SeqCst) <= self.config.max_history_size
+                {
                     break;
                 }
-                txs.remove(&txid);
+
+                if let Some(removed_tx) = txs.remove(&txid) {
+                    let tx_size = removed_tx.tx.total_size();
+                    self.total_size.fetch_sub(tx_size, Ordering::SeqCst);
+                }
             }
         }
     }
