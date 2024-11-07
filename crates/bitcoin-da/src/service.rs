@@ -703,10 +703,6 @@ impl BitcoinService {
                 .await?;
 
             for utxo in unspent {
-                if total_input > required_fee {
-                    break;
-                }
-
                 child_tx.input.push(create_tx_input(OutPoint {
                     txid: utxo.txid,
                     vout: utxo.vout,
@@ -714,6 +710,10 @@ impl BitcoinService {
 
                 total_input += utxo.amount;
                 required_fee = calculate_child_fee(&child_tx);
+
+                if total_input > required_fee {
+                    break;
+                }
             }
 
             if total_input <= required_fee {
