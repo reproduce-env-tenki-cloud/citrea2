@@ -689,7 +689,7 @@ impl BitcoinService {
                 total_input += utxo.amount;
                 required_fee = calculate_child_fee(&child_tx);
 
-                if total_input > required_fee {
+                if total_input > required_fee + output_value {
                     break;
                 }
             }
