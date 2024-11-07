@@ -4,7 +4,6 @@
 use core::result::Result::Ok;
 use core::str::FromStr;
 use core::time::Duration;
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -362,34 +361,13 @@ impl BitcoinService {
     }
 
     #[instrument(level = "trace", skip_all, ret)]
-    async fn get_pending_transactions(&self) -> Result<Vec<Transaction>, anyhow::Error> {
-        let mut pending_utxos = self
-            .client
-            .list_unspent(Some(0), Some(0), None, None, None)
-            .await?;
-        // Sorted by ancestor count, the tx with the most ancestors is the latest tx
-        pending_utxos.sort_unstable_by_key(|utxo| -(utxo.ancestor_count.unwrap_or(0) as i64));
-
-        let mut pending_transactions = Vec::new();
-        let mut scanned_txids = HashSet::new();
-
-        for utxo in pending_utxos.iter() {
-            let txid = utxo.txid;
-            // Check if tx is already in the pending transactions vector
-            if scanned_txids.contains(&txid) {
-                continue;
-            }
-
-            let tx = self
-                .client
-                .get_raw_transaction(&txid, None)
-                .await
-                .expect("Transaction should exist with existing utxo");
-            pending_transactions.push(tx);
-            scanned_txids.insert(txid);
-        }
-
-        Ok(pending_transactions)
+    async fn get_pending_transactions(&self) -> Vec<Transaction> {
+        self.monitoring
+            .get_pending_transactions()
+            .await
+            .into_iter()
+            .map(|(_, monitored_tx)| monitored_tx.tx)
+            .collect()
     }
 
     #[instrument(level = "trace", fields(prev_utxo), ret, err)]
@@ -1178,7 +1156,7 @@ impl DaService for BitcoinService {
         &self,
         sequencer_da_pub_key: &[u8],
     ) -> Vec<SequencerCommitment> {
-        let pending_txs = self.get_pending_transactions().await.unwrap();
+        let pending_txs = self.get_pending_transactions().await;
 
         let mut sequencer_commitments = Vec::new();
 

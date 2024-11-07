@@ -34,6 +34,7 @@ pub enum TxStatus {
     Finalized {
         block_hash: BlockHash,
         block_height: BlockHeight,
+        confirmations: u64,
     },
     Replaced {
         by_txid: Txid,
@@ -318,7 +319,8 @@ impl MonitoringService {
     }
 
     async fn determine_tx_status(&self, tx_result: &GetTransactionResult) -> Result<TxStatus> {
-        let status = if tx_result.info.confirmations > 0 {
+        let confirmations = tx_result.info.confirmations as u64;
+        let status = if confirmations > 0 {
             let block_hash = tx_result
                 .info
                 .blockhash
@@ -330,18 +332,17 @@ impl MonitoringService {
                 .map(|header| header.height as u64)
                 .unwrap_or(0);
 
-            if tx_result.info.confirmations > 0
-                && tx_result.info.confirmations as u64 >= FINALITY_DEPTH
-            {
+            if confirmations >= FINALITY_DEPTH {
                 TxStatus::Finalized {
                     block_hash,
                     block_height,
+                    confirmations,
                 }
             } else {
                 TxStatus::Confirmed {
                     block_hash,
                     block_height,
-                    confirmations: tx_result.info.confirmations as u64,
+                    confirmations,
                 }
             }
         } else {
