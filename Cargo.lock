@@ -1226,6 +1226,7 @@ dependencies = [
  "borsh",
  "citrea-common",
  "citrea-primitives",
+ "crypto-bigint",
  "futures",
  "hex",
  "pin-project",

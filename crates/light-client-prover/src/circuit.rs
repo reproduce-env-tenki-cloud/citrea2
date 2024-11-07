@@ -16,28 +16,28 @@ pub enum LightClientVerificationError {
 pub fn run_circuit<DaV: DaVerifier, G: ZkvmGuest>(
     da_verifier: DaV,
     guest: &G,
-) -> Result<LightClientCircuitOutput, LightClientVerificationError> {
+) -> Result<LightClientCircuitOutput<DaV::Spec>, LightClientVerificationError> {
     let input: LightClientCircuitInput<DaV::Spec> = guest.read_from_host();
 
-    // Verify the previous light client proof if it exists
-    let deserialized_previous_light_client_proof_journal = input
-        .light_client_proof_journal
-        .as_ref()
-        .map(|proof_journal| {
-            let deserialized = G::verify_and_extract_output::<LightClientCircuitOutput>(
-                proof_journal,
+    // Extract previous light client proof output
+    let previous_light_client_proof_output =
+        input.previous_light_client_proof_journal.map(|journal| {
+            let prev_output = G::verify_and_extract_output::<LightClientCircuitOutput<DaV::Spec>>(
+                &journal,
                 &input.light_client_proof_method_id.into(),
             )
-            .expect("Should have verified the light client proof");
-
-            // Ensure input and output method IDs match
-            // TODO: Once we have light client method id by spec update accordingly
+            .expect("Got invalid previous light client proof");
+            // Method ids match
             assert_eq!(
                 input.light_client_proof_method_id,
-                deserialized.light_client_proof_method_id
+                prev_output.light_client_proof_method_id,
             );
-            deserialized
+            prev_output
         });
+
+    let block_updates = da_verifier
+        .verify_header_chain(&previous_light_client_proof_output, &input.da_block_header)
+        .expect("Failed to verify DA header chain");
 
     // Verify data from da
     let _validity_condition = da_verifier
@@ -50,62 +50,29 @@ pub fn run_circuit<DaV: DaVerifier, G: ZkvmGuest>(
         )
         .map_err(|_| LightClientVerificationError::DaTxsCouldntBeVerified)?;
 
-    let mut complete_proofs = vec![];
-    // Try parsing the data
-    for blob in input.da_data {
-        if blob.sender().as_ref() == input.batch_prover_da_pub_key {
-            let data = DaDataLightClient::try_from_slice(blob.verified_data());
-
-            if let Ok(data) = data {
-                match data {
-                    DaDataLightClient::Complete(proof) => {
-                        complete_proofs.push(proof);
-                    }
-                    DaDataLightClient::Aggregate(_) => todo!(),
-                    DaDataLightClient::Chunk(_) => todo!(),
-                }
-            }
-        }
-    }
-
-    // Deserialize batch proof journals
-    let deserialized_outputs: Vec<_> = input
-        .batch_proof_journals
-        .iter()
-        .map(|journal| {
-            G::verify_and_extract_output::<BatchProofCircuitOutput<DaV::Spec, [u8; 32]>>(
-                journal,
-                &input.batch_proof_method_id.into(),
-            )
-            .expect("Should have verified and extracted the batch proof")
-        })
-        .collect();
-
     // Mapping from initial state root to final state root and last L2 height
     let mut initial_to_final = std::collections::BTreeMap::<[u8; 32], ([u8; 32], u64)>::new();
 
     let (mut last_state_root, mut last_l2_height, l2_genesis_state_root) =
-        deserialized_previous_light_client_proof_journal
-            .as_ref()
-            .map_or_else(
-                || {
-                    let r = input
-                        .l2_genesis_state_root
-                        .expect("if no preious proof, genesis must exist");
-                    (r, 0, r)
-                },
-                |prev_journal| {
-                    (
-                        prev_journal.state_root,
-                        prev_journal.last_l2_height,
-                        prev_journal.l2_genesis_state_root,
-                    )
-                },
-            );
+        previous_light_client_proof_output.as_ref().map_or_else(
+            || {
+                let r = input
+                    .l2_genesis_state_root
+                    .expect("if no preious proof, genesis must exist");
+                (r, 0, r)
+            },
+            |prev_journal| {
+                (
+                    prev_journal.state_root,
+                    prev_journal.last_l2_height,
+                    prev_journal.l2_genesis_state_root,
+                )
+            },
+        );
 
     // If we have a previous light client proof, check they can be chained
     // If not, skip for now
-    if let Some(previous_output) = &deserialized_previous_light_client_proof_journal {
+    if let Some(previous_output) = &previous_light_client_proof_output {
         for unchained_info in previous_output.unchained_batch_proofs_info.iter() {
             // Add them directly as they are the ones that could not be matched
             initial_to_final.insert(
@@ -117,21 +84,44 @@ pub fn run_circuit<DaV: DaVerifier, G: ZkvmGuest>(
             );
         }
     }
+    // TODO: Test for multiple assumptions to see if the env::verify function does automatic matching between the journal and the assumption or do we need to verify them in order?
+    // https://github.com/chainwayxyz/citrea/issues/1401
+    let batch_proof_method_id = input.batch_proof_method_id;
+    // Parse the batch proof da data
+    // TODO: We are currently assuming batch proofs are ordered. Erce's pr will handle that so I am currently ignoring that case.
+    for blob in input.da_data {
+        if blob.sender().as_ref() == input.batch_prover_da_pub_key {
+            let data = DaDataLightClient::try_from_slice(blob.verified_data());
 
-    for output in deserialized_outputs.iter() {
-        // Do not add if last l2 height is smaller or equal to previous output
-        // This is to defend against replay attacks, for example if somehow there is the script of batch proof 1 we do not need to go through it again
-        if output.last_l2_height <= last_l2_height {
-            continue;
+            if let Ok(data) = data {
+                match data {
+                    DaDataLightClient::Complete(proof) => {
+                        let journal =
+                            G::extract_raw_output(&proof).expect("DaData proofs must be valid");
+                        let batch_proof_output: BatchProofCircuitOutput<DaV::Spec, [u8; 32]> =
+                            G::verify_and_extract_output(&journal, &batch_proof_method_id.into())
+                                .expect("Batch proof could not be verified");
+
+                        // Do not add if last l2 height is smaller or equal to previous output
+                        // This is to defend against replay attacks, for example if somehow there is the script of batch proof 1 we do not need to go through it again
+                        if batch_proof_output.last_l2_height <= last_l2_height {
+                            continue;
+                        }
+
+                        recursive_match_state_roots(
+                            &mut initial_to_final,
+                            &BatchProofInfo::new(
+                                batch_proof_output.initial_state_root,
+                                batch_proof_output.final_state_root,
+                                batch_proof_output.last_l2_height,
+                            ),
+                        );
+                    }
+                    DaDataLightClient::Aggregate(_) => todo!(),
+                    DaDataLightClient::Chunk(_) => todo!(),
+                }
+            }
         }
-        recursive_match_state_roots(
-            &mut initial_to_final,
-            &BatchProofInfo::new(
-                output.initial_state_root,
-                output.final_state_root,
-                output.last_l2_height,
-            ),
-        );
     }
 
     // Do recursive matching for previous state root
@@ -152,6 +142,12 @@ pub fn run_circuit<DaV: DaVerifier, G: ZkvmGuest>(
     Ok(LightClientCircuitOutput {
         state_root: last_state_root,
         light_client_proof_method_id: input.light_client_proof_method_id,
+        da_block_hash: block_updates.hash,
+        da_block_height: block_updates.height,
+        da_total_work: block_updates.total_work,
+        da_current_target_bits: block_updates.current_target_bits,
+        da_epoch_start_time: block_updates.epoch_start_time,
+        da_prev_11_timestamps: block_updates.prev_11_timestamps,
         unchained_batch_proofs_info: unchained_outputs,
         last_l2_height,
         l2_genesis_state_root,

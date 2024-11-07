@@ -81,6 +81,9 @@ pub trait Zkvm: Send + Sync {
         code_commitment: &Self::CodeCommitment,
     ) -> Result<Vec<u8>, Self::Error>;
 
+    /// Extracts the raw output without doing any verification.
+    fn extract_raw_output(serialized_proof: &[u8]) -> Result<Vec<u8>, Self::Error>;
+
     /// Same as [`verify`](Zkvm::verify), except that instead of returning the output
     /// as a serialized array, it returns a state transition structure.
     /// TODO: specify a deserializer for the output
@@ -242,12 +245,25 @@ impl BatchProofInfo {
 
 /// The output of light client proof
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize, PartialEq)]
-pub struct LightClientCircuitOutput {
+pub struct LightClientCircuitOutput<Da: DaSpec> {
     /// State root of the node after the light client proof
     pub state_root: [u8; 32],
     /// The method id of the light client proof
     /// This is used to compare the previous light client proof method id with the input (current) method id
     pub light_client_proof_method_id: [u32; 8],
+    /// Proved DA block's header hash
+    /// This is used to compare the previous DA block hash with first batch proof's DA block hash
+    pub da_block_hash: Da::SlotHash,
+    /// Height of the blockchain
+    pub da_block_height: u64,
+    /// Total work done in the DA blockchain
+    pub da_total_work: [u8; 32],
+    /// Current target bits of DA
+    pub da_current_target_bits: u32,
+    /// The time of the first block in the current epoch (the difficulty adjustment timestamp)
+    pub da_epoch_start_time: u32,
+    /// The UNIX timestamps in seconds of the previous 11 blocks
+    pub da_prev_11_timestamps: [u32; 11],
     /// Batch proof info from current or previous light client proofs that were not changed and unable to update the state root yet
     pub unchained_batch_proofs_info: Vec<BatchProofInfo>,
     /// Last l2 height the light client proof verifies
@@ -272,13 +288,11 @@ pub struct LightClientCircuitInput<Da: DaSpec> {
     pub batch_prover_da_pub_key: Vec<u8>,
     /// Batch proof method id
     pub batch_proof_method_id: [u32; 8],
-    /// Batch proofs outputs
-    pub batch_proof_journals: Vec<Vec<u8>>,
     /// Light client proof method id
     pub light_client_proof_method_id: [u32; 8],
     /// Light client proof output
     /// Optional because the first light client proof doesn't have a previous proof
-    pub light_client_proof_journal: Option<Vec<u8>>,
+    pub previous_light_client_proof_journal: Option<Vec<u8>>,
     /// L2 Genesis state root
     pub l2_genesis_state_root: Option<[u8; 32]>,
 }
