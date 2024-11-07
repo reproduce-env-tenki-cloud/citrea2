@@ -161,6 +161,7 @@ impl TestCase for DaMonitoringTest {
         let mempool0 = da.get_raw_mempool().await?;
         assert_eq!(mempool0.len(), 2);
 
+        sleep(Duration::from_secs(1)).await;
         let pending_txs = sequencer
             .client
             .http_client()
