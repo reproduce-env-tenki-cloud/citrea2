@@ -156,11 +156,7 @@ impl BitcoinService {
                 .context("Failed to create tx backup directory")?;
         }
 
-        let monitoring = Arc::new(
-            MonitoringService::new(client.clone(), config.monitoring)
-                .await
-                .context("Failed to initialize monitoring service")?,
-        );
+        let monitoring = Arc::new(MonitoringService::new(client.clone(), config.monitoring));
 
         Ok(Self {
             client,
@@ -201,11 +197,7 @@ impl BitcoinService {
                 .context("Failed to create tx backup directory")?;
         }
 
-        let monitoring = Arc::new(
-            MonitoringService::new(client.clone(), config.monitoring)
-                .await
-                .context("Failed to initialize monitoring service")?,
-        );
+        let monitoring = Arc::new(MonitoringService::new(client.clone(), config.monitoring));
 
         Ok(Self {
             client,
@@ -223,8 +215,6 @@ impl BitcoinService {
         self: Arc<Self>,
         mut rx: UnboundedReceiver<Option<SenderWithNotifier<TxidWrapper>>>,
     ) {
-        self.monitoring.clone().spawn();
-
         tokio::spawn(async move {
             let mut prev_utxo = match self.get_prev_utxo().await {
                 Ok(Some(prev_utxo)) => Some(prev_utxo),

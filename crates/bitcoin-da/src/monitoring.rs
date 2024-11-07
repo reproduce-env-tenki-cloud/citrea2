@@ -1,12 +1,13 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, Transaction, Txid};
 use bitcoincore_rpc::json::GetTransactionResult;
 use bitcoincore_rpc::{Client, RpcApi};
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::interval;
@@ -55,10 +56,10 @@ pub struct MonitoredTx {
     pub next_tx: Option<Txid>, // Next tx in chain
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ChainState {
     current_height: BlockHeight,
-    current_tip: BlockHash,
+    current_tip: Option<BlockHash>,
     recent_blocks: Vec<(BlockHash, BlockHeight)>,
 }
 
@@ -111,34 +112,46 @@ pub struct MonitoringService {
 }
 
 impl MonitoringService {
-    pub async fn new(client: Arc<Client>, config: Option<MonitoringConfig>) -> Result<Self> {
-        let current_height = client.get_block_count().await?;
-        let current_tip = client.get_best_block_hash().await?;
+    pub fn new(client: Arc<Client>, config: Option<MonitoringConfig>) -> Self {
+        Self {
+            client,
+            monitored_txs: RwLock::new(HashMap::new()),
+            chain_state: RwLock::new(ChainState::default()),
+            config: config.unwrap_or_default(),
+            last_tx: Mutex::new(None),
+            total_size: AtomicUsize::new(0),
+        }
+    }
+
+    async fn init(&self) -> Result<()> {
+        self.initialize_chainstate().await?;
+        self.restore_from_mempool().await
+    }
+
+    async fn initialize_chainstate(&self) -> Result<()> {
+        let current_height = self.client.get_block_count().await?;
+        let current_tip = self.client.get_best_block_hash().await?;
 
         let mut recent_blocks = Vec::with_capacity(FINALITY_DEPTH as usize);
         let mut current_hash: BlockHash;
 
         for height in (0..FINALITY_DEPTH).map(|i| current_height.saturating_sub(i)) {
-            current_hash = client.get_block_hash(height).await?;
+            current_hash = self.client.get_block_hash(height).await?;
             recent_blocks.push((current_hash, height));
         }
 
-        let service = Self {
-            client,
-            monitored_txs: RwLock::new(HashMap::new()),
-            chain_state: RwLock::new(ChainState {
-                current_height,
-                current_tip,
-                recent_blocks,
-            }),
-            config: config.unwrap_or_default(),
-            last_tx: Mutex::new(None),
-            total_size: AtomicUsize::new(0),
+        let mut chain_state = self.chain_state.write().await;
+        *chain_state = ChainState {
+            current_height,
+            current_tip: Some(current_tip),
+            recent_blocks,
         };
 
-        // Revive monitoring service from mempool
-        // Skip finalized txs
-        let mut unspent = service
+        Ok(())
+    }
+
+    async fn restore_from_mempool(&self) -> Result<()> {
+        let mut unspent = self
             .client
             .list_unspent(None, Some(FINALITY_DEPTH as usize), None, None, None)
             .await?;
@@ -149,13 +162,13 @@ impl MonitoringService {
 
         let txids = unspent.into_iter().map(|utxo| utxo.txid).collect();
 
-        service.monitor_transaction_chain(txids).await?;
-
-        Ok(service)
+        self.monitor_transaction_chain(txids).await
     }
 
     /// Spawn a tokio task to keep track of TX status and chain re-orgs
-    pub fn spawn(self: Arc<Self>) {
+    pub async fn spawn(self: Arc<Self>) -> Result<()> {
+        self.init().await?;
+
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(self.config.check_interval));
             loop {
@@ -169,6 +182,7 @@ impl MonitoringService {
                 self.prune_old_transactions().await;
             }
         });
+        Ok(())
     }
 
     /// Monitor a chain of transactions (commit/reveal pairs and any intermediate chunks)
@@ -247,7 +261,7 @@ impl MonitoringService {
 
         let mut chain_state = self.chain_state.write().await;
 
-        if new_tip != chain_state.current_tip {
+        if new_tip != chain_state.current_tip.unwrap_or(BlockHash::all_zeros()) {
             let mut current_hash: BlockHash;
             let mut new_blocks = vec![(new_tip, new_height)];
             let mut reorg_detected = false;
@@ -277,7 +291,7 @@ impl MonitoringService {
             }
 
             chain_state.current_height = new_height;
-            chain_state.current_tip = new_tip;
+            chain_state.current_tip = Some(new_tip);
             chain_state.recent_blocks = new_blocks;
         }
 
