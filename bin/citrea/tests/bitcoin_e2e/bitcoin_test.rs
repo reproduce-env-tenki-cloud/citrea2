@@ -9,7 +9,9 @@ use bitcoincore_rpc::RpcApi;
 use citrea_e2e::config::TestCaseConfig;
 use citrea_e2e::framework::TestFramework;
 use citrea_e2e::test_case::{TestCase, TestCaseRunner};
+use citrea_e2e::traits::Restart;
 use citrea_e2e::Result;
+use tokio::time::sleep;
 
 use super::get_citrea_path;
 
@@ -133,6 +135,105 @@ impl TestCase for BitcoinReorgTest {
 #[tokio::test]
 async fn test_bitcoin_reorg() -> Result<()> {
     TestCaseRunner::new(BitcoinReorgTest)
+        .set_citrea_path(get_citrea_path())
+        .run()
+        .await
+}
+
+struct DaMonitoringTest;
+
+#[async_trait]
+impl TestCase for DaMonitoringTest {
+    async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        let da = f.bitcoin_nodes.get(0).unwrap();
+        let sequencer = f.sequencer.as_mut().unwrap();
+
+        let min_soft_confirmations_per_commitment =
+            sequencer.min_soft_confirmations_per_commitment();
+
+        for _ in 0..min_soft_confirmations_per_commitment {
+            sequencer.client.send_publish_batch_request().await?;
+        }
+
+        // Wait for the sequencer commitments to hit the mempool
+        da.wait_mempool_len(2, None).await?;
+
+        let mempool0 = da.get_raw_mempool().await?;
+        assert_eq!(mempool0.len(), 2);
+
+        let pending_txs = sequencer
+            .client
+            .http_client()
+            .da_get_pending_transactions()
+            .await?;
+
+        assert!(mempool0.contains(&pending_txs[0].txid));
+        assert!(mempool0.contains(&pending_txs[1].txid));
+
+        let tx_status = sequencer
+            .client
+            .http_client()
+            .da_get_tx_status(mempool0[0])
+            .await?;
+        assert!(matches!(tx_status, Some(TxStatus::Pending { .. })));
+
+        da.generate(1, None).await?;
+
+        sleep(Duration::from_secs(1)).await;
+        let tx_status = sequencer
+            .client
+            .http_client()
+            .da_get_tx_status(mempool0[0])
+            .await?;
+        assert!(matches!(tx_status, Some(TxStatus::Confirmed { .. })));
+
+        da.generate(FINALITY_DEPTH, None).await?;
+
+        sleep(Duration::from_secs(1)).await;
+        let tx_status = sequencer
+            .client
+            .http_client()
+            .da_get_tx_status(mempool0[0])
+            .await?;
+        assert!(matches!(tx_status, Some(TxStatus::Finalized { .. })));
+
+        for _ in 0..min_soft_confirmations_per_commitment {
+            sequencer.client.send_publish_batch_request().await?;
+        }
+
+        // Wait for the sequencer commitments to hit the mempool
+        da.wait_mempool_len(2, None).await?;
+        let mempool0 = da.get_raw_mempool().await?;
+
+        // Assert that txs are properly monitored
+        let pending_txs = sequencer
+            .client
+            .http_client()
+            .da_get_pending_transactions()
+            .await?;
+
+        assert!(mempool0.contains(&pending_txs[0].txid));
+        assert!(mempool0.contains(&pending_txs[1].txid));
+
+        sequencer.restart(None).await?;
+
+        // Assert that txs are properly monitored after a restart
+        let pending_txs = sequencer
+            .client
+            .http_client()
+            .da_get_pending_transactions()
+            .await?;
+
+        assert!(mempool0.contains(&pending_txs[0].txid));
+        assert!(mempool0.contains(&pending_txs[1].txid));
+
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn test_da_monitoring() -> Result<()> {
+    TestCaseRunner::new(DaMonitoringTest)
         .set_citrea_path(get_citrea_path())
         .run()
         .await

@@ -114,7 +114,7 @@ impl MonitoringService {
             recent_blocks.push((current_hash, height));
         }
 
-        Ok(Self {
+        let service = Self {
             client,
             monitored_txs: RwLock::new(HashMap::new()),
             chain_state: RwLock::new(ChainState {
@@ -124,7 +124,24 @@ impl MonitoringService {
             }),
             config: config.unwrap_or_default(),
             last_tx: Mutex::new(None),
-        })
+        };
+
+        // Revive monitoring service from mempool
+        // Skip finalized txs
+        let mut unspent = service
+            .client
+            .list_unspent(None, Some(FINALITY_DEPTH as usize), None, None, None)
+            .await?;
+
+        unspent.sort_unstable_by_key(|utxo| {
+            utxo.ancestor_count.unwrap_or(0) as i64 - utxo.confirmations as i64
+        });
+
+        let txids = unspent.into_iter().map(|utxo| utxo.txid).collect();
+
+        service.monitor_transaction_chain(txids).await?;
+
+        Ok(service)
     }
 
     /// Spawn a tokio task to keep track of TX status and chain re-orgs
