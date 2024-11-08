@@ -100,23 +100,71 @@ impl RollupBlueprint for BitcoinRollup {
         Ok(rpc_methods)
     }
 
+    fn get_batch_proof_elfs_by_spec(&self) -> HashMap<SpecId, &[u8]> {
+        let mut map = HashMap::new();
+
+        if cfg!(feature = "testing") {
+            map.insert(SpecId::Genesis, citrea_risc0::BATCH_PROOF_BITCOIN_ELF);
+        } else {
+            map.insert(SpecId::Genesis, &[]);
+        }
+
+        map
+    }
+
     #[instrument(level = "trace", skip(self), ret)]
-    fn get_batch_prover_code_commitments_by_spec(
+    fn get_batch_proof_code_commitments_by_spec(
         &self,
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
         let mut map = HashMap::new();
-        map.insert(
-            SpecId::Genesis,
-            Digest::new(citrea_risc0::BATCH_PROOF_BITCOIN_ID),
-        );
+
+        if cfg!(feature = "testing") {
+            map.insert(
+                SpecId::Genesis,
+                Digest::new(citrea_risc0::BATCH_PROOF_BITCOIN_ID),
+            );
+        } else {
+            map.insert(SpecId::Genesis, Digest::new([0u32; 8]));
+        };
+
         // let (_, vk) = citrea_sp1::host::CLIENT.setup(include_bytes!("../guests/sp1/batch-prover-bitcoin/elf/zkvm-elf"));
         // map.insert(SpecId::Genesis, vk);
         map
     }
 
+    fn get_light_client_proof_elfs_by_spec(&self) -> HashMap<SpecId, &[u8]> {
+        let mut map = HashMap::new();
+
+        if cfg!(feature = "testing") {
+            map.insert(
+                SpecId::Genesis,
+                citrea_risc0::LIGHT_CLIENT_PROOF_BITCOIN_ELF,
+            );
+        } else {
+            map.insert(SpecId::Genesis, &[0; 1]);
+        }
+
+        map
+    }
+
     #[instrument(level = "trace", skip(self), ret)]
-    fn get_light_client_prover_code_commitment(&self) -> <Self::Vm as Zkvm>::CodeCommitment {
-        Digest::new(citrea_risc0::LIGHT_CLIENT_PROOF_BITCOIN_ID)
+    fn get_light_client_proof_code_commitment(
+        &self,
+    ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
+        let mut map = HashMap::new();
+
+        if cfg!(feature = "testing") {
+            map.insert(
+                SpecId::Genesis,
+                Digest::new(citrea_risc0::LIGHT_CLIENT_PROOF_BITCOIN_ID),
+            );
+        } else {
+            map.insert(SpecId::Genesis, Digest::new([0u32; 8]));
+        };
+
+        // let (_, vk) = citrea_sp1::host::CLIENT.setup(include_bytes!("../../provers/sp1/light-client-prover-bitcoin/elf/zkvm-elf"));
+        // map.insert(SpecId::Genesis, vk);
+        map
     }
 
     #[instrument(level = "trace", skip_all, err)]
