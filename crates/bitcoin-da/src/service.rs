@@ -90,7 +90,7 @@ pub struct BitcoinServiceConfig {
 }
 
 impl citrea_common::FromEnv for BitcoinServiceConfig {
-    fn from_env() -> anyhow::Result<Self> {
+    fn from_env() -> Result<Self> {
         Ok(Self {
             node_url: std::env::var("NODE_URL")?,
             node_username: std::env::var("NODE_USERNAME")?,
@@ -306,7 +306,7 @@ impl BitcoinService {
     /// Any subsequent startup would return latest reveal TX first output.
     /// Sorts by (confirmations - ancestor_count), where lower values indicate more recent transactions.
     #[instrument(level = "trace", skip_all, ret)]
-    async fn get_prev_utxo(&self) -> Result<Option<UTXO>, anyhow::Error> {
+    async fn get_prev_utxo(&self) -> Result<Option<UTXO>> {
         let mut previous_utxos = self
             .client
             .list_unspent(Some(0), None, None, Some(true), None)
@@ -326,13 +326,13 @@ impl BitcoinService {
     }
 
     #[instrument(level = "trace", skip_all, ret)]
-    async fn get_utxos(&self) -> Result<Vec<UTXO>, anyhow::Error> {
+    async fn get_utxos(&self) -> Result<Vec<UTXO>> {
         let utxos = self
             .client
             .list_unspent(Some(0), None, None, None, None)
             .await?;
         if utxos.is_empty() {
-            return Err(anyhow::anyhow!("There are no UTXOs"));
+            bail!("There are no UTXOs");
         }
 
         let utxos: Vec<UTXO> = utxos
@@ -345,7 +345,7 @@ impl BitcoinService {
             .map(Into::into)
             .collect();
         if utxos.is_empty() {
-            return Err(anyhow::anyhow!("There are no spendable UTXOs"));
+            bail!("There are no spendable UTXOs");
         }
 
         Ok(utxos)
@@ -367,7 +367,7 @@ impl BitcoinService {
         mut prev_utxo: Option<UTXO>,
         da_data: DaData,
         fee_sat_per_vbyte: u64,
-    ) -> Result<(Vec<Txid>, TxWithId), anyhow::Error> {
+    ) -> Result<(Vec<Txid>, TxWithId)> {
         let network = self.network;
 
         let da_private_key = self.da_private_key.expect("No private key set");
@@ -567,7 +567,7 @@ impl BitcoinService {
     }
 
     #[instrument(level = "trace", skip_all, ret)]
-    pub async fn get_fee_rate(&self) -> Result<u64, anyhow::Error> {
+    pub async fn get_fee_rate(&self) -> Result<u64> {
         match self.get_fee_rate_as_sat_vb().await {
             Ok(fee) => Ok(fee),
             Err(e) => {
@@ -583,7 +583,7 @@ impl BitcoinService {
     }
 
     #[instrument(level = "trace", skip_all, ret)]
-    pub async fn get_fee_rate_as_sat_vb(&self) -> Result<u64, anyhow::Error> {
+    pub async fn get_fee_rate_as_sat_vb(&self) -> Result<u64> {
         // If network is regtest or signet, mempool space is not available
         let smart_fee = match get_fee_rate_from_mempool_space(self.network).await {
             Ok(fee_rate) => fee_rate,
@@ -731,7 +731,7 @@ impl DaService for BitcoinService {
     // Make an RPC call to the node to get the block at the given height
     // If no such block exists, block until one does.
     #[instrument(level = "trace", skip(self), err)]
-    async fn get_block_at(&self, height: u64) -> Result<Self::FilteredBlock, Self::Error> {
+    async fn get_block_at(&self, height: u64) -> Result<Self::FilteredBlock> {
         debug!("Getting block at height {}", height);
 
         let block_hash;
@@ -747,10 +747,10 @@ impl DaService for BitcoinService {
                                 continue;
                             } else {
                                 // other error, return message
-                                return Err(anyhow::anyhow!(rpc_err.message));
+                                bail!(rpc_err.message);
                             }
                         }
-                        _ => return Err(anyhow::anyhow!(e)),
+                        _ => bail!(e),
                     }
                 }
             };
@@ -765,9 +765,7 @@ impl DaService for BitcoinService {
 
     // Fetch the [`DaSpec::BlockHeader`] of the last finalized block.
     #[instrument(level = "trace", skip(self), err)]
-    async fn get_last_finalized_block_header(
-        &self,
-    ) -> Result<<Self::Spec as DaSpec>::BlockHeader, Self::Error> {
+    async fn get_last_finalized_block_header(&self) -> Result<<Self::Spec as DaSpec>::BlockHeader> {
         let block_count = self.client.get_block_count().await?;
 
         let finalized_blockhash = self
@@ -782,9 +780,7 @@ impl DaService for BitcoinService {
 
     // Fetch the head block of DA.
     #[instrument(level = "trace", skip(self), err)]
-    async fn get_head_block_header(
-        &self,
-    ) -> Result<<Self::Spec as DaSpec>::BlockHeader, Self::Error> {
+    async fn get_head_block_header(&self) -> Result<<Self::Spec as DaSpec>::BlockHeader> {
         let best_blockhash = self.client.get_best_block_hash().await?;
 
         let head_block_header = self.get_block_by_hash(best_blockhash).await?;
@@ -796,7 +792,7 @@ impl DaService for BitcoinService {
         &self,
         block: &Self::FilteredBlock,
         prover_da_pub_key: &[u8],
-    ) -> anyhow::Result<Vec<Proof>> {
+    ) -> Result<Vec<Proof>> {
         let mut completes = Vec::new();
         let mut aggregate_idxs = Vec::new();
 
@@ -819,11 +815,10 @@ impl DaService for BitcoinService {
                         {
                             // push only when signature is correct
                             let body = decompress_blob(&complete.body);
-                            let data = DaDataLightClient::try_from_slice(&body).map_err(|e| {
-                                anyhow::anyhow!("{}: Failed to parse complete: {e}", tx_id)
-                            })?;
+                            let data = DaDataLightClient::try_from_slice(&body)
+                                .map_err(|e| anyhow!("{}: Failed to parse complete: {e}", tx_id))?;
                             let DaDataLightClient::Complete(zk_proof) = data else {
-                                anyhow::bail!("{}: Complete: unexpected kind", tx_id);
+                                bail!("{}: Complete: unexpected kind", tx_id);
                             };
                             completes.push((i, zk_proof));
                         }
@@ -849,7 +844,7 @@ impl DaService for BitcoinService {
         'aggregate: for (i, tx_id, aggregate) in aggregate_idxs {
             let mut body = Vec::new();
             let data = DaDataLightClient::try_from_slice(&aggregate.body)
-                .map_err(|e| anyhow::anyhow!("{}: Failed to parse aggregate: {e}", tx_id))?;
+                .map_err(|e| anyhow!("{}: Failed to parse aggregate: {e}", tx_id))?;
             let DaDataLightClient::Aggregate(chunk_ids) = data else {
                 error!("{}: Aggregate: unexpected kind", tx_id);
                 continue;
@@ -893,11 +888,10 @@ impl DaService for BitcoinService {
                 };
                 match parsed {
                     ParsedLightClientTransaction::Chunk(part) => {
-                        let data = DaDataLightClient::try_from_slice(&part.body).map_err(|e| {
-                            anyhow::anyhow!("{}: Failed to parse chunk: {e}", tx_id)
-                        })?;
+                        let data = DaDataLightClient::try_from_slice(&part.body)
+                            .map_err(|e| anyhow!("{}: Failed to parse chunk: {e}", tx_id))?;
                         let DaDataLightClient::Chunk(chunk) = data else {
-                            anyhow::bail!("{}: Chunk: unexpected kind", tx_id);
+                            bail!("{}: Chunk: unexpected kind", tx_id);
                         };
                         body.extend(chunk);
                     }
@@ -908,9 +902,8 @@ impl DaService for BitcoinService {
                     }
                 }
             }
-            let zk_proof: Proof = borsh::from_slice(&body).map_err(|e| {
-                anyhow::anyhow!("{}: Failed to parse Proof from Aggregate: {e}", tx_id)
-            })?;
+            let zk_proof: Proof = borsh::from_slice(&body)
+                .map_err(|e| anyhow!("{}: Failed to parse Proof from Aggregate: {e}", tx_id))?;
             aggregates.push((i, zk_proof));
         }
 
@@ -930,7 +923,7 @@ impl DaService for BitcoinService {
         &self,
         block: &Self::FilteredBlock,
         sequencer_da_pub_key: &[u8],
-    ) -> anyhow::Result<Vec<SequencerCommitment>> {
+    ) -> Result<Vec<SequencerCommitment>> {
         let mut sequencer_commitments = Vec::new();
 
         for tx in &block.txdata {
@@ -1083,7 +1076,7 @@ impl DaService for BitcoinService {
     async fn send_transaction(
         &self,
         da_data: DaData,
-    ) -> Result<<Self as DaService>::TransactionId, Self::Error> {
+    ) -> Result<<Self as DaService>::TransactionId> {
         let queue = self.get_send_transaction_queue();
         let (tx, rx) = oneshot_channel();
         queue.send(Some(SenderWithNotifier {
@@ -1100,7 +1093,7 @@ impl DaService for BitcoinService {
     }
 
     #[instrument(level = "trace", skip(self))]
-    async fn get_fee_rate(&self) -> Result<u128, Self::Error> {
+    async fn get_fee_rate(&self) -> Result<u128> {
         let sat_vb_ceil = self.get_fee_rate_as_sat_vb().await? as u128;
 
         // multiply with 10^10/4 = 25*10^8 = 2_500_000_000 for BTC to CBTC conversion (decimals)
@@ -1109,10 +1102,7 @@ impl DaService for BitcoinService {
     }
 
     #[instrument(level = "trace", skip(self))]
-    async fn get_block_by_hash(
-        &self,
-        hash: Self::BlockHash,
-    ) -> Result<Self::FilteredBlock, Self::Error> {
+    async fn get_block_by_hash(&self, hash: Self::BlockHash) -> Result<Self::FilteredBlock> {
         debug!("Getting block with hash {:?}", hash);
 
         let block = self.client.get_block_verbose(&hash).await?;
