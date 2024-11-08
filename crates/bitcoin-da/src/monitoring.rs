@@ -426,65 +426,6 @@ impl MonitoringService {
         self.monitored_txs.read().await.get(txid).cloned()
     }
 
-    // pub async fn get_chain_details(&self) -> (BlockHash, BlockHeight) {
-    //     let state = self.chain_state.read().await;
-    //     (state.current_tip, state.current_height)
-    // }
-
-    // pub async fn get_tx_chain(&self, txid: &Txid) -> Option<Vec<Txid>> {
-    //     let txs = self.monitored_txs.read().await;
-    //     let mut chain = Vec::new();
-    //     let mut current_txid = *txid;
-
-    //     while let Some(tx) = txs.get(&current_txid) {
-    //         if let Some(prev_txid) = tx.prev_tx {
-    //             chain.insert(0, prev_txid);
-    //             current_txid = prev_txid;
-    //         } else {
-    //             break;
-    //         }
-    //     }
-
-    //     chain.push(*txid);
-
-    //     current_txid = *txid;
-    //     while let Some(tx) = txs.get(&current_txid) {
-    //         if let Some(next_txid) = tx.next_tx {
-    //             chain.push(next_txid);
-    //             current_txid = next_txid;
-    //         } else {
-    //             break;
-    //         }
-    //     }
-
-    //     if chain.is_empty() {
-    //         None
-    //     } else {
-    //         Some(chain)
-    //     }
-    // }
-
-    // pub async fn get_chain_status(&self, txid: &Txid) -> Option<Vec<(Txid, TxStatus)>> {
-    //     let chain = self.get_tx_chain(txid).await?;
-    //     let txs = self.monitored_txs.read().await;
-
-    //     Some(
-    //         chain
-    //             .into_iter()
-    //             .filter_map(|tx_id| txs.get(&tx_id).map(|tx| (tx_id, tx.status.clone())))
-    //             .collect(),
-    //     )
-    // }
-
-    // pub async fn get_monitored_transactions(&self) -> Vec<(Txid, MonitoredTx)> {
-    //     self.monitored_txs
-    //         .read()
-    //         .await
-    //         .iter()
-    //         .map(|(txid, tx)| (*txid, tx.clone()))
-    //         .collect()
-    // }
-
     pub async fn get_pending_transactions(&self) -> Vec<(Txid, MonitoredTx)> {
         self.monitored_txs
             .read()
