@@ -59,13 +59,21 @@ pub trait RollupBlueprint: Sized + Send + Sync {
     /// Creates a new instance of the blueprint.
     fn new() -> Self;
 
+    /// Get batch proof binaries
+    fn get_batch_proof_elfs_by_spec(&self) -> HashMap<SpecId, &[u8]>;
+
     /// Get batch prover code commitments by fork.
-    fn get_batch_prover_code_commitments_by_spec(
+    fn get_batch_proof_code_commitments_by_spec(
         &self,
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment>;
 
+    /// Get light client proof binaries.
+    fn get_light_client_proof_elfs_by_spec(&self) -> HashMap<SpecId, &[u8]>;
+
     /// Get light client prover code commitment.
-    fn get_light_client_prover_code_commitment(&self) -> <Self::Vm as Zkvm>::CodeCommitment;
+    fn get_light_client_proof_code_commitment(
+        &self,
+    ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment>;
 
     /// Creates RPC methods for the rollup.
     fn create_rpc_methods(
