@@ -118,6 +118,7 @@ async fn test_light_client_proving() -> Result<()> {
 
 struct LightClientProvingMultipleProofsInDaBlock;
 
+#[async_trait]
 impl TestCase for LightClientProvingMultipleProofsInDaBlock {
     fn test_config() -> TestCaseConfig {
         TestCaseConfig {
@@ -153,7 +154,7 @@ impl TestCase for LightClientProvingMultipleProofsInDaBlock {
         let da = f.bitcoin_nodes.get(0).unwrap();
         let sequencer = f.sequencer.as_ref().unwrap();
         let batch_prover = f.batch_prover.as_ref().unwrap();
-        // let light_client_prover = f.light_client_prover.as_ref().unwrap();
+        let light_client_prover = f.light_client_prover.as_ref().unwrap();
 
         let min_soft_confirmations_per_commitment =
             sequencer.min_soft_confirmations_per_commitment();
@@ -174,7 +175,7 @@ impl TestCase for LightClientProvingMultipleProofsInDaBlock {
             .wait_for_l2_height(2 * min_soft_confirmations_per_commitment, None)
             .await?;
 
-        // Wait for commitment tx to be submitted to DA
+        // Wait for commitment txs to be submitted to DA
         da.wait_mempool_len(2, Some(TEN_MINS)).await.unwrap();
 
         // Finalize the DA block which contains the commitment tx
@@ -188,7 +189,7 @@ impl TestCase for LightClientProvingMultipleProofsInDaBlock {
             .await
             .unwrap();
 
-        // Assert that commitment is queryable
+        // Assert that commitments is queryable
         let commitments = batch_prover
             .client
             .http_client()
@@ -200,66 +201,29 @@ impl TestCase for LightClientProvingMultipleProofsInDaBlock {
 
         println!("\n\n\nHere\n\n\n");
 
-        // Ensure that batch proof is submitted to DA
+        // Ensure that batch proofs is submitted to DA
         da.wait_mempool_len(2, Some(TEN_MINS)).await.unwrap();
+
+        // Finalize the DA block which contains the batch proof tx
+        da.generate(FINALITY_DEPTH, None).await.unwrap();
+
+        let batch_proof_l1_height = da.get_finalized_height().await.unwrap();
+
+        let batch_proofs = batch_prover
+            .client
+            .http_client()
+            .get_batch_proofs_by_slot_height(height)
+            .await
+            .unwrap();
+
+        // Wait for light client prover to process batch proofs.
+        light_client_prover
+            .wait_for_l1_height(batch_proof_l1_height, Some(TEN_MINS))
+            .await
+            .unwrap();
+
         Ok(())
     }
-
-    // async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-    // let da = f.bitcoin_nodes.get(0).unwrap();
-    // let sequencer = f.sequencer.as_ref().unwrap();
-    // let batch_prover = f.batch_prover.as_ref().unwrap();
-    // // let light_client_prover = f.light_client_prover.as_ref().unwrap();
-
-    // let min_soft_confirmations_per_commitment =
-    //     sequencer.min_soft_confirmations_per_commitment();
-
-    // // publish min_soft_confirmations_per_commitment confirmations
-    // for _ in 0..min_soft_confirmations_per_commitment {
-    //     sequencer.client.send_publish_batch_request().await?;
-    // }
-    // sequencer
-    //     .wait_for_l2_height(min_soft_confirmations_per_commitment, None)
-    //     .await?;
-
-    // // publish min_soft_confirmations_per_commitment confirmations
-    // for _ in min_soft_confirmations_per_commitment..2 * min_soft_confirmations_per_commitment {
-    //     sequencer.client.send_publish_batch_request().await?;
-    // }
-    // sequencer
-    //     .wait_for_l2_height(2 * min_soft_confirmations_per_commitment, None)
-    //     .await?;
-
-    // // Wait for commitment tx to be submitted to DA
-    // da.wait_mempool_len(2, Some(TEN_MINS)).await.unwrap();
-
-    // // Finalize the DA block which contains the commitment tx
-    // da.generate(FINALITY_DEPTH, None).await.unwrap();
-
-    // let commitment_l1_height = da.get_finalized_height().await.unwrap();
-
-    // // Wait for batch prover to generate proof for commitment
-    // batch_prover
-    //     .wait_for_l1_height(commitment_l1_height, Some(TEN_MINS))
-    //     .await
-    //     .unwrap();
-
-    // // Assert that commitment is queryable
-    // let commitments = batch_prover
-    //     .client
-    //     .http_client()
-    //     .get_sequencer_commitments_on_slot_by_number(commitment_l1_height)
-    //     .await
-    //     .unwrap()
-    //     .unwrap();
-    // assert_eq!(commitments.len(), 2);
-
-    // println!("\n\n\nHere\n\n\n");
-
-    // // Ensure that batch proof is submitted to DA
-    // da.wait_mempool_len(2, Some(TEN_MINS)).await.unwrap();
-    // Ok(())
-    // }
 }
 
 #[tokio::test]
