@@ -99,7 +99,7 @@ sp1-helper = { version = "3.0.0", default-features = false }
 [features]
 default = [] # Deviate from convention by making the "native" feature active by default. This aligns with how this package is meant to be used (as a binary first, library second).
 testing = ["dep:citrea-risc0"]
-bench = ["hex"] # "sov-risc0-adapter/bench", "risc0/bench"]
+bench = ["hex"]
 
 [[bin]]
 name = "citrea"
