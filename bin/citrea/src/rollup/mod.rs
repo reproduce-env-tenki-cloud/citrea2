@@ -224,7 +224,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
             }
         };
 
-        let code_commitments_by_spec = self.get_batch_proof_code_commitments_by_spec();
+        let code_commitments_by_spec = self.get_batch_proof_code_commitments();
 
         let current_l2_height = ledger_db
             .get_head_soft_confirmation()
@@ -348,7 +348,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
             }
         };
 
-        let code_commitments_by_spec = self.get_batch_proof_code_commitments_by_spec();
+        let code_commitments_by_spec = self.get_batch_proof_code_commitments();
 
         let current_l2_height = ledger_db
             .get_head_soft_confirmation()

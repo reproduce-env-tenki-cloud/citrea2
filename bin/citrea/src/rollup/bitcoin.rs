@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -17,7 +18,7 @@ use citrea_stf::verifier::StateTransitionVerifier;
 use prover_services::{ParallelProverService, ProofGenMode};
 use sov_db::ledger_db::LedgerDB;
 use sov_modules_api::default_context::{DefaultContext, ZkDefaultContext};
-use sov_modules_api::{Address, Spec};
+use sov_modules_api::{Address, Spec, SpecId, Zkvm};
 use sov_modules_rollup_blueprint::RollupBlueprint;
 use sov_modules_stf_blueprint::StfBlueprint;
 use sov_prover_storage_manager::ProverStorageManager;
@@ -29,6 +30,10 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc::unbounded_channel;
 use tracing::instrument;
 
+use crate::guests::{
+    BATCH_PROOF_MAINNET_GUESTS, BATCH_PROOF_TESTNET_GUESTS, LIGHT_CLIENT_MAINNET_GUESTS,
+    LIGHT_CLIENT_TESTNET_GUESTS,
+};
 use crate::utils::{guest, NodeType};
 use crate::{CitreaRollupBlueprint, RunMode};
 
@@ -155,6 +160,36 @@ impl RollupBlueprint for BitcoinRollup {
         }
 
         Ok(service)
+    }
+
+    fn get_batch_proof_code_commitments(
+        &self,
+    ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
+        match self.run_mode {
+            RunMode::Mainnet => BATCH_PROOF_MAINNET_GUESTS
+                .iter()
+                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .collect(),
+            RunMode::Testnet => BATCH_PROOF_TESTNET_GUESTS
+                .iter()
+                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .collect(),
+        }
+    }
+
+    fn get_light_client_proof_code_commitment(
+        &self,
+    ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
+        match self.run_mode {
+            RunMode::Mainnet => LIGHT_CLIENT_MAINNET_GUESTS
+                .iter()
+                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .collect(),
+            RunMode::Testnet => LIGHT_CLIENT_TESTNET_GUESTS
+                .iter()
+                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .collect(),
+        }
     }
 
     #[instrument(level = "trace", skip_all)]
