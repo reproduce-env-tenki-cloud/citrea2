@@ -9,8 +9,17 @@ PARALLEL_PROOF_LIMIT := 1
 help: ## Display this help message
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
+.PHONY: build-risc0
+build-risc0:
+	cargo risczero build --manifest-path guests/risc0/batch-proof-bitcoin/Cargo.toml
+	cargo risczero build --manifest-path guests/risc0/light-client-proof-bitcoin/Cargo.toml
+
+.PHONY: build-sp1
+build-sp1:
+	echo "Skipping SP1 build"
+
 .PHONY: build
-build: ## Build the project
+build: build-risc0 build-sp1 ## Build the project
 	@cargo build
 
 build-release: ## Build the project in release mode
