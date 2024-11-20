@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -9,7 +8,6 @@ use bitcoin_da::verifier::BitcoinVerifier;
 use citrea_common::rpc::register_healthcheck_rpc;
 use citrea_common::tasks::manager::TaskManager;
 use citrea_common::{BatchProverConfig, FullNodeConfig, LightClientProverConfig};
-use citrea_primitives::forks::FORKS;
 use citrea_primitives::{TO_BATCH_PROOF_PREFIX, TO_LIGHT_CLIENT_PREFIX};
 use citrea_risc0_adapter::host::Risc0BonsaiHost;
 // use citrea_sp1::host::SP1Host;
@@ -17,27 +15,21 @@ use citrea_stf::genesis_config::StorageConfig;
 use citrea_stf::runtime::Runtime;
 use citrea_stf::verifier::StateTransitionVerifier;
 use prover_services::{ParallelProverService, ProofGenMode};
-use sov_db::ledger_db::{LedgerDB, SharedLedgerOps};
+use sov_db::ledger_db::LedgerDB;
 use sov_modules_api::default_context::{DefaultContext, ZkDefaultContext};
-use sov_modules_api::fork::fork_from_block_number;
 use sov_modules_api::{Address, Spec};
 use sov_modules_rollup_blueprint::RollupBlueprint;
 use sov_modules_stf_blueprint::StfBlueprint;
 use sov_prover_storage_manager::ProverStorageManager;
 use sov_rollup_interface::da::DaVerifier;
 use sov_rollup_interface::services::da::SenderWithNotifier;
-use sov_rollup_interface::spec::SpecId;
-use sov_rollup_interface::zk::Zkvm;
 use sov_state::ZkStorage;
 use sov_stf_runner::ProverGuestRunConfig;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::unbounded_channel;
 use tracing::instrument;
 
-use crate::guests::{
-    BATCH_PROOF_MAINNET_GUESTS, BATCH_PROOF_TESTNET_GUESTS, LIGHT_CLIENT_MAINNET_GUESTS,
-    LIGHT_CLIENT_TESTNET_GUESTS,
-};
+use crate::utils::{guest, NodeType};
 use crate::{CitreaRollupBlueprint, RunMode};
 
 /// Rollup with BitcoinDa
@@ -109,64 +101,6 @@ impl RollupBlueprint for BitcoinRollup {
         Ok(rpc_methods)
     }
 
-    fn get_batch_proof_elfs_by_spec(&self) -> HashMap<SpecId, Vec<u8>> {
-        match self.run_mode {
-            RunMode::Mainnet => BATCH_PROOF_MAINNET_GUESTS
-                .iter()
-                .map(|(k, (_id, code))| (k.clone(), code.clone()))
-                .collect(),
-            RunMode::Testnet => BATCH_PROOF_TESTNET_GUESTS
-                .iter()
-                .map(|(k, (_id, code))| (k.clone(), code.clone()))
-                .collect(),
-        }
-    }
-
-    #[instrument(level = "trace", skip(self), ret)]
-    fn get_batch_proof_code_commitments_by_spec(
-        &self,
-    ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
-        match self.run_mode {
-            RunMode::Mainnet => BATCH_PROOF_MAINNET_GUESTS
-                .iter()
-                .map(|(k, (id, _))| (k.clone(), id.clone()))
-                .collect(),
-            RunMode::Testnet => BATCH_PROOF_TESTNET_GUESTS
-                .iter()
-                .map(|(k, (id, _))| (k.clone(), id.clone()))
-                .collect(),
-        }
-    }
-
-    fn get_light_client_proof_elfs_by_spec(&self) -> HashMap<SpecId, Vec<u8>> {
-        match self.run_mode {
-            RunMode::Mainnet => LIGHT_CLIENT_MAINNET_GUESTS
-                .iter()
-                .map(|(k, (_id, code))| (k.clone(), code.clone()))
-                .collect(),
-            RunMode::Testnet => LIGHT_CLIENT_TESTNET_GUESTS
-                .iter()
-                .map(|(k, (_id, code))| (k.clone(), code.clone()))
-                .collect(),
-        }
-    }
-
-    #[instrument(level = "trace", skip(self), ret)]
-    fn get_light_client_proof_code_commitment(
-        &self,
-    ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
-        match self.run_mode {
-            RunMode::Mainnet => LIGHT_CLIENT_MAINNET_GUESTS
-                .iter()
-                .map(|(k, (id, _))| (k.clone(), id.clone()))
-                .collect(),
-            RunMode::Testnet => LIGHT_CLIENT_TESTNET_GUESTS
-                .iter()
-                .map(|(k, (id, _))| (k.clone(), id.clone()))
-                .collect(),
-        }
-    }
-
     #[instrument(level = "trace", skip_all, err)]
     fn create_storage_manager(
         &self,
@@ -231,22 +165,11 @@ impl RollupBlueprint for BitcoinRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let last_l2_height = ledger_db
-            .get_last_commitment_l2_height()
-            .ok()
-            .flatten()
-            .expect("Should be able to fetch last l2 height");
-        let fork = fork_from_block_number(FORKS, last_l2_height.into());
-        let guests = self.get_batch_proof_elfs_by_spec();
-        let guest = guests
-            .get(&fork.spec_id)
-            .cloned()
-            .expect("A fork should have a guest code attached");
-
+        let (guest_id, guest_code) = guest(NodeType::Batch, self.run_mode, &ledger_db);
         // TODO: Should a fork cause the new guest to be uploaded?
         // Scenario: We start with genesis guest code... after a fork, the risc0 bonsai
         // host should upload the new ID + Elf.
-        let vm = Risc0BonsaiHost::new(&guest, ledger_db.clone());
+        let vm = Risc0BonsaiHost::new(guest_id, guest_code, ledger_db.clone());
         // let vm = SP1Host::new(
         //     include_bytes!("../guests/sp1/batch-prover-bitcoin/elf/zkvm-elf"),
         //     ledger_db.clone(),
@@ -288,10 +211,11 @@ impl RollupBlueprint for BitcoinRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let vm = Risc0BonsaiHost::new(
-            citrea_risc0::LIGHT_CLIENT_PROOF_BITCOIN_ELF,
-            ledger_db.clone(),
-        );
+        let (guest_id, guest_code) = guest(NodeType::Light, self.run_mode, &ledger_db);
+        // TODO: Should a fork cause the new guest to be uploaded?
+        // Scenario: We start with genesis guest code... after a fork, the risc0 bonsai
+        // host should upload the new ID + Elf.
+        let vm = Risc0BonsaiHost::new(guest_id, guest_code, ledger_db.clone());
         let zk_stf = StfBlueprint::new();
         let zk_storage = ZkStorage::new();
 

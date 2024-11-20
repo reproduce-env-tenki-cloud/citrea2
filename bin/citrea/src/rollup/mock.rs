@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -7,7 +6,6 @@ use citrea_common::tasks::manager::TaskManager;
 use citrea_common::{BatchProverConfig, FullNodeConfig, LightClientProverConfig};
 // use citrea_sp1::host::SP1Host;
 use citrea_risc0_adapter::host::Risc0BonsaiHost;
-use citrea_risc0_adapter::Digest;
 use citrea_stf::genesis_config::StorageConfig;
 use citrea_stf::runtime::Runtime;
 use citrea_stf::verifier::StateTransitionVerifier;
@@ -19,13 +17,11 @@ use sov_modules_api::{Address, Spec};
 use sov_modules_rollup_blueprint::RollupBlueprint;
 use sov_modules_stf_blueprint::StfBlueprint;
 use sov_prover_storage_manager::ProverStorageManager;
-use sov_rollup_interface::spec::SpecId;
-use sov_rollup_interface::zk::Zkvm;
 use sov_state::ZkStorage;
 use sov_stf_runner::ProverGuestRunConfig;
 use tokio::sync::broadcast;
 
-use crate::guests::MOCK_GUESTS;
+use crate::utils::{guest, NodeType};
 use crate::{CitreaRollupBlueprint, RunMode};
 
 /// Rollup with MockDa
@@ -46,7 +42,7 @@ impl RollupBlueprint for MockDemoRollup {
     type DaService = MockDaService;
     type DaSpec = MockDaSpec;
     type DaConfig = MockDaConfig;
-    type Vm = Risc0BonsaiHost<'static>;
+    type Vm = Risc0BonsaiHost;
 
     type ZkContext = ZkDefaultContext;
     type NativeContext = DefaultContext;
@@ -93,73 +89,6 @@ impl RollupBlueprint for MockDemoRollup {
         Ok(rpc_methods)
     }
 
-    fn get_batch_proof_elfs_by_spec(&self) -> HashMap<SpecId, Vec<u8>> {
-        #[cfg(not(feature = "testing"))]
-        panic!("MockDA is only allowed to work in testing/development mode");
-
-        MOCK_GUESTS
-            .iter()
-            .map(|(k, (_id, code))| (k.clone(), code.clone()))
-            .collect()
-    }
-
-    fn get_batch_proof_code_commitments_by_spec(
-        &self,
-    ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
-        let mut map = HashMap::new();
-
-        #[cfg(feature = "testing")]
-        {
-            map.insert(
-                SpecId::Genesis,
-                Digest::new(citrea_risc0::BATCH_PROOF_MOCK_ID),
-            );
-        }
-        #[cfg(not(feature = "testing"))]
-        {
-            map.insert(SpecId::Genesis, Digest::new([0u32; 8]));
-        };
-
-        // let (_, vk) = citrea_sp1::host::CLIENT.setup(include_bytes!("../../provers/sp1/batch-prover-mock/elf/zkvm-elf"));
-        // map.insert(SpecId::Genesis, vk);
-        map
-    }
-
-    fn get_light_client_proof_elfs_by_spec(&self) -> HashMap<SpecId, &[u8]> {
-        let mut map = HashMap::new();
-
-        if cfg!(feature = "testing") {
-            map.insert(SpecId::Genesis, citrea_risc0::LIGHT_CLIENT_PROOF_MOCK_ELF);
-        } else {
-            map.insert(SpecId::Genesis, &[0; 1]);
-        }
-
-        map
-    }
-
-    fn get_light_client_proof_code_commitment(
-        &self,
-    ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
-        let mut map = HashMap::new();
-
-        #[cfg(feature = "testing")]
-        {
-            map.insert(
-                SpecId::Genesis,
-                Digest::new(citrea_risc0::LIGHT_CLIENT_PROOF_MOCK_ID),
-            );
-        }
-
-        #[cfg(not(feature = "testing"))]
-        {
-            map.insert(SpecId::Genesis, Digest::new([0u32; 8]));
-        }
-
-        // let (_, vk) = citrea_sp1::host::CLIENT.setup(include_bytes!("../../provers/sp1/light-client-prover-mock/elf/zkvm-elf"));
-        // map.insert(SpecId::Genesis, vk);
-        map
-    }
-
     async fn create_da_service(
         &self,
         rollup_config: &FullNodeConfig<Self::DaConfig>,
@@ -179,7 +108,8 @@ impl RollupBlueprint for MockDemoRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let vm = Risc0BonsaiHost::new(citrea_risc0::BATCH_PROOF_MOCK_ELF, ledger_db.clone());
+        let (guest_id, guest_code) = guest(NodeType::MockBatch, self.run_mode, &ledger_db);
+        let vm = Risc0BonsaiHost::new(guest_id, guest_code, ledger_db.clone());
 
         let zk_stf = StfBlueprint::new();
         let zk_storage = ZkStorage::new();
@@ -206,7 +136,8 @@ impl RollupBlueprint for MockDemoRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let vm = Risc0BonsaiHost::new(citrea_risc0::LIGHT_CLIENT_PROOF_MOCK_ELF, ledger_db.clone());
+        let (guest_id, guest_code) = guest(NodeType::MockLight, self.run_mode, &ledger_db);
+        let vm = Risc0BonsaiHost::new(guest_id, guest_code, ledger_db.clone());
         let zk_stf = StfBlueprint::new();
         let zk_storage = ZkStorage::new();
         let da_verifier = Default::default();

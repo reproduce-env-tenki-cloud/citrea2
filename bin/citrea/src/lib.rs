@@ -13,9 +13,10 @@ use tracing_subscriber::{fmt, EnvFilter};
 mod eth;
 mod guests;
 mod rollup;
+mod utils;
 pub use rollup::*;
 
-#[derive(clap::ValueEnum, Clone, Default, Debug, Serialize)]
+#[derive(clap::ValueEnum, Copy, Clone, Default, Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RunMode {
     #[default]

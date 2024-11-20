@@ -3,7 +3,6 @@
 
 mod runtime_rpc;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -15,7 +14,6 @@ use sov_db::rocks_db_config::RocksdbConfig;
 use sov_modules_api::{Context, DaSpec, Spec};
 use sov_modules_stf_blueprint::{GenesisParams, Runtime as RuntimeTrait};
 use sov_rollup_interface::services::da::DaService;
-use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::storage::HierarchicalStorageManager;
 use sov_rollup_interface::zk::{Zkvm, ZkvmHost};
 use sov_stf_runner::ProverService;
@@ -56,22 +54,6 @@ pub trait RollupBlueprint: Sized + Send + Sync {
 
     /// Prover service.
     type ProverService: ProverService<DaService = Self::DaService> + Send + Sync + 'static;
-
-    /// Get batch proof binaries
-    fn get_batch_proof_elfs_by_spec(&self) -> HashMap<SpecId, Vec<u8>>;
-
-    /// Get batch prover code commitments by fork.
-    fn get_batch_proof_code_commitments_by_spec(
-        &self,
-    ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment>;
-
-    /// Get light client proof binaries.
-    fn get_light_client_proof_elfs_by_spec(&self) -> HashMap<SpecId, Vec<u8>>;
-
-    /// Get light client prover code commitment.
-    fn get_light_client_proof_code_commitment(
-        &self,
-    ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment>;
 
     /// Creates RPC methods for the rollup.
     fn create_rpc_methods(
