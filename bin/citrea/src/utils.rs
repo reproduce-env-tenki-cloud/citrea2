@@ -7,7 +7,7 @@ use crate::guests::{
     BATCH_PROOF_MAINNET_GUESTS, BATCH_PROOF_MOCK_GUESTS, BATCH_PROOF_TESTNET_GUESTS,
     LIGHT_CLIENT_MAINNET_GUESTS, LIGHT_CLIENT_MOCK_GUESTS, LIGHT_CLIENT_TESTNET_GUESTS,
 };
-use crate::RunMode;
+use crate::Network;
 
 pub enum NodeType {
     MockBatch,
@@ -16,23 +16,23 @@ pub enum NodeType {
     Light,
 }
 
-pub fn guest(node_type: NodeType, run_mode: RunMode, ledger_db: &LedgerDB) -> (Digest, Vec<u8>) {
+pub fn guest(node_type: NodeType, network: Network, ledger_db: &LedgerDB) -> (Digest, Vec<u8>) {
     let guests = match node_type {
-        NodeType::MockBatch => match run_mode {
-            RunMode::Mainnet => &*BATCH_PROOF_MOCK_GUESTS,
-            RunMode::Testnet => &*BATCH_PROOF_MOCK_GUESTS,
+        NodeType::MockBatch => match network {
+            Network::Mainnet => &*BATCH_PROOF_MOCK_GUESTS,
+            Network::Testnet => &*BATCH_PROOF_MOCK_GUESTS,
         },
-        NodeType::MockLight => match run_mode {
-            RunMode::Mainnet => &*LIGHT_CLIENT_MOCK_GUESTS,
-            RunMode::Testnet => &*LIGHT_CLIENT_MOCK_GUESTS,
+        NodeType::MockLight => match network {
+            Network::Mainnet => &*LIGHT_CLIENT_MOCK_GUESTS,
+            Network::Testnet => &*LIGHT_CLIENT_MOCK_GUESTS,
         },
-        NodeType::Batch => match run_mode {
-            RunMode::Mainnet => &*BATCH_PROOF_MAINNET_GUESTS,
-            RunMode::Testnet => &*BATCH_PROOF_TESTNET_GUESTS,
+        NodeType::Batch => match network {
+            Network::Mainnet => &*BATCH_PROOF_MAINNET_GUESTS,
+            Network::Testnet => &*BATCH_PROOF_TESTNET_GUESTS,
         },
-        NodeType::Light => match run_mode {
-            RunMode::Mainnet => &*LIGHT_CLIENT_MAINNET_GUESTS,
-            RunMode::Testnet => &*LIGHT_CLIENT_TESTNET_GUESTS,
+        NodeType::Light => match network {
+            Network::Mainnet => &*LIGHT_CLIENT_MAINNET_GUESTS,
+            Network::Testnet => &*LIGHT_CLIENT_TESTNET_GUESTS,
         },
     };
 

@@ -27,7 +27,7 @@ struct Args {
     /// This determines which guest code to use.
     /// Default is Mainnet.
     #[clap(short, long, default_value_t, value_enum)]
-    mode: RunMode,
+    network: Network,
 
     /// Overrides the run mode to use testnet
     #[arg(long)]

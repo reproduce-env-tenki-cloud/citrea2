@@ -18,7 +18,7 @@ pub use rollup::*;
 
 #[derive(clap::ValueEnum, Copy, Clone, Default, Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum RunMode {
+pub enum Network {
     #[default]
     Mainnet,
     Testnet,

@@ -35,18 +35,18 @@ use crate::guests::{
     LIGHT_CLIENT_TESTNET_GUESTS,
 };
 use crate::utils::{guest, NodeType};
-use crate::{CitreaRollupBlueprint, RunMode};
+use crate::{CitreaRollupBlueprint, Network};
 
 /// Rollup with BitcoinDa
 pub struct BitcoinRollup {
-    run_mode: RunMode,
+    network: Network,
 }
 
 impl CitreaRollupBlueprint for BitcoinRollup {}
 
 impl BitcoinRollup {
-    pub fn new(run_mode: RunMode) -> Self {
-        Self { run_mode }
+    pub fn new(network: Network) -> Self {
+        Self { network }
     }
 }
 
@@ -165,12 +165,12 @@ impl RollupBlueprint for BitcoinRollup {
     fn get_batch_proof_code_commitments(
         &self,
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
-        match self.run_mode {
-            RunMode::Mainnet => BATCH_PROOF_MAINNET_GUESTS
+        match self.network {
+            Network::Mainnet => BATCH_PROOF_MAINNET_GUESTS
                 .iter()
                 .map(|(k, (id, _))| (k.clone(), id.clone()))
                 .collect(),
-            RunMode::Testnet => BATCH_PROOF_TESTNET_GUESTS
+            Network::Testnet => BATCH_PROOF_TESTNET_GUESTS
                 .iter()
                 .map(|(k, (id, _))| (k.clone(), id.clone()))
                 .collect(),
@@ -180,12 +180,12 @@ impl RollupBlueprint for BitcoinRollup {
     fn get_light_client_proof_code_commitment(
         &self,
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
-        match self.run_mode {
-            RunMode::Mainnet => LIGHT_CLIENT_MAINNET_GUESTS
+        match self.network {
+            Network::Mainnet => LIGHT_CLIENT_MAINNET_GUESTS
                 .iter()
                 .map(|(k, (id, _))| (k.clone(), id.clone()))
                 .collect(),
-            RunMode::Testnet => LIGHT_CLIENT_TESTNET_GUESTS
+            Network::Testnet => LIGHT_CLIENT_TESTNET_GUESTS
                 .iter()
                 .map(|(k, (id, _))| (k.clone(), id.clone()))
                 .collect(),
@@ -200,7 +200,7 @@ impl RollupBlueprint for BitcoinRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let (guest_id, guest_code) = guest(NodeType::Batch, self.run_mode, &ledger_db);
+        let (guest_id, guest_code) = guest(NodeType::Batch, self.network, &ledger_db);
         // TODO: Should a fork cause the new guest to be uploaded?
         // Scenario: We start with genesis guest code... after a fork, the risc0 bonsai
         // host should upload the new ID + Elf.
@@ -246,7 +246,7 @@ impl RollupBlueprint for BitcoinRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let (guest_id, guest_code) = guest(NodeType::Light, self.run_mode, &ledger_db);
+        let (guest_id, guest_code) = guest(NodeType::Light, self.network, &ledger_db);
         // TODO: Should a fork cause the new guest to be uploaded?
         // Scenario: We start with genesis guest code... after a fork, the risc0 bonsai
         // host should upload the new ID + Elf.

@@ -24,16 +24,16 @@ use tokio::sync::broadcast;
 
 use crate::guests::{BATCH_PROOF_MOCK_GUESTS, LIGHT_CLIENT_MOCK_GUESTS};
 use crate::utils::{guest, NodeType};
-use crate::{CitreaRollupBlueprint, RunMode};
+use crate::{CitreaRollupBlueprint, Network};
 
 /// Rollup with MockDa
 pub struct MockDemoRollup {
-    run_mode: RunMode,
+    network: Network,
 }
 
 impl MockDemoRollup {
-    pub fn new(run_mode: RunMode) -> Self {
-        Self { run_mode }
+    pub fn new(network: Network) -> Self {
+        Self { network }
     }
 }
 
@@ -106,12 +106,12 @@ impl RollupBlueprint for MockDemoRollup {
     fn get_batch_proof_code_commitments(
         &self,
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
-        match self.run_mode {
-            RunMode::Mainnet => BATCH_PROOF_MOCK_GUESTS
+        match self.network {
+            Network::Mainnet => BATCH_PROOF_MOCK_GUESTS
                 .iter()
                 .map(|(k, (id, _))| (k.clone(), id.clone()))
                 .collect(),
-            RunMode::Testnet => BATCH_PROOF_MOCK_GUESTS
+            Network::Testnet => BATCH_PROOF_MOCK_GUESTS
                 .iter()
                 .map(|(k, (id, _))| (k.clone(), id.clone()))
                 .collect(),
@@ -121,12 +121,12 @@ impl RollupBlueprint for MockDemoRollup {
     fn get_light_client_proof_code_commitment(
         &self,
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
-        match self.run_mode {
-            RunMode::Mainnet => LIGHT_CLIENT_MOCK_GUESTS
+        match self.network {
+            Network::Mainnet => LIGHT_CLIENT_MOCK_GUESTS
                 .iter()
                 .map(|(k, (id, _))| (k.clone(), id.clone()))
                 .collect(),
-            RunMode::Testnet => LIGHT_CLIENT_MOCK_GUESTS
+            Network::Testnet => LIGHT_CLIENT_MOCK_GUESTS
                 .iter()
                 .map(|(k, (id, _))| (k.clone(), id.clone()))
                 .collect(),
@@ -140,7 +140,7 @@ impl RollupBlueprint for MockDemoRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let (guest_id, guest_code) = guest(NodeType::MockBatch, self.run_mode, &ledger_db);
+        let (guest_id, guest_code) = guest(NodeType::MockBatch, self.network, &ledger_db);
         let vm = Risc0BonsaiHost::new(guest_id, guest_code, ledger_db.clone());
 
         let zk_stf = StfBlueprint::new();
@@ -168,7 +168,7 @@ impl RollupBlueprint for MockDemoRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let (guest_id, guest_code) = guest(NodeType::MockLight, self.run_mode, &ledger_db);
+        let (guest_id, guest_code) = guest(NodeType::MockLight, self.network, &ledger_db);
         let vm = Risc0BonsaiHost::new(guest_id, guest_code, ledger_db.clone());
         let zk_stf = StfBlueprint::new();
         let zk_storage = ZkStorage::new();
