@@ -9,16 +9,17 @@ use bitcoin_da::verifier::BitcoinVerifier;
 use citrea_common::rpc::register_healthcheck_rpc;
 use citrea_common::tasks::manager::TaskManager;
 use citrea_common::{BatchProverConfig, FullNodeConfig, LightClientProverConfig};
+use citrea_primitives::forks::FORKS;
 use citrea_primitives::{TO_BATCH_PROOF_PREFIX, TO_LIGHT_CLIENT_PREFIX};
 use citrea_risc0_adapter::host::Risc0BonsaiHost;
-use citrea_risc0_adapter::Digest;
 // use citrea_sp1::host::SP1Host;
 use citrea_stf::genesis_config::StorageConfig;
 use citrea_stf::runtime::Runtime;
 use citrea_stf::verifier::StateTransitionVerifier;
 use prover_services::{ParallelProverService, ProofGenMode};
-use sov_db::ledger_db::LedgerDB;
+use sov_db::ledger_db::{LedgerDB, SharedLedgerOps};
 use sov_modules_api::default_context::{DefaultContext, ZkDefaultContext};
+use sov_modules_api::fork::fork_from_block_number;
 use sov_modules_api::{Address, Spec};
 use sov_modules_rollup_blueprint::RollupBlueprint;
 use sov_modules_stf_blueprint::StfBlueprint;
@@ -33,19 +34,31 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc::unbounded_channel;
 use tracing::instrument;
 
-use crate::CitreaRollupBlueprint;
+use crate::guests::{
+    BATCH_PROOF_MAINNET_GUESTS, BATCH_PROOF_TESTNET_GUESTS, LIGHT_CLIENT_MAINNET_GUESTS,
+    LIGHT_CLIENT_TESTNET_GUESTS,
+};
+use crate::{CitreaRollupBlueprint, RunMode};
 
 /// Rollup with BitcoinDa
-pub struct BitcoinRollup {}
+pub struct BitcoinRollup {
+    run_mode: RunMode,
+}
 
 impl CitreaRollupBlueprint for BitcoinRollup {}
+
+impl BitcoinRollup {
+    pub fn new(run_mode: RunMode) -> Self {
+        Self { run_mode }
+    }
+}
 
 #[async_trait]
 impl RollupBlueprint for BitcoinRollup {
     type DaService = BitcoinService;
     type DaSpec = BitcoinSpec;
     type DaConfig = BitcoinServiceConfig;
-    type Vm = Risc0BonsaiHost<'static>;
+    type Vm = Risc0BonsaiHost;
     type ZkContext = ZkDefaultContext;
     type NativeContext = DefaultContext;
 
@@ -59,10 +72,6 @@ impl RollupBlueprint for BitcoinRollup {
         Self::Vm,
         StfBlueprint<Self::ZkContext, Self::DaSpec, Self::ZkRuntime>,
     >;
-
-    fn new() -> Self {
-        Self {}
-    }
 
     #[instrument(level = "trace", skip_all, err)]
     fn create_rpc_methods(
@@ -100,79 +109,62 @@ impl RollupBlueprint for BitcoinRollup {
         Ok(rpc_methods)
     }
 
-    fn get_batch_proof_elfs_by_spec(&self) -> HashMap<SpecId, &[u8]> {
-        let mut map = HashMap::new();
-
-        if cfg!(feature = "testing") {
-            map.insert(SpecId::Genesis, citrea_risc0::BATCH_PROOF_BITCOIN_ELF);
-        } else {
-            map.insert(SpecId::Genesis, &[]);
+    fn get_batch_proof_elfs_by_spec(&self) -> HashMap<SpecId, Vec<u8>> {
+        match self.run_mode {
+            RunMode::Mainnet => BATCH_PROOF_MAINNET_GUESTS
+                .iter()
+                .map(|(k, (_id, code))| (k.clone(), code.clone()))
+                .collect(),
+            RunMode::Testnet => BATCH_PROOF_TESTNET_GUESTS
+                .iter()
+                .map(|(k, (_id, code))| (k.clone(), code.clone()))
+                .collect(),
         }
-
-        map
     }
 
     #[instrument(level = "trace", skip(self), ret)]
     fn get_batch_proof_code_commitments_by_spec(
         &self,
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
-        let mut map = HashMap::new();
-
-        #[cfg(feature = "testing")]
-        {
-            map.insert(
-                SpecId::Genesis,
-                Digest::new(citrea_risc0::BATCH_PROOF_BITCOIN_ID),
-            );
+        match self.run_mode {
+            RunMode::Mainnet => BATCH_PROOF_MAINNET_GUESTS
+                .iter()
+                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .collect(),
+            RunMode::Testnet => BATCH_PROOF_TESTNET_GUESTS
+                .iter()
+                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .collect(),
         }
-
-        #[cfg(not(feature = "testing"))]
-        {
-            map.insert(SpecId::Genesis, Digest::new([0u32; 8]));
-        }
-
-        // let (_, vk) = citrea_sp1::host::CLIENT.setup(include_bytes!("../guests/sp1/batch-prover-bitcoin/elf/zkvm-elf"));
-        // map.insert(SpecId::Genesis, vk);
-        map
     }
 
-    fn get_light_client_proof_elfs_by_spec(&self) -> HashMap<SpecId, &[u8]> {
-        let mut map = HashMap::new();
-
-        if cfg!(feature = "testing") {
-            map.insert(
-                SpecId::Genesis,
-                citrea_risc0::LIGHT_CLIENT_PROOF_BITCOIN_ELF,
-            );
-        } else {
-            map.insert(SpecId::Genesis, &[0; 1]);
+    fn get_light_client_proof_elfs_by_spec(&self) -> HashMap<SpecId, Vec<u8>> {
+        match self.run_mode {
+            RunMode::Mainnet => LIGHT_CLIENT_MAINNET_GUESTS
+                .iter()
+                .map(|(k, (_id, code))| (k.clone(), code.clone()))
+                .collect(),
+            RunMode::Testnet => LIGHT_CLIENT_TESTNET_GUESTS
+                .iter()
+                .map(|(k, (_id, code))| (k.clone(), code.clone()))
+                .collect(),
         }
-
-        map
     }
 
     #[instrument(level = "trace", skip(self), ret)]
     fn get_light_client_proof_code_commitment(
         &self,
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
-        let mut map = HashMap::new();
-
-        #[cfg(feature = "testing")]
-        {
-            map.insert(
-                SpecId::Genesis,
-                Digest::new(citrea_risc0::LIGHT_CLIENT_PROOF_BITCOIN_ID),
-            );
+        match self.run_mode {
+            RunMode::Mainnet => LIGHT_CLIENT_MAINNET_GUESTS
+                .iter()
+                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .collect(),
+            RunMode::Testnet => LIGHT_CLIENT_TESTNET_GUESTS
+                .iter()
+                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .collect(),
         }
-
-        #[cfg(not(feature = "testing"))]
-        {
-            map.insert(SpecId::Genesis, Digest::new([0u32; 8]));
-        }
-
-        // let (_, vk) = citrea_sp1::host::CLIENT.setup(include_bytes!("../../provers/sp1/light-client-prover-bitcoin/elf/zkvm-elf"));
-        // map.insert(SpecId::Genesis, vk);
-        map
     }
 
     #[instrument(level = "trace", skip_all, err)]
@@ -239,7 +231,22 @@ impl RollupBlueprint for BitcoinRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let vm = Risc0BonsaiHost::new(citrea_risc0::BATCH_PROOF_BITCOIN_ELF, ledger_db.clone());
+        let last_l2_height = ledger_db
+            .get_last_commitment_l2_height()
+            .ok()
+            .flatten()
+            .expect("Should be able to fetch last l2 height");
+        let fork = fork_from_block_number(FORKS, last_l2_height.into());
+        let guests = self.get_batch_proof_elfs_by_spec();
+        let guest = guests
+            .get(&fork.spec_id)
+            .cloned()
+            .expect("A fork should have a guest code attached");
+
+        // TODO: Should a fork cause the new guest to be uploaded?
+        // Scenario: We start with genesis guest code... after a fork, the risc0 bonsai
+        // host should upload the new ID + Elf.
+        let vm = Risc0BonsaiHost::new(&guest, ledger_db.clone());
         // let vm = SP1Host::new(
         //     include_bytes!("../guests/sp1/batch-prover-bitcoin/elf/zkvm-elf"),
         //     ledger_db.clone(),

@@ -3,8 +3,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use risc0_zkvm::sha::Digest;
 use risc0_zkvm::{
-    compute_image_id, default_prover, AssumptionReceipt, ExecutorEnvBuilder, ProveInfo, ProverOpts,
-    Receipt,
+    default_prover, AssumptionReceipt, ExecutorEnvBuilder, ProveInfo, ProverOpts, Receipt,
 };
 use sov_db::ledger_db::LedgerDB;
 use sov_rollup_interface::zk::{Proof, Zkvm, ZkvmHost};
@@ -35,23 +34,17 @@ pub struct RecoveredBonsaiSession {
 
 /// A [`Risc0BonsaiHost`] stores a binary to execute in the Risc0 VM and prove in the Risc0 Bonsai API.
 #[derive(Clone)]
-pub struct Risc0BonsaiHost<'a> {
-    elf: &'a [u8],
+pub struct Risc0BonsaiHost {
+    elf: Vec<u8>,
     env: Vec<u8>,
     assumptions: Vec<AssumptionReceipt>,
     image_id: Digest,
     _ledger_db: LedgerDB,
 }
 
-impl<'a> Risc0BonsaiHost<'a> {
+impl Risc0BonsaiHost {
     /// Create a new Risc0Host to prove the given binary.
-    pub fn new(elf: &'a [u8], ledger_db: LedgerDB) -> Self {
-        // Compute the image_id, then upload the ELF with the image_id as its key.
-        // handle error
-        let image_id = compute_image_id(elf).unwrap();
-
-        tracing::trace!("Calculated image id: {:?}", image_id.as_words());
-
+    pub fn new(image_id: Digest, elf: Vec<u8>, ledger_db: LedgerDB) -> Self {
         match std::env::var("RISC0_PROVER") {
             Ok(prover) => match prover.as_str() {
                 "bonsai" => {
@@ -94,7 +87,7 @@ impl<'a> Risc0BonsaiHost<'a> {
     }
 }
 
-impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
+impl ZkvmHost for Risc0BonsaiHost {
     type Guest = Risc0Guest;
 
     fn add_hint(&mut self, item: Vec<u8>) {
@@ -145,7 +138,7 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
 
         tracing::info!("Starting risc0 proving");
         let ProveInfo { receipt, stats } =
-            prover.prove_with_opts(env, self.elf, &ProverOpts::groth16())?;
+            prover.prove_with_opts(env, &self.elf, &ProverOpts::groth16())?;
 
         tracing::info!("Execution Stats: {:?}", stats);
 
@@ -204,7 +197,7 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
     }
 }
 
-impl<'host> Zkvm for Risc0BonsaiHost<'host> {
+impl Zkvm for Risc0BonsaiHost {
     type CodeCommitment = Digest;
 
     type Error = anyhow::Error;

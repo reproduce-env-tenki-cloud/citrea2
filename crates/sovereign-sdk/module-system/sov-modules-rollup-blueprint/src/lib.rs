@@ -57,11 +57,8 @@ pub trait RollupBlueprint: Sized + Send + Sync {
     /// Prover service.
     type ProverService: ProverService<DaService = Self::DaService> + Send + Sync + 'static;
 
-    /// Creates a new instance of the blueprint.
-    fn new() -> Self;
-
     /// Get batch proof binaries
-    fn get_batch_proof_elfs_by_spec(&self) -> HashMap<SpecId, &[u8]>;
+    fn get_batch_proof_elfs_by_spec(&self) -> HashMap<SpecId, Vec<u8>>;
 
     /// Get batch prover code commitments by fork.
     fn get_batch_proof_code_commitments_by_spec(
@@ -69,7 +66,7 @@ pub trait RollupBlueprint: Sized + Send + Sync {
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment>;
 
     /// Get light client proof binaries.
-    fn get_light_client_proof_elfs_by_spec(&self) -> HashMap<SpecId, &[u8]>;
+    fn get_light_client_proof_elfs_by_spec(&self) -> HashMap<SpecId, Vec<u8>>;
 
     /// Get light client prover code commitment.
     fn get_light_client_proof_code_commitment(

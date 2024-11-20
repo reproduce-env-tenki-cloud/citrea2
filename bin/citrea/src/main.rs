@@ -23,6 +23,16 @@ mod test_rpc;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    /// The mode in which the node runs.
+    /// This determines which guest code to use.
+    /// Default is Mainnet.
+    #[clap(short, long, default_value_t, value_enum)]
+    mode: RunMode,
+
+    /// Overrides the run mode to use testnet
+    #[arg(long)]
+    testnet: bool,
+
     /// Path to the genesis configuration.
     /// Defines the genesis of module states like evm.
     #[arg(long)]

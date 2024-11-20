@@ -4,14 +4,24 @@
 use std::env;
 use std::str::FromStr;
 
+use serde::Serialize;
 use tracing::Level;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
 mod eth;
+mod guests;
 mod rollup;
 pub use rollup::*;
+
+#[derive(clap::ValueEnum, Clone, Default, Debug, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RunMode {
+    #[default]
+    Mainnet,
+    Testnet,
+}
 
 /// Default initialization of logging
 pub fn initialize_logging(level: Level) {

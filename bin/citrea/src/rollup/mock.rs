@@ -25,10 +25,19 @@ use sov_state::ZkStorage;
 use sov_stf_runner::ProverGuestRunConfig;
 use tokio::sync::broadcast;
 
-use crate::CitreaRollupBlueprint;
+use crate::guests::MOCK_GUESTS;
+use crate::{CitreaRollupBlueprint, RunMode};
 
 /// Rollup with MockDa
-pub struct MockDemoRollup {}
+pub struct MockDemoRollup {
+    run_mode: RunMode,
+}
+
+impl MockDemoRollup {
+    pub fn new(run_mode: RunMode) -> Self {
+        Self { run_mode }
+    }
+}
 
 impl CitreaRollupBlueprint for MockDemoRollup {}
 
@@ -52,10 +61,6 @@ impl RollupBlueprint for MockDemoRollup {
         Self::Vm,
         StfBlueprint<Self::ZkContext, Self::DaSpec, Self::ZkRuntime>,
     >;
-
-    fn new() -> Self {
-        Self {}
-    }
 
     fn create_rpc_methods(
         &self,
@@ -88,16 +93,14 @@ impl RollupBlueprint for MockDemoRollup {
         Ok(rpc_methods)
     }
 
-    fn get_batch_proof_elfs_by_spec(&self) -> HashMap<SpecId, &[u8]> {
-        let mut map = HashMap::new();
+    fn get_batch_proof_elfs_by_spec(&self) -> HashMap<SpecId, Vec<u8>> {
+        #[cfg(not(feature = "testing"))]
+        panic!("MockDA is only allowed to work in testing/development mode");
 
-        if cfg!(feature = "testing") {
-            map.insert(SpecId::Genesis, citrea_risc0::BATCH_PROOF_MOCK_ELF);
-        } else {
-            map.insert(SpecId::Genesis, &[0; 1]);
-        }
-
-        map
+        MOCK_GUESTS
+            .iter()
+            .map(|(k, (_id, code))| (k.clone(), code.clone()))
+            .collect()
     }
 
     fn get_batch_proof_code_commitments_by_spec(

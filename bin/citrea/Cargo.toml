@@ -50,10 +50,12 @@ borsh = { workspace = true, features = ["bytes"] }
 clap = { workspace = true }
 hex = { workspace = true, optional = true }
 jsonrpsee = { workspace = true, features = ["http-client", "server"] }
+lazy_static = { workspace = true }
 log-panics = { workspace = true }
 reth-primitives = { workspace = true }
 reth-rpc-types = { workspace = true }
 reth-transaction-pool = { workspace = true }
+risc0-binfmt = { workspace = true }
 secp256k1 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
