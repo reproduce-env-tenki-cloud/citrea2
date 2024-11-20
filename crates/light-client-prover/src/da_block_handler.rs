@@ -5,9 +5,11 @@ use borsh::BorshDeserialize;
 use citrea_common::cache::L1BlockCache;
 use citrea_common::da::get_da_block_at_height;
 use citrea_common::LightClientProverConfig;
+use citrea_primitives::forks::FORKS;
 use sequencer_client::SequencerClient;
 use sov_db::ledger_db::{LightClientProverLedgerOps, SharedLedgerOps};
 use sov_db::schema::types::{SlotNumber, StoredLightClientProofOutput};
+use sov_modules_api::fork::fork_from_block_number;
 use sov_modules_api::{BlobReaderTrait, DaSpec, Zkvm};
 use sov_rollup_interface::da::{BlockHeaderTrait, DaDataLightClient, DaNamespace};
 use sov_rollup_interface::services::da::{DaService, SlotData};
@@ -35,7 +37,7 @@ where
     da_service: Arc<Da>,
     batch_prover_da_pub_key: Vec<u8>,
     batch_proof_code_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
-    light_client_proof_code_commitment: Vm::CodeCommitment,
+    light_client_proof_code_commitment: HashMap<SpecId, Vm::CodeCommitment>,
     l1_block_cache: Arc<Mutex<L1BlockCache<Da>>>,
     queued_l1_blocks: VecDeque<<Da as DaService>::FilteredBlock>,
     sequencer_client: Arc<SequencerClient>,
@@ -56,7 +58,7 @@ where
         da_service: Arc<Da>,
         batch_prover_da_pub_key: Vec<u8>,
         batch_proof_code_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
-        light_client_proof_code_commitment: Vm::CodeCommitment,
+        light_client_proof_code_commitment: HashMap<SpecId, Vm::CodeCommitment>,
         sequencer_client: Arc<SequencerClient>,
     ) -> Self {
         Self {
@@ -212,6 +214,16 @@ where
             }
         }
 
+        let l2_height = self
+            .ledger_db
+            .get_last_commitment_l2_height()? // TODO: Is this correct?
+            .unwrap_or_default();
+        let current_fork = fork_from_block_number(FORKS, l2_height.into());
+        let light_client_proof_code_commitment = self
+            .light_client_proof_code_commitment
+            .get(&current_fork.spec_id)
+            .expect("Fork should have a guest code attached");
+
         let circuit_input = LightClientCircuitInput {
             da_data,
             inclusion_proof,
@@ -219,7 +231,7 @@ where
             da_block_header: l1_block.header().clone(),
             batch_prover_da_pub_key: self.batch_prover_da_pub_key.clone(),
             batch_proof_method_id: batch_proof_method_id.clone().into(),
-            light_client_proof_method_id: self.light_client_proof_code_commitment.clone().into(),
+            light_client_proof_method_id: light_client_proof_code_commitment.clone().into(),
             previous_light_client_proof_journal: light_client_proof_journal,
             l2_genesis_state_root,
         };

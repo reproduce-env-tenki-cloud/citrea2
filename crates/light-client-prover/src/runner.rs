@@ -74,7 +74,7 @@ where
     prover_config: LightClientProverConfig,
     task_manager: TaskManager<()>,
     batch_proof_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
-    light_client_proof_commitment: Vm::CodeCommitment,
+    light_client_proof_commitment: HashMap<SpecId, Vm::CodeCommitment>,
 }
 
 impl<Da, Vm, Ps, DB> CitreaLightClientProver<Da, Vm, Ps, DB>
@@ -94,7 +94,7 @@ where
         prover_service: Arc<Ps>,
         prover_config: LightClientProverConfig,
         batch_proof_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
-        light_client_proof_commitment: Vm::CodeCommitment,
+        light_client_proof_commitment: HashMap<SpecId, Vm::CodeCommitment>,
         task_manager: TaskManager<()>,
     ) -> Result<Self, anyhow::Error> {
         let sequencer_client_url = runner_config.sequencer_client_url.clone();

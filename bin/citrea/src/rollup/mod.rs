@@ -436,7 +436,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
             None,
         )?;
 
-        let batch_prover_code_commitments_by_spec = self.get_batch_proof_code_commitments_by_spec();
+        let batch_prover_code_commitments_by_spec = self.get_batch_proof_code_commitments();
         let light_client_prover_code_commitment = self.get_light_client_proof_code_commitment();
 
         let current_l2_height = ledger_db

@@ -1949,6 +1949,7 @@ dependencies = [
  "bincode",
  "borsh",
  "citrea-common",
+ "citrea-primitives",
  "hex",
  "jsonrpsee",
  "sequencer-client",
