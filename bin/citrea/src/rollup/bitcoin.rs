@@ -44,12 +44,6 @@ pub struct BitcoinRollup {
 
 impl CitreaRollupBlueprint for BitcoinRollup {}
 
-impl BitcoinRollup {
-    pub fn new(network: Network) -> Self {
-        Self { network }
-    }
-}
-
 #[async_trait]
 impl RollupBlueprint for BitcoinRollup {
     type DaService = BitcoinService;
@@ -69,6 +63,10 @@ impl RollupBlueprint for BitcoinRollup {
         Self::Vm,
         StfBlueprint<Self::ZkContext, Self::DaSpec, Self::ZkRuntime>,
     >;
+
+    fn new(network: Network) -> Self {
+        Self { network }
+    }
 
     #[instrument(level = "trace", skip_all, err)]
     fn create_rpc_methods(

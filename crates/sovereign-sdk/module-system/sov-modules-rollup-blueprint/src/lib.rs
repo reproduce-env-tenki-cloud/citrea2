@@ -21,6 +21,16 @@ use sov_rollup_interface::zk::{Zkvm, ZkvmHost};
 use sov_stf_runner::ProverService;
 use tokio::sync::broadcast;
 
+/// The network currently running.
+#[derive(Copy, Clone, Default, Debug)]
+pub enum Network {
+    /// Mainnet
+    #[default]
+    Mainnet,
+    /// Testnet
+    Testnet,
+}
+
 /// This trait defines how to crate all the necessary dependencies required by a rollup.
 #[async_trait]
 pub trait RollupBlueprint: Sized + Send + Sync {
@@ -56,6 +66,9 @@ pub trait RollupBlueprint: Sized + Send + Sync {
 
     /// Prover service.
     type ProverService: ProverService<DaService = Self::DaService> + Send + Sync + 'static;
+
+    /// Creates a new instance of the blueprint.
+    fn new(network: Network) -> Self;
 
     /// Get batch prover code commitments by fork.
     fn get_batch_proof_code_commitments(

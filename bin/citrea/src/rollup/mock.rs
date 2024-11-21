@@ -31,12 +31,6 @@ pub struct MockDemoRollup {
     network: Network,
 }
 
-impl MockDemoRollup {
-    pub fn new(network: Network) -> Self {
-        Self { network }
-    }
-}
-
 impl CitreaRollupBlueprint for MockDemoRollup {}
 
 #[async_trait]
@@ -59,6 +53,10 @@ impl RollupBlueprint for MockDemoRollup {
         Self::Vm,
         StfBlueprint<Self::ZkContext, Self::DaSpec, Self::ZkRuntime>,
     >;
+
+    fn new(network: Network) -> Self {
+        Self { network }
+    }
 
     fn create_rpc_methods(
         &self,
