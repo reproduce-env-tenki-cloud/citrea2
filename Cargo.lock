@@ -1737,7 +1737,6 @@ dependencies = [
  "reth-rpc-types",
  "reth-transaction-pool",
  "revm",
- "risc0",
  "risc0-binfmt",
  "rs_merkle",
  "rustc_version_runtime",
@@ -6223,13 +6222,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd124222d17ad93a644ed9d011a40f4fb64aa54275c08cc216524a9ea82fb09f"
 dependencies = [
  "digest 0.10.7",
-]
-
-[[package]]
-name = "risc0"
-version = "0.5.0-rc.1"
-dependencies = [
- "risc0-build",
 ]
 
 [[package]]
