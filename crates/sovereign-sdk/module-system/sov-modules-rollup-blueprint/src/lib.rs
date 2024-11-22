@@ -70,6 +70,12 @@ pub trait RollupBlueprint: Sized + Send + Sync {
     /// Creates a new instance of the blueprint.
     fn new(network: Network) -> Self;
 
+    /// Get batch proof guest code elfs by fork.
+    fn get_batch_proof_elfs(&self) -> HashMap<SpecId, Vec<u8>>;
+
+    /// Get light client guest code elfs by fork.
+    fn get_light_client_elfs(&self) -> HashMap<SpecId, Vec<u8>>;
+
     /// Get batch prover code commitments by fork.
     fn get_batch_proof_code_commitments(
         &self,

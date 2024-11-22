@@ -172,6 +172,7 @@ pub(crate) async fn prove_l1<Da, Ps, Vm, DB, StateRoot, Witness>(
     prover_service: Arc<Ps>,
     ledger: DB,
     code_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
+    elfs_by_spec: HashMap<SpecId, Vec<u8>>,
     l1_block: Da::FilteredBlock,
     sequencer_commitments: Vec<SequencerCommitment>,
     inputs: Vec<BatchProofCircuitInputV2<'_, StateRoot, Witness, Da::Spec>>,
@@ -204,8 +205,18 @@ where
         }
     }
 
+    let last_l2_height = sequencer_commitments
+        .last()
+        .expect("Should have at least 1 commitment")
+        .l2_end_block_number;
+    let current_spec = fork_from_block_number(FORKS, last_l2_height).spec_id;
+    let elf = elfs_by_spec
+        .get(&current_spec)
+        .expect("Every fork should have an elf attached")
+        .clone();
+
     // Prove all proofs in parallel
-    let proofs = prover_service.prove().await?;
+    let proofs = prover_service.prove(elf).await?;
 
     let txs_and_proofs = prover_service.submit_proofs(proofs).await?;
 

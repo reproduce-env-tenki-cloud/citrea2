@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use borsh::BorshDeserialize;
 use citrea_common::cache::L1BlockCache;
 use citrea_common::da::get_da_block_at_height;
@@ -36,8 +37,9 @@ where
     ledger_db: DB,
     da_service: Arc<Da>,
     batch_prover_da_pub_key: Vec<u8>,
-    batch_proof_code_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
-    light_client_proof_code_commitment: HashMap<SpecId, Vm::CodeCommitment>,
+    batch_proof_code_commitments: HashMap<SpecId, Vm::CodeCommitment>,
+    light_client_proof_code_commitments: HashMap<SpecId, Vm::CodeCommitment>,
+    light_client_proof_elfs: HashMap<SpecId, Vec<u8>>,
     l1_block_cache: Arc<Mutex<L1BlockCache<Da>>>,
     queued_l1_blocks: VecDeque<<Da as DaService>::FilteredBlock>,
     sequencer_client: Arc<SequencerClient>,
@@ -57,8 +59,9 @@ where
         ledger_db: DB,
         da_service: Arc<Da>,
         batch_prover_da_pub_key: Vec<u8>,
-        batch_proof_code_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
-        light_client_proof_code_commitment: HashMap<SpecId, Vm::CodeCommitment>,
+        batch_proof_code_commitments: HashMap<SpecId, Vm::CodeCommitment>,
+        light_client_proof_code_commitments: HashMap<SpecId, Vm::CodeCommitment>,
+        light_client_proof_elfs: HashMap<SpecId, Vec<u8>>,
         sequencer_client: Arc<SequencerClient>,
     ) -> Self {
         Self {
@@ -67,8 +70,9 @@ where
             ledger_db,
             da_service,
             batch_prover_da_pub_key,
-            batch_proof_code_commitments_by_spec,
-            light_client_proof_code_commitment,
+            batch_proof_code_commitments,
+            light_client_proof_code_commitments,
+            light_client_proof_elfs,
             l1_block_cache: Arc::new(Mutex::new(L1BlockCache::new())),
             queued_l1_blocks: VecDeque::new(),
             sequencer_client,
@@ -145,7 +149,7 @@ where
             .da_service
             .extract_relevant_blobs_with_proof(l1_block, DaNamespace::ToLightClientProver);
 
-        let batch_proofs = self.extract_batch_proofs(&mut da_data, l1_hash).await;
+        let batch_proofs = self.extract_batch_proofs(&mut da_data).await;
         tracing::info!(
             "Block {} has {} batch proofs",
             l1_height,
@@ -155,7 +159,7 @@ where
         // Do any kind of ordering etc. on batch proofs here
         // If you do so, don't forget to do the same inside zk
         let batch_proof_method_id = self
-            .batch_proof_code_commitments_by_spec
+            .batch_proof_code_commitments
             .get(&SpecId::Genesis)
             .expect("Batch proof code commitment not found");
 
@@ -172,7 +176,7 @@ where
         let previous_l1_height = l1_height - 1;
         let mut light_client_proof_journal = None;
         let mut l2_genesis_state_root = None;
-        match self
+        let l2_last_height = match self
             .ledger_db
             .get_light_client_proof_data_by_l1_height(previous_l1_height)?
         {
@@ -181,14 +185,15 @@ where
                 let output = data.light_client_proof_output;
                 assumptions.push(proof);
                 light_client_proof_journal = Some(borsh::to_vec(&output)?);
+                Some(output.last_l2_height)
             }
             None => {
-                let initial_l1_height = self
+                let soft_confirmation = self
                     .sequencer_client
                     .get_soft_confirmation::<Da::Spec>(1)
                     .await?
-                    .unwrap()
-                    .da_slot_height;
+                    .unwrap();
+                let initial_l1_height = soft_confirmation.da_slot_height;
                 // If the prev block is the block before the first processed l1 block
                 // then we don't have a previous light client proof, so just give an info
                 if previous_l1_height == initial_l1_height {
@@ -211,18 +216,23 @@ where
                         previous_l1_height
                     );
                 }
+                Some(soft_confirmation.l2_height)
             }
-        }
+        };
 
-        let l2_height = self
-            .ledger_db
-            .get_last_commitment_l2_height()? // TODO: Is this correct?
-            .unwrap_or_default();
-        let current_fork = fork_from_block_number(FORKS, l2_height.into());
+        let l2_last_height = l2_last_height.ok_or(anyhow!(
+            "Could not determine the last L2 height for batch proof"
+        ))?;
+        let current_fork = fork_from_block_number(FORKS, l2_last_height.into());
         let light_client_proof_code_commitment = self
-            .light_client_proof_code_commitment
+            .light_client_proof_code_commitments
             .get(&current_fork.spec_id)
             .expect("Fork should have a guest code attached");
+        let light_client_elf = self
+            .light_client_proof_elfs
+            .get(&current_fork.spec_id)
+            .expect("Fork should have a guest code attached")
+            .clone();
 
         let circuit_input = LightClientCircuitInput {
             da_data,
@@ -236,7 +246,9 @@ where
             l2_genesis_state_root,
         };
 
-        let proof = self.prove(circuit_input, assumptions).await?;
+        let proof = self
+            .prove(light_client_elf, circuit_input, assumptions)
+            .await?;
 
         let circuit_output =
             Vm::extract_output::<Da::Spec, LightClientCircuitOutput<Da::Spec>>(&proof)
@@ -277,32 +289,27 @@ where
     async fn extract_batch_proofs(
         &self,
         da_data: &mut [<<Da as DaService>::Spec as DaSpec>::BlobTransaction],
-        da_slot_hash: [u8; 32], // passing this as an argument is not clever
     ) -> Vec<DaDataLightClient> {
-        let mut batch_proofs = Vec::new();
+        let batch_proofs = da_data
+            .into_iter()
+            .filter_map(|blob| {
+                if blob.sender().as_ref() == self.batch_prover_da_pub_key {
+                    let data = DaDataLightClient::try_from_slice(blob.verified_data());
 
-        da_data.iter_mut().for_each(|tx| {
-            // Check for commitment
-            if tx.sender().as_ref() == self.batch_prover_da_pub_key.as_slice() {
-                let data = DaDataLightClient::try_from_slice(tx.full_data());
-
-                if let Ok(proof) = data {
-                    batch_proofs.push(proof);
-                } else {
-                    tracing::warn!(
-                        "Found broken DA data in block 0x{}: {:?}",
-                        hex::encode(da_slot_hash),
-                        data
-                    );
+                    if let Ok(proof) = data {
+                        return Some(proof);
+                    }
                 }
-            }
-        });
+                None
+            })
+            .collect::<Vec<_>>();
 
         batch_proofs
     }
 
     async fn prove(
         &self,
+        light_client_elf: Vec<u8>,
         circuit_input: LightClientCircuitInput<<Da as DaService>::Spec>,
         assumptions: Vec<Vec<u8>>,
     ) -> Result<Proof, anyhow::Error> {
@@ -312,7 +319,7 @@ where
             .add_proof_data((borsh::to_vec(&circuit_input)?, assumptions))
             .await;
 
-        let proofs = self.prover_service.prove().await?;
+        let proofs = self.prover_service.prove(light_client_elf).await?;
 
         assert_eq!(proofs.len(), 1);
 

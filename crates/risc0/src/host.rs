@@ -35,7 +35,6 @@ pub struct RecoveredBonsaiSession {
 /// A [`Risc0BonsaiHost`] stores a binary to execute in the Risc0 VM and prove in the Risc0 Bonsai API.
 #[derive(Clone)]
 pub struct Risc0BonsaiHost {
-    elf: Vec<u8>,
     env: Vec<u8>,
     assumptions: Vec<AssumptionReceipt>,
     image_id: Digest,
@@ -44,7 +43,7 @@ pub struct Risc0BonsaiHost {
 
 impl Risc0BonsaiHost {
     /// Create a new Risc0Host to prove the given binary.
-    pub fn new(image_id: Digest, elf: Vec<u8>, ledger_db: LedgerDB) -> Self {
+    pub fn new(image_id: Digest, ledger_db: LedgerDB) -> Self {
         match std::env::var("RISC0_PROVER") {
             Ok(prover) => match prover.as_str() {
                 "bonsai" => {
@@ -78,7 +77,6 @@ impl Risc0BonsaiHost {
         }
 
         Self {
-            elf,
             env: Default::default(),
             assumptions: vec![],
             image_id,
@@ -109,7 +107,7 @@ impl ZkvmHost for Risc0BonsaiHost {
 
     /// Only with_proof = true is supported.
     /// Proofs are created on the Bonsai API.
-    fn run(&mut self, with_proof: bool) -> Result<Proof, anyhow::Error> {
+    fn run(&mut self, elf: Vec<u8>, with_proof: bool) -> Result<Proof, anyhow::Error> {
         if !with_proof {
             if std::env::var("RISC0_PROVER") == Ok("bonsai".to_string()) {
                 panic!("Bonsai prover requires with_proof to be true");
@@ -138,7 +136,7 @@ impl ZkvmHost for Risc0BonsaiHost {
 
         tracing::info!("Starting risc0 proving");
         let ProveInfo { receipt, stats } =
-            prover.prove_with_opts(env, &self.elf, &ProverOpts::groth16())?;
+            prover.prove_with_opts(env, &elf, &ProverOpts::groth16())?;
 
         tracing::info!("Execution Stats: {:?}", stats);
 

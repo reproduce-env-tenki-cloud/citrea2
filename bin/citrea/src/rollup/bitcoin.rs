@@ -160,6 +160,32 @@ impl RollupBlueprint for BitcoinRollup {
         Ok(service)
     }
 
+    fn get_batch_proof_elfs(&self) -> HashMap<SpecId, Vec<u8>> {
+        match self.network {
+            Network::Mainnet => BATCH_PROOF_MAINNET_GUESTS
+                .iter()
+                .map(|(k, (_, code))| (k.clone(), code.clone()))
+                .collect(),
+            Network::Testnet => BATCH_PROOF_TESTNET_GUESTS
+                .iter()
+                .map(|(k, (_, code))| (k.clone(), code.clone()))
+                .collect(),
+        }
+    }
+
+    fn get_light_client_elfs(&self) -> HashMap<SpecId, Vec<u8>> {
+        match self.network {
+            Network::Mainnet => LIGHT_CLIENT_MAINNET_GUESTS
+                .iter()
+                .map(|(k, (_, code))| (k.clone(), code.clone()))
+                .collect(),
+            Network::Testnet => LIGHT_CLIENT_TESTNET_GUESTS
+                .iter()
+                .map(|(k, (_, code))| (k.clone(), code.clone()))
+                .collect(),
+        }
+    }
+
     fn get_batch_proof_code_commitments(
         &self,
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
@@ -198,11 +224,11 @@ impl RollupBlueprint for BitcoinRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let (guest_id, guest_code) = guest(NodeType::Batch, self.network, &ledger_db);
+        let (guest_id, _) = guest(NodeType::Batch, self.network, &ledger_db);
         // TODO: Should a fork cause the new guest to be uploaded?
         // Scenario: We start with genesis guest code... after a fork, the risc0 bonsai
         // host should upload the new ID + Elf.
-        let vm = Risc0BonsaiHost::new(guest_id, guest_code, ledger_db.clone());
+        let vm = Risc0BonsaiHost::new(guest_id, ledger_db.clone());
         // let vm = SP1Host::new(
         //     include_bytes!("../guests/sp1/batch-prover-bitcoin/elf/zkvm-elf"),
         //     ledger_db.clone(),
@@ -244,11 +270,11 @@ impl RollupBlueprint for BitcoinRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let (guest_id, guest_code) = guest(NodeType::Light, self.network, &ledger_db);
+        let (guest_id, _) = guest(NodeType::Light, self.network, &ledger_db);
         // TODO: Should a fork cause the new guest to be uploaded?
         // Scenario: We start with genesis guest code... after a fork, the risc0 bonsai
         // host should upload the new ID + Elf.
-        let vm = Risc0BonsaiHost::new(guest_id, guest_code, ledger_db.clone());
+        let vm = Risc0BonsaiHost::new(guest_id, ledger_db.clone());
         let zk_stf = StfBlueprint::new();
         let zk_storage = ZkStorage::new();
 
