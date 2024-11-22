@@ -189,9 +189,9 @@ pub fn compress_two_best_strategy(prev_value: U256, new_value: U256) -> SlotChan
     let no_compression = CompressionAbsent::new(new_value);
 
     let compressors = [
+        transform.map(SlotChange::Transform),
         add.map(SlotChange::Add),
         sub.map(SlotChange::Sub),
-        transform.map(SlotChange::Transform),
     ];
 
     select_best_strategy(
