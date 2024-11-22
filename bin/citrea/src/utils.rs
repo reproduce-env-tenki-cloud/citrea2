@@ -1,6 +1,7 @@
 use citrea_primitives::forks::FORKS;
 use citrea_risc0_adapter::Digest;
 use sov_db::ledger_db::{LedgerDB, SharedLedgerOps};
+use sov_db::schema::types::BatchNumber;
 use sov_modules_api::fork::fork_from_block_number;
 
 use crate::guests::{
@@ -40,7 +41,9 @@ pub fn guest(node_type: NodeType, network: Network, ledger_db: &LedgerDB) -> (Di
         .get_last_commitment_l2_height()
         .ok()
         .flatten()
-        .expect("Should be able to fetch last l2 height");
+        // If we are unable to fetch the last commitment height,
+        // the chain is running from genesis
+        .unwrap_or(BatchNumber(1));
     let fork = fork_from_block_number(FORKS, last_l2_height.into());
     let guest = guests
         .get(&fork.spec_id)
