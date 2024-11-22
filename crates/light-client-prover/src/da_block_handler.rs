@@ -223,7 +223,7 @@ where
         let l2_last_height = l2_last_height.ok_or(anyhow!(
             "Could not determine the last L2 height for batch proof"
         ))?;
-        let current_fork = fork_from_block_number(FORKS, l2_last_height.into());
+        let current_fork = fork_from_block_number(FORKS, l2_last_height);
         let light_client_proof_code_commitment = self
             .light_client_proof_code_commitments
             .get(&current_fork.spec_id)
@@ -291,7 +291,7 @@ where
         da_data: &mut [<<Da as DaService>::Spec as DaSpec>::BlobTransaction],
     ) -> Vec<DaDataLightClient> {
         let batch_proofs = da_data
-            .into_iter()
+            .iter_mut()
             .filter_map(|blob| {
                 if blob.sender().as_ref() == self.batch_prover_da_pub_key {
                     let data = DaDataLightClient::try_from_slice(blob.verified_data());

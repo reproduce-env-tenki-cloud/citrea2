@@ -164,11 +164,11 @@ impl RollupBlueprint for BitcoinRollup {
         match self.network {
             Network::Mainnet => BATCH_PROOF_MAINNET_GUESTS
                 .iter()
-                .map(|(k, (_, code))| (k.clone(), code.clone()))
+                .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
             Network::Testnet => BATCH_PROOF_TESTNET_GUESTS
                 .iter()
-                .map(|(k, (_, code))| (k.clone(), code.clone()))
+                .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
         }
     }
@@ -177,11 +177,11 @@ impl RollupBlueprint for BitcoinRollup {
         match self.network {
             Network::Mainnet => LIGHT_CLIENT_MAINNET_GUESTS
                 .iter()
-                .map(|(k, (_, code))| (k.clone(), code.clone()))
+                .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
             Network::Testnet => LIGHT_CLIENT_TESTNET_GUESTS
                 .iter()
-                .map(|(k, (_, code))| (k.clone(), code.clone()))
+                .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
         }
     }
@@ -192,11 +192,11 @@ impl RollupBlueprint for BitcoinRollup {
         match self.network {
             Network::Mainnet => BATCH_PROOF_MAINNET_GUESTS
                 .iter()
-                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .map(|(k, (id, _))| (*k, *id))
                 .collect(),
             Network::Testnet => BATCH_PROOF_TESTNET_GUESTS
                 .iter()
-                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .map(|(k, (id, _))| (*k, *id))
                 .collect(),
         }
     }
@@ -207,11 +207,11 @@ impl RollupBlueprint for BitcoinRollup {
         match self.network {
             Network::Mainnet => LIGHT_CLIENT_MAINNET_GUESTS
                 .iter()
-                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .map(|(k, (id, _))| (*k, *id))
                 .collect(),
             Network::Testnet => LIGHT_CLIENT_TESTNET_GUESTS
                 .iter()
-                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .map(|(k, (id, _))| (*k, *id))
                 .collect(),
         }
     }

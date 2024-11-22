@@ -105,11 +105,11 @@ impl RollupBlueprint for MockDemoRollup {
         match self.network {
             Network::Mainnet => BATCH_PROOF_MOCK_GUESTS
                 .iter()
-                .map(|(k, (_, code))| (k.clone(), code.clone()))
+                .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
             Network::Testnet => BATCH_PROOF_MOCK_GUESTS
                 .iter()
-                .map(|(k, (_, code))| (k.clone(), code.clone()))
+                .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
         }
     }
@@ -118,11 +118,11 @@ impl RollupBlueprint for MockDemoRollup {
         match self.network {
             Network::Mainnet => LIGHT_CLIENT_MOCK_GUESTS
                 .iter()
-                .map(|(k, (_, code))| (k.clone(), code.clone()))
+                .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
             Network::Testnet => LIGHT_CLIENT_MOCK_GUESTS
                 .iter()
-                .map(|(k, (_, code))| (k.clone(), code.clone()))
+                .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
         }
     }
@@ -133,11 +133,11 @@ impl RollupBlueprint for MockDemoRollup {
         match self.network {
             Network::Mainnet => BATCH_PROOF_MOCK_GUESTS
                 .iter()
-                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .map(|(k, (id, _))| (*k, *id))
                 .collect(),
             Network::Testnet => BATCH_PROOF_MOCK_GUESTS
                 .iter()
-                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .map(|(k, (id, _))| (*k, *id))
                 .collect(),
         }
     }
@@ -148,11 +148,11 @@ impl RollupBlueprint for MockDemoRollup {
         match self.network {
             Network::Mainnet => LIGHT_CLIENT_MOCK_GUESTS
                 .iter()
-                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .map(|(k, (id, _))| (*k, *id))
                 .collect(),
             Network::Testnet => LIGHT_CLIENT_MOCK_GUESTS
                 .iter()
-                .map(|(k, (id, _))| (k.clone(), id.clone()))
+                .map(|(k, (id, _))| (*k, *id))
                 .collect(),
         }
     }

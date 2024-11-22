@@ -28,9 +28,9 @@ pub enum NetworkArg {
     Testnet,
 }
 
-impl Into<Network> for NetworkArg {
-    fn into(self) -> Network {
-        match self {
+impl From<NetworkArg> for Network {
+    fn from(value: NetworkArg) -> Self {
+        match value {
             NetworkArg::Mainnet => Network::Mainnet,
             NetworkArg::Testnet => Network::Testnet,
         }
