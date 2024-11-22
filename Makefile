@@ -22,7 +22,7 @@ build-sp1:
 build: build-risc0 build-sp1 ## Build the project
 	@cargo build
 
-build-release: ## Build the project in release mode
+build-release: build-risc0 build-sp1 ## Build the project in release mode
 	@cargo build --release
 
 clean: ## Cleans compiled
