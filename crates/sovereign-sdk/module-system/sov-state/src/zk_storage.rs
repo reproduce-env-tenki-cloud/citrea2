@@ -87,7 +87,7 @@ where
         let prev_state_root = witness.get_hint();
 
         // For each value that's been read from the tree, verify the provided smt proof
-        for (key, read_value) in state_accesses.ordered_reads {
+        for (key, read_value) in &state_accesses.ordered_reads {
             let key_hash = KeyHash::with::<H>(key.key.as_ref());
             // TODO: Switch to the batch read API once it becomes available
             let proof: jmt::proof::SparseMerkleProof<H> = witness.get_hint();
@@ -100,6 +100,12 @@ where
                 None => proof.verify_nonexistence(jmt::RootHash(prev_state_root), key_hash)?,
             }
         }
+
+        let pre_state = crate::stateful_statediff::build_pre_state(state_accesses.ordered_reads);
+        let post_state =
+            crate::stateful_statediff::build_post_state(&state_accesses.ordered_writes);
+
+        let _st_statediff = crate::stateful_statediff::compress_state(pre_state, post_state);
 
         let mut diff = vec![];
 

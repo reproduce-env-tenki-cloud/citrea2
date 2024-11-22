@@ -580,8 +580,29 @@ impl<C: Context> StateReaderAndWriter for WorkingSet<C> {
 
     fn set(&mut self, key: &StorageKey, value: StorageValue) {
         match &mut self.archival_working_set {
-            None => self.delta.set(key, value),
-            Some(ref mut archival_working_set) => archival_working_set.set(key, value),
+            None => {
+                {
+                    // Fetch prev value to populate ordered reads
+                    // FIXME: ^ this is a hack
+                    let k_bytes = key.key.as_slice();
+                    if k_bytes.starts_with(b"Evm/a/") || k_bytes.starts_with(b"Evm/s/") {
+                        let _ = self.delta.get(key);
+                    }
+                }
+
+                self.delta.set(key, value)
+            }
+            Some(ref mut archival_working_set) => {
+                {
+                    // Fetch prev value to populate ordered reads
+                    // FIXME: ^ this is a hack
+                    let k_bytes = key.key.as_slice();
+                    if k_bytes.starts_with(b"Evm/a/") || k_bytes.starts_with(b"Evm/s/") {
+                        let _ = archival_working_set.get(key);
+                    }
+                }
+                archival_working_set.set(key, value)
+            }
         }
     }
 
