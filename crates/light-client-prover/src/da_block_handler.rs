@@ -289,22 +289,26 @@ where
     async fn extract_batch_proofs(
         &self,
         da_data: &mut [<<Da as DaService>::Spec as DaSpec>::BlobTransaction],
+        da_slot_hash: [u8; 32], // passing this as an argument is not clever
     ) -> Vec<DaDataLightClient> {
-        let batch_proofs = da_data
-            .iter_mut()
-            .filter_map(|blob| {
-                if blob.sender().as_ref() == self.batch_prover_da_pub_key {
-                    let data = DaDataLightClient::try_from_slice(blob.verified_data());
+        let mut batch_proofs = Vec::new();
 
-                    if let Ok(proof) = data {
-                        return Some(proof);
-                    }
+        da_data.iter_mut().for_each(|tx| {
+            // Check for commitment
+            if tx.sender().as_ref() == self.batch_prover_da_pub_key.as_slice() {
+                let data = DaDataLightClient::try_from_slice(tx.full_data());
+
+                if let Ok(proof) = data {
+                    batch_proofs.push(proof);
+                } else {
+                    tracing::warn!(
+                        "Found broken DA data in block 0x{}: {:?}",
+                        hex::encode(da_slot_hash),
+                        data
+                    );
                 }
-                None
-            })
-            .collect::<Vec<_>>();
-
-        batch_proofs
+            }
+        });
     }
 
     async fn prove(
