@@ -142,6 +142,7 @@ impl ZkvmHost for Risc0BonsaiHost {
         let image_id = compute_image_id(&elf)?;
 
         receipt.verify(image_id)?;
+        tracing::trace!("Calculated image id: {:?}", image_id.as_words());
 
         tracing::info!("Verified the receipt");
 
