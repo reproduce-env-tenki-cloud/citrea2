@@ -3,7 +3,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use risc0_zkvm::sha::Digest;
 use risc0_zkvm::{
-    default_prover, AssumptionReceipt, ExecutorEnvBuilder, ProveInfo, ProverOpts, Receipt,
+    compute_image_id, default_prover, AssumptionReceipt, ExecutorEnvBuilder, ProveInfo, ProverOpts,
+    Receipt,
 };
 use sov_db::ledger_db::LedgerDB;
 use sov_rollup_interface::zk::{Proof, Zkvm, ZkvmHost};
@@ -37,13 +38,12 @@ pub struct RecoveredBonsaiSession {
 pub struct Risc0BonsaiHost {
     env: Vec<u8>,
     assumptions: Vec<AssumptionReceipt>,
-    image_id: Digest,
     _ledger_db: LedgerDB,
 }
 
 impl Risc0BonsaiHost {
     /// Create a new Risc0Host to prove the given binary.
-    pub fn new(image_id: Digest, ledger_db: LedgerDB) -> Self {
+    pub fn new(ledger_db: LedgerDB) -> Self {
         match std::env::var("RISC0_PROVER") {
             Ok(prover) => match prover.as_str() {
                 "bonsai" => {
@@ -79,7 +79,6 @@ impl Risc0BonsaiHost {
         Self {
             env: Default::default(),
             assumptions: vec![],
-            image_id,
             _ledger_db: ledger_db,
         }
     }
@@ -140,7 +139,9 @@ impl ZkvmHost for Risc0BonsaiHost {
 
         tracing::info!("Execution Stats: {:?}", stats);
 
-        receipt.verify(self.image_id)?;
+        let image_id = compute_image_id(&elf)?;
+
+        receipt.verify(image_id)?;
 
         tracing::info!("Verified the receipt");
 
