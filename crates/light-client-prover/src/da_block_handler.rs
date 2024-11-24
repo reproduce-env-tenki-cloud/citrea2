@@ -149,7 +149,7 @@ where
             .da_service
             .extract_relevant_blobs_with_proof(l1_block, DaNamespace::ToLightClientProver);
 
-        let batch_proofs = self.extract_batch_proofs(&mut da_data).await;
+        let batch_proofs = self.extract_batch_proofs(&mut da_data, l1_hash).await;
         tracing::info!(
             "Block {} has {} batch proofs",
             l1_height,
@@ -309,6 +309,7 @@ where
                 }
             }
         });
+        batch_proofs
     }
 
     async fn prove(
