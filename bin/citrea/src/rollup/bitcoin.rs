@@ -34,7 +34,6 @@ use crate::guests::{
     BATCH_PROOF_MAINNET_GUESTS, BATCH_PROOF_TESTNET_GUESTS, LIGHT_CLIENT_MAINNET_GUESTS,
     LIGHT_CLIENT_TESTNET_GUESTS,
 };
-use crate::utils::{guest, NodeType};
 use crate::{CitreaRollupBlueprint, Network};
 
 /// Rollup with BitcoinDa
@@ -224,11 +223,7 @@ impl RollupBlueprint for BitcoinRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let (guest_id, _) = guest(NodeType::Batch, self.network, &ledger_db);
-        // TODO: Should a fork cause the new guest to be uploaded?
-        // Scenario: We start with genesis guest code... after a fork, the risc0 bonsai
-        // host should upload the new ID + Elf.
-        let vm = Risc0BonsaiHost::new(guest_id, ledger_db.clone());
+        let vm = Risc0BonsaiHost::new(ledger_db.clone());
         // let vm = SP1Host::new(
         //     include_bytes!("../guests/sp1/batch-prover-bitcoin/elf/zkvm-elf"),
         //     ledger_db.clone(),
@@ -270,11 +265,7 @@ impl RollupBlueprint for BitcoinRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let (guest_id, _) = guest(NodeType::Light, self.network, &ledger_db);
-        // TODO: Should a fork cause the new guest to be uploaded?
-        // Scenario: We start with genesis guest code... after a fork, the risc0 bonsai
-        // host should upload the new ID + Elf.
-        let vm = Risc0BonsaiHost::new(guest_id, ledger_db.clone());
+        let vm = Risc0BonsaiHost::new(ledger_db.clone());
         let zk_stf = StfBlueprint::new();
         let zk_storage = ZkStorage::new();
 

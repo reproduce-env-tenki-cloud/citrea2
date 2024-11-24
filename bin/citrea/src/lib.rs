@@ -14,7 +14,6 @@ use tracing_subscriber::{fmt, EnvFilter};
 mod eth;
 mod guests;
 mod rollup;
-mod utils;
 pub use rollup::*;
 
 /// The network currently running.

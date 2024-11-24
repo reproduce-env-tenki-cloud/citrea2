@@ -23,7 +23,6 @@ use sov_stf_runner::ProverGuestRunConfig;
 use tokio::sync::broadcast;
 
 use crate::guests::{BATCH_PROOF_MOCK_GUESTS, LIGHT_CLIENT_MOCK_GUESTS};
-use crate::utils::{guest, NodeType};
 use crate::{CitreaRollupBlueprint, Network};
 
 /// Rollup with MockDa
@@ -164,8 +163,7 @@ impl RollupBlueprint for MockDemoRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let (guest_id, _) = guest(NodeType::MockBatch, self.network, &ledger_db);
-        let vm = Risc0BonsaiHost::new(guest_id, ledger_db.clone());
+        let vm = Risc0BonsaiHost::new(ledger_db.clone());
 
         let zk_stf = StfBlueprint::new();
         let zk_storage = ZkStorage::new();
@@ -192,8 +190,7 @@ impl RollupBlueprint for MockDemoRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
     ) -> Self::ProverService {
-        let (guest_id, _) = guest(NodeType::MockLight, self.network, &ledger_db);
-        let vm = Risc0BonsaiHost::new(guest_id, ledger_db.clone());
+        let vm = Risc0BonsaiHost::new(ledger_db.clone());
         let zk_stf = StfBlueprint::new();
         let zk_storage = ZkStorage::new();
         let da_verifier = Default::default();
