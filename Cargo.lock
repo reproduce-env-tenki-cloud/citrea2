@@ -7448,6 +7448,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "citrea-common",
+ "derive_more",
  "jsonrpsee",
  "sov-db",
  "sov-ledger-rpc",

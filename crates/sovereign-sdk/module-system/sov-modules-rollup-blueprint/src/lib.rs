@@ -1,15 +1,13 @@
 #![deny(missing_docs)]
 #![doc = include_str!("../README.md")]
 
-mod runtime_rpc;
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use citrea_common::tasks::manager::TaskManager;
 use citrea_common::{BatchProverConfig, FullNodeConfig, LightClientProverConfig};
-pub use runtime_rpc::*;
+use derive_more::Display;
 use sov_db::ledger_db::LedgerDB;
 use sov_db::rocks_db_config::RocksdbConfig;
 use sov_modules_api::{Context, DaSpec, Spec};
@@ -21,8 +19,12 @@ use sov_rollup_interface::zk::{Zkvm, ZkvmHost};
 use sov_stf_runner::ProverService;
 use tokio::sync::broadcast;
 
+mod runtime_rpc;
+
+pub use runtime_rpc::*;
+
 /// The network currently running.
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, Display)]
 pub enum Network {
     /// Mainnet
     #[default]

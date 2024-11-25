@@ -15,7 +15,7 @@ use sov_mock_da::MockDaConfig;
 use sov_modules_api::Spec;
 use sov_modules_rollup_blueprint::{Network, RollupBlueprint};
 use sov_state::storage::NativeStorage;
-use tracing::{error, instrument};
+use tracing::{error, info, instrument};
 
 #[cfg(test)]
 mod test_rpc;
@@ -153,6 +153,8 @@ async fn main() -> Result<(), anyhow::Error> {
     } else if args.dev {
         network = Network::Nightly;
     }
+
+    info!("Starting node on {network}");
 
     match args.da_layer {
         SupportedDaLayer::Mock => {
