@@ -31,11 +31,11 @@ struct Args {
     #[clap(short, long, default_value_t, value_enum)]
     network: NetworkArg,
 
-    /// Overrides the run mode to use testnet
+    /// Override network to run testnet directly.
     #[arg(long)]
     testnet: bool,
 
-    /// Overrides the run mode to use testnet
+    /// Run the development chain
     #[arg(long, conflicts_with_all = ["testnet"])]
     dev: bool,
 
