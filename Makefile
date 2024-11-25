@@ -11,6 +11,8 @@ help: ## Display this help message
 
 .PHONY: build-risc0
 build-risc0:
+	cargo risczero build --manifest-path guests/risc0/batch-proof-mock/Cargo.toml
+	cargo risczero build --manifest-path guests/risc0/light-client-proof-mock/Cargo.toml
 	cargo risczero build --manifest-path guests/risc0/batch-proof-bitcoin/Cargo.toml
 	cargo risczero build --manifest-path guests/risc0/light-client-proof-bitcoin/Cargo.toml
 

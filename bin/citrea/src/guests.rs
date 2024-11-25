@@ -8,7 +8,7 @@ use sov_rollup_interface::spec::SpecId;
 lazy_static! {
     pub(crate) static ref BATCH_PROOF_MOCK_GUESTS: HashMap<SpecId, (Digest, Vec<u8>)> = {
         let mut m = HashMap::new();
-        let code = include_bytes!("../../../target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/batch_proof_bitcoin/batch_proof_bitcoin").to_vec();
+        let code = include_bytes!("../../../target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/batch_proof_mock/batch_proof_mock").to_vec();
         let id = compute_image_id(&code).unwrap();
 
         m.insert(SpecId::Genesis, (id, code));
@@ -16,7 +16,7 @@ lazy_static! {
     };
     pub(crate) static ref LIGHT_CLIENT_MOCK_GUESTS: HashMap<SpecId, (Digest, Vec<u8>)> = {
         let mut m = HashMap::new();
-        let code = include_bytes!("../../../target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/light_client_proof_bitcoin/light_client_proof_bitcoin").to_vec();
+        let code = include_bytes!("../../../target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/light_client_proof_mock/light_client_proof_mock").to_vec();
         let id = compute_image_id(&code).unwrap();
 
         m.insert(SpecId::Genesis, (id, code));
