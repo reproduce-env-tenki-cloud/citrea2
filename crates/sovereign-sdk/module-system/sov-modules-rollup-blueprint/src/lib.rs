@@ -29,6 +29,8 @@ pub enum Network {
     Mainnet,
     /// Testnet
     Testnet,
+    /// nightly
+    Nightly,
 }
 
 /// This trait defines how to crate all the necessary dependencies required by a rollup.

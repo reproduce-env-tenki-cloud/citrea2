@@ -35,6 +35,10 @@ struct Args {
     #[arg(long)]
     testnet: bool,
 
+    /// Overrides the run mode to use testnet
+    #[arg(long, conflicts_with_all = ["testnet"])]
+    dev: bool,
+
     /// Path to the genesis configuration.
     /// Defines the genesis of module states like evm.
     #[arg(long)]
@@ -143,15 +147,17 @@ async fn main() -> Result<(), anyhow::Error> {
         ));
     }
 
-    let mut network = args.network;
+    let mut network = args.network.into();
     if args.testnet {
-        network = NetworkArg::Testnet;
+        network = Network::Testnet;
+    } else if args.dev {
+        network = Network::Nightly;
     }
 
     match args.da_layer {
         SupportedDaLayer::Mock => {
             start_rollup::<MockDemoRollup, MockDaConfig>(
-                network.into(),
+                network,
                 &GenesisPaths::from_dir(&args.genesis_paths),
                 args.rollup_config_path,
                 batch_prover_config,
@@ -162,7 +168,7 @@ async fn main() -> Result<(), anyhow::Error> {
         }
         SupportedDaLayer::Bitcoin => {
             start_rollup::<BitcoinRollup, BitcoinServiceConfig>(
-                network.into(),
+                network,
                 &GenesisPaths::from_dir(&args.genesis_paths),
                 args.rollup_config_path,
                 batch_prover_config,

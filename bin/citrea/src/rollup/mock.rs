@@ -22,7 +22,7 @@ use sov_state::ZkStorage;
 use sov_stf_runner::ProverGuestRunConfig;
 use tokio::sync::broadcast;
 
-use crate::guests::{BATCH_PROOF_MOCK_GUESTS, LIGHT_CLIENT_MOCK_GUESTS};
+use crate::guests::{BATCH_PROOF_LATEST_MOCK_GUESTS, LIGHT_CLIENT_LATEST_MOCK_GUESTS};
 use crate::{CitreaRollupBlueprint, Network};
 
 /// Rollup with MockDa
@@ -102,11 +102,15 @@ impl RollupBlueprint for MockDemoRollup {
 
     fn get_batch_proof_elfs(&self) -> HashMap<SpecId, Vec<u8>> {
         match self.network {
-            Network::Mainnet => BATCH_PROOF_MOCK_GUESTS
+            Network::Mainnet => BATCH_PROOF_LATEST_MOCK_GUESTS
                 .iter()
                 .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
-            Network::Testnet => BATCH_PROOF_MOCK_GUESTS
+            Network::Testnet => BATCH_PROOF_LATEST_MOCK_GUESTS
+                .iter()
+                .map(|(k, (_, code))| (*k, code.clone()))
+                .collect(),
+            Network::Nightly => BATCH_PROOF_LATEST_MOCK_GUESTS
                 .iter()
                 .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
@@ -115,11 +119,15 @@ impl RollupBlueprint for MockDemoRollup {
 
     fn get_light_client_elfs(&self) -> HashMap<SpecId, Vec<u8>> {
         match self.network {
-            Network::Mainnet => LIGHT_CLIENT_MOCK_GUESTS
+            Network::Mainnet => LIGHT_CLIENT_LATEST_MOCK_GUESTS
                 .iter()
                 .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
-            Network::Testnet => LIGHT_CLIENT_MOCK_GUESTS
+            Network::Testnet => LIGHT_CLIENT_LATEST_MOCK_GUESTS
+                .iter()
+                .map(|(k, (_, code))| (*k, code.clone()))
+                .collect(),
+            Network::Nightly => LIGHT_CLIENT_LATEST_MOCK_GUESTS
                 .iter()
                 .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
@@ -130,11 +138,15 @@ impl RollupBlueprint for MockDemoRollup {
         &self,
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
         match self.network {
-            Network::Mainnet => BATCH_PROOF_MOCK_GUESTS
+            Network::Mainnet => BATCH_PROOF_LATEST_MOCK_GUESTS
                 .iter()
                 .map(|(k, (id, _))| (*k, *id))
                 .collect(),
-            Network::Testnet => BATCH_PROOF_MOCK_GUESTS
+            Network::Testnet => BATCH_PROOF_LATEST_MOCK_GUESTS
+                .iter()
+                .map(|(k, (id, _))| (*k, *id))
+                .collect(),
+            Network::Nightly => BATCH_PROOF_LATEST_MOCK_GUESTS
                 .iter()
                 .map(|(k, (id, _))| (*k, *id))
                 .collect(),
@@ -145,11 +157,15 @@ impl RollupBlueprint for MockDemoRollup {
         &self,
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
         match self.network {
-            Network::Mainnet => LIGHT_CLIENT_MOCK_GUESTS
+            Network::Mainnet => LIGHT_CLIENT_LATEST_MOCK_GUESTS
                 .iter()
                 .map(|(k, (id, _))| (*k, *id))
                 .collect(),
-            Network::Testnet => LIGHT_CLIENT_MOCK_GUESTS
+            Network::Testnet => LIGHT_CLIENT_LATEST_MOCK_GUESTS
+                .iter()
+                .map(|(k, (id, _))| (*k, *id))
+                .collect(),
+            Network::Nightly => LIGHT_CLIENT_LATEST_MOCK_GUESTS
                 .iter()
                 .map(|(k, (id, _))| (*k, *id))
                 .collect(),
