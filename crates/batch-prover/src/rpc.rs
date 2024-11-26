@@ -20,7 +20,7 @@ use sov_rollup_interface::zk::ZkvmHost;
 use sov_stf_runner::ProverService;
 use tokio::sync::Mutex;
 
-use crate::proving::{data_to_prove, prove_l1};
+use crate::proving::{data_to_prove, prove_l1, GroupCommitments};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProverInputResponse {
@@ -29,7 +29,7 @@ pub struct ProverInputResponse {
     pub encoded_serialized_batch_proof_input: String,
 }
 
-pub(crate) struct RpcContext<C, Da, Ps, Vm, DB, StateRoot, Witness, Tx>
+pub struct RpcContext<C, Da, Ps, Vm, DB, StateRoot, Witness, Tx>
 where
     C: sov_modules_api::Context,
     Da: DaService,
@@ -67,12 +67,16 @@ pub trait BatchProverRpc {
     async fn generate_input(
         &self,
         l1_height: u64,
-        group_commitments: Option<bool>,
+        group_commitments: Option<GroupCommitments>,
     ) -> RpcResult<Vec<ProverInputResponse>>;
 
     /// Manually invoke proving.
     #[method(name = "prove")]
-    async fn prove(&self, l1_height: u64, group_commitments: Option<bool>) -> RpcResult<()>;
+    async fn prove(
+        &self,
+        l1_height: u64,
+        group_commitments: Option<GroupCommitments>,
+    ) -> RpcResult<()>;
 }
 
 pub struct BatchProverRpcServerImpl<C, Da, Ps, Vm, DB, StateRoot, Witness, Tx>
@@ -143,7 +147,7 @@ where
     async fn generate_input(
         &self,
         l1_height: u64,
-        group_commitments: Option<bool>,
+        group_commitments: Option<GroupCommitments>,
     ) -> RpcResult<Vec<ProverInputResponse>> {
         let l1_block: <Da as DaService>::FilteredBlock = self
             .context
@@ -195,7 +199,11 @@ where
         Ok(batch_proof_circuit_input_responses)
     }
 
-    async fn prove(&self, l1_height: u64, group_commitments: Option<bool>) -> RpcResult<()> {
+    async fn prove(
+        &self,
+        l1_height: u64,
+        group_commitments: Option<GroupCommitments>,
+    ) -> RpcResult<()> {
         let l1_block: <Da as DaService>::FilteredBlock = self
             .context
             .da_service
