@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use std::str::FromStr;
 
 use anyhow::bail;
 use async_trait::async_trait;
@@ -10,7 +9,7 @@ use citrea_e2e::node::Config;
 use citrea_e2e::test_case::{TestCase, TestCaseRunner};
 use citrea_e2e::traits::{NodeT, Restart};
 use citrea_e2e::Result;
-use reth_primitives::{Address, BlockNumberOrTag};
+use reth_primitives::BlockNumberOrTag;
 use sov_ledger_rpc::client::RpcClient;
 
 use super::get_citrea_path;
@@ -209,7 +208,7 @@ impl TestCase for DaThrottleTest {
         let usage_after_seqcom = sequencer.client.http_client().da_usage_window().await?;
         assert!(usage_after_seqcom.total_bytes > da_usage.total_bytes);
         assert!(usage_after_seqcom.usage_ratio > da_usage.usage_ratio);
-        assert!(usage_after_seqcom.fee_multiplier > 1.0);
+        assert!(usage_after_seqcom.fee_multiplier > Some(1.0));
 
         sequencer.client.send_publish_batch_request().await?;
 
@@ -219,7 +218,7 @@ impl TestCase for DaThrottleTest {
         let throttled_l1_fee_rate = seq_block.other.get("l1FeeRate").unwrap().as_f64().unwrap();
         assert_eq!(
             throttled_l1_fee_rate,
-            (base_l1_fee_rate * usage_after_seqcom.fee_multiplier).floor()
+            (base_l1_fee_rate * usage_after_seqcom.fee_multiplier.unwrap()).floor()
         );
 
         Ok(())

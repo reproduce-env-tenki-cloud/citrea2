@@ -218,27 +218,7 @@ impl FeeThrottleService {
 
 #[cfg(test)]
 mod tests {
-
-    use std::sync::Arc;
-
-    use bitcoincore_rpc::{Auth, Client};
-
     use super::*;
-
-    async fn get_test_client() -> Arc<Client> {
-        Arc::new(
-            Client::new(
-                "http://localhost:38332/wallet/other",
-                Auth::UserPass("chainway".to_string(), "topsecret".to_string()),
-            )
-            .await
-            .unwrap(),
-        )
-    }
-
-    async fn get_test_fee_service() -> FeeService {
-        FeeService::new(get_test_client().await, Network::Regtest, None).unwrap()
-    }
 
     #[tokio::test]
     async fn test_mempool_space_fee_rate() {
@@ -277,7 +257,7 @@ mod tests {
             (1.0, 4.0),
         ];
 
-        let fee_service = get_test_fee_service().await;
+        let fee_service = FeeThrottleService::new(FeeThrottleConfig::default()).unwrap();
         for (usage, expected) in test_cases {
             let multiplier = fee_service.calculate_fee_multiplier(usage);
             assert!(

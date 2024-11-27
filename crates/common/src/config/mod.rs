@@ -450,23 +450,23 @@ impl Default for FeeThrottleConfig {
 impl FromEnv for FeeThrottleConfig {
     fn from_env() -> anyhow::Result<Self> {
         Ok(FeeThrottleConfig {
-            capacity_threshold: std::env::var("DA_FEE_CAPACITY_THRESHOLD").map_or_else(
+            capacity_threshold: std::env::var("L1_FEE_CAPACITY_THRESHOLD").map_or_else(
                 |_| Ok(defaults::capacity_threshold()),
                 |v| v.parse().map_err(Into::<anyhow::Error>::into),
             )?,
-            base_fee_multiplier: std::env::var("DA_FEE_BASE_FEE_MULTIPLIER").map_or_else(
+            base_fee_multiplier: std::env::var("L1_FEE_BASE_FEE_MULTIPLIER").map_or_else(
                 |_| Ok(defaults::base_fee_multiplier()),
                 |v| v.parse().map_err(Into::<anyhow::Error>::into),
             )?,
-            max_fee_multiplier: std::env::var("DA_FEE_MAX_FEE_MULTIPLIER").map_or_else(
+            max_fee_multiplier: std::env::var("L1_FEE_MAX_FEE_MULTIPLIER").map_or_else(
                 |_| Ok(defaults::max_fee_multiplier()),
                 |v| v.parse().map_err(Into::<anyhow::Error>::into),
             )?,
-            fee_exponential_factor: std::env::var("DA_FEE_EXPONENTIAL_FACTOR").map_or_else(
+            fee_exponential_factor: std::env::var("L1_FEE_EXPONENTIAL_FACTOR").map_or_else(
                 |_| Ok(defaults::fee_exponential_factor()),
                 |v| v.parse().map_err(Into::<anyhow::Error>::into),
             )?,
-            fee_multiplier_scalar: std::env::var("DA_FEE_MULTIPLIER_SCALAR").map_or_else(
+            fee_multiplier_scalar: std::env::var("L1_FEE_MULTIPLIER_SCALAR").map_or_else(
                 |_| Ok(defaults::fee_multiplier_scalar()),
                 |v| v.parse().map_err(Into::<anyhow::Error>::into),
             )?,
@@ -633,6 +633,12 @@ mod tests {
             base_fee_tx_limit = 100000
             base_fee_tx_size = 200
             max_account_slots = 16
+            [fee_throttle]
+            capacity_threshold = 0.5
+            base_fee_multiplier = 1.0
+            max_fee_multiplier = 4.0
+            fee_exponential_factor = 4.0
+            fee_multiplier_scalar = 10.0
         "#;
 
         let config_file = create_config_from(config);
@@ -656,6 +662,13 @@ mod tests {
             },
             da_update_interval_ms: 1000,
             block_production_interval_ms: 1000,
+            fee_throttle: FeeThrottleConfig {
+                capacity_threshold: 0.5,
+                base_fee_multiplier: 1.0,
+                max_fee_multiplier: 4.0,
+                fee_exponential_factor: 4.0,
+                fee_multiplier_scalar: 10.0,
+            },
         };
         assert_eq!(config, expected);
     }
@@ -693,6 +706,11 @@ mod tests {
         std::env::set_var("BASE_FEE_TX_LIMIT", "100000");
         std::env::set_var("BASE_FEE_TX_SIZE", "200");
         std::env::set_var("MAX_ACCOUNT_SLOTS", "16");
+        std::env::set_var("L1_FEE_CAPACITY_THRESHOLD", "0.5");
+        std::env::set_var("L1_FEE_BASE_FEE_MULTIPLIER", "1.0");
+        std::env::set_var("L1_FEE_MAX_FEE_MULTIPLIER", "4.0");
+        std::env::set_var("L1_FEE_EXPONENTIAL_FACTOR", "4.0");
+        std::env::set_var("L1_FEE_MULTIPLIER_SCALAR", "10.0");
 
         let sequencer_config = SequencerConfig::from_env().unwrap();
 
@@ -713,6 +731,13 @@ mod tests {
             },
             da_update_interval_ms: 1000,
             block_production_interval_ms: 1000,
+            fee_throttle: FeeThrottleConfig {
+                capacity_threshold: 0.5,
+                base_fee_multiplier: 1.0,
+                max_fee_multiplier: 4.0,
+                fee_exponential_factor: 4.0,
+                fee_multiplier_scalar: 10.0,
+            },
         };
         assert_eq!(sequencer_config, expected);
     }

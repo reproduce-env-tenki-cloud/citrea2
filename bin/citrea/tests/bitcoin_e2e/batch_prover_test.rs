@@ -206,7 +206,6 @@ impl TestCase for SkipPreprovenCommitmentsTest {
                 .display()
                 .to_string(),
             monitoring: Default::default(),
-            fee: None,
         };
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -218,6 +217,7 @@ impl TestCase for SkipPreprovenCommitmentsTest {
                     to_batch_proof_prefix: TO_BATCH_PROOF_PREFIX.to_vec(),
                 },
                 tx,
+                None,
             )
             .await
             .unwrap(),
