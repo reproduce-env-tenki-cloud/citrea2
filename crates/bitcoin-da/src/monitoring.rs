@@ -8,23 +8,60 @@ use bitcoin::hashes::Hash;
 use bitcoin::{Address, BlockHash, Transaction, Txid};
 use bitcoincore_rpc::json::GetTransactionResult;
 use bitcoincore_rpc::{Client, RpcApi};
+use citrea_common::FromEnv;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::select;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::service::FINALITY_DEPTH;
 use crate::spec::utxo::UTXO;
 
-const DEFAULT_CHECK_INTERVAL: u64 = 60;
-const DEFAULT_HISTORY_LIMIT: usize = 1_000; // Keep track of last 1k txs
-const DEFAULT_MAX_HISTORY_SIZE: usize = 200_000_000; // Default max monitored tx total size to 200mb
-
 type BlockHeight = u64;
 type Result<T> = std::result::Result<T, MonitorError>;
+
+#[derive(Debug, Clone)]
+pub struct DaUsageWindow {
+    pub start_time: SystemTime,
+    pub current_da_usage: u64,
+    duration_secs: u64,
+    max_da_bandwith_bytes: u64,
+}
+
+impl DaUsageWindow {
+    fn new(duration_secs: u64, max_da_bandwith_bytes: u64) -> Self {
+        Self {
+            start_time: SystemTime::now(),
+            current_da_usage: 0,
+            duration_secs,
+            max_da_bandwith_bytes,
+        }
+    }
+
+    fn is_expired(&self) -> bool {
+        SystemTime::now()
+            .duration_since(self.start_time)
+            .map(|duration| duration.as_secs() >= self.duration_secs)
+            .unwrap_or(true) // Shouldn't happen but default to true if time went backwards
+    }
+
+    pub fn usage_ratio(&self) -> f64 {
+        println!("self.currant_da_usage : {:?}", self.current_da_usage);
+        println!(
+            "self.max_da_bandwith_bytes : {:?}",
+            self.max_da_bandwith_bytes
+        );
+        self.current_da_usage as f64 / self.max_da_bandwith_bytes as f64
+    }
+
+    fn reset(&mut self) {
+        self.start_time = SystemTime::now();
+        self.current_da_usage = 0;
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TxStatus {
@@ -124,20 +161,79 @@ pub enum MonitorError {
     BitcoinEncodeError(#[from] bitcoin::consensus::encode::Error),
 }
 
+mod defaults {
+    pub const fn max_da_bandwidth_bytes() -> u64 {
+        4 * 1024 * 1024 // 4MB
+    }
+
+    pub const fn window_duration_secs() -> u64 {
+        600 // 10 minutes
+    }
+
+    pub const fn check_interval() -> u64 {
+        60
+    }
+
+    pub const fn history_limit() -> usize {
+        1_000 // Keep track of last 1k txs
+    }
+
+    pub const fn max_history_size() -> usize {
+        200_000_000 // Default max monitored tx total size to 200mb
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct MonitoringConfig {
+    #[serde(default = "defaults::check_interval")]
     pub check_interval: u64,
+    #[serde(default = "defaults::history_limit")]
     pub history_limit: usize,
+    #[serde(default = "defaults::max_history_size")]
     pub max_history_size: usize,
+    #[serde(default = "defaults::max_da_bandwidth_bytes")]
+    max_da_bandwidth_bytes: u64,
+    #[serde(default = "defaults::window_duration_secs")]
+    window_duration_secs: u64,
 }
 
 impl Default for MonitoringConfig {
     fn default() -> Self {
         Self {
-            check_interval: DEFAULT_CHECK_INTERVAL,
-            history_limit: DEFAULT_HISTORY_LIMIT,
-            max_history_size: DEFAULT_MAX_HISTORY_SIZE,
+            check_interval: defaults::check_interval(),
+            history_limit: defaults::history_limit(),
+            max_history_size: defaults::max_history_size(),
+            max_da_bandwidth_bytes: defaults::max_da_bandwidth_bytes(),
+            window_duration_secs: defaults::window_duration_secs(),
         }
+    }
+}
+
+impl FromEnv for MonitoringConfig {
+    fn from_env() -> anyhow::Result<Self> {
+        Ok(MonitoringConfig {
+            check_interval: std::env::var("DA_MONITORING_CHECK_INTERVAL").map_or_else(
+                |_| Ok(defaults::check_interval()),
+                |v| v.parse().map_err(Into::<anyhow::Error>::into),
+            )?,
+            history_limit: std::env::var("DA_MONITORING_HISTORY_LIMIT").map_or_else(
+                |_| Ok(defaults::history_limit()),
+                |v| v.parse().map_err(Into::<anyhow::Error>::into),
+            )?,
+            max_history_size: std::env::var("DA_MONITORING_MAX_HISTORY_SIZE").map_or_else(
+                |_| Ok(defaults::max_history_size()),
+                |v| v.parse().map_err(Into::<anyhow::Error>::into),
+            )?,
+            max_da_bandwidth_bytes: std::env::var("DA_MONITORING_MAX_DA_BANDWIDTH_BYTES")
+                .map_or_else(
+                    |_| Ok(defaults::max_da_bandwidth_bytes()),
+                    |v| v.parse().map_err(Into::<anyhow::Error>::into),
+                )?,
+            window_duration_secs: std::env::var("DA_MONITORING_WINDOW_DURATION_SECS").map_or_else(
+                |_| Ok(defaults::window_duration_secs()),
+                |v| v.parse().map_err(Into::<anyhow::Error>::into),
+            )?,
+        })
     }
 }
 
@@ -152,15 +248,21 @@ pub struct MonitoringService {
     // Keep track of total monitored transaction size
     // Only takes into account inner tx field from MonitoredTx
     total_size: AtomicUsize,
+    usage_window: Arc<RwLock<DaUsageWindow>>,
 }
 
 impl MonitoringService {
     pub fn new(client: Arc<Client>, config: Option<MonitoringConfig>) -> Self {
+        let config = config.unwrap_or_default();
         Self {
             client,
             monitored_txs: RwLock::new(HashMap::new()),
             chain_state: RwLock::new(ChainState::default()),
-            config: config.unwrap_or_default(),
+            usage_window: Arc::new(RwLock::new(DaUsageWindow::new(
+                config.window_duration_secs,
+                config.max_da_bandwidth_bytes,
+            ))),
+            config,
             last_tx: Mutex::new(None),
             total_size: AtomicUsize::new(0),
         }
@@ -311,6 +413,8 @@ impl MonitoringService {
             next_txid,
             kind,
         };
+
+        self.record_da_usage(&monitored_tx.tx).await;
 
         self.monitored_txs.write().await.insert(txid, monitored_tx);
         *self.last_tx.lock().await = Some(txid);
@@ -559,6 +663,41 @@ impl MonitoringService {
         let mut monitored_txs = self.monitored_txs.write().await;
         if let Some(parent) = monitored_txs.get_mut(txid) {
             parent.next_txid = Some(next_txid);
+        }
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    pub async fn get_current_usage_window(&self) -> DaUsageWindow {
+        self.usage_window.read().await.clone()
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    pub async fn get_da_usage_ratio(&self) -> f64 {
+        self.usage_window.read().await.usage_ratio()
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    pub async fn record_da_usage(&self, tx: &Transaction) {
+        let mut window = self.usage_window.write().await;
+
+        if window.is_expired() {
+            window.reset();
+        }
+
+        let tx_size = tx.total_size() as u64;
+        window.current_da_usage = window.current_da_usage.saturating_add(tx_size);
+
+        debug!(
+            "Recording usage for tx {tx:?}, size {tx_size} bytes. Current total: {} bytes",
+            window.current_da_usage
+        );
+
+        // TODO decide what to do when TX goes above max_da_bandwidth_bytes.
+        if window.current_da_usage > self.config.max_da_bandwidth_bytes {
+            warn!(
+                "DA usage above the max limit. Current usage {}, limit {}",
+                window.current_da_usage, self.config.max_da_bandwidth_bytes
+            )
         }
     }
 }

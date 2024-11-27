@@ -1,20 +1,22 @@
 // fix clippy for tracing::instrument
 #![allow(clippy::blocks_in_conditions)]
 
+use anyhow::{bail, Context, Result};
+
+use crate::monitoring::{MonitoredTx, MonitoredTxKind};
+use crate::spec::utxo::UTXO;
+pub mod config;
 use core::result::Result::Ok;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{bail, Context, Result};
 use bitcoin::{Amount, Network, Sequence, Txid};
 use bitcoincore_rpc::json::{
     BumpFeeResult, CreateRawTransactionInput, WalletCreateFundedPsbtOptions,
 };
 use bitcoincore_rpc::{Client, RpcApi};
+use config::FeeServiceConfig;
 use tracing::{debug, instrument, trace, warn};
-
-use crate::monitoring::{MonitoredTx, MonitoredTxKind};
-use crate::spec::utxo::UTXO;
 
 const MEMPOOL_SPACE_URL: &str = "https://mempool.space/";
 const MEMPOOL_SPACE_RECOMMENDED_FEE_ENDPOINT: &str = "api/v1/fees/recommended";
@@ -30,11 +32,23 @@ pub enum BumpFeeMethod {
 pub struct FeeService {
     client: Arc<Client>,
     network: Network,
+    config: FeeServiceConfig,
 }
 
 impl FeeService {
-    pub fn new(client: Arc<Client>, network: bitcoin::Network) -> Self {
-        Self { client, network }
+    pub fn new(
+        client: Arc<Client>,
+        network: bitcoin::Network,
+        config: Option<FeeServiceConfig>,
+    ) -> Result<Self> {
+        let config = config.unwrap_or_default();
+        config.validate()?;
+
+        Ok(Self {
+            client,
+            network,
+            config,
+        })
     }
 
     #[instrument(level = "trace", skip_all, ret)]
@@ -67,6 +81,35 @@ impl FeeService {
 
         tracing::debug!("Fee rate: {} sat/vb", sat_vkb / 1000);
         Ok(sat_vkb / 1000)
+    }
+
+    /// Get adjusted fee rate according to current da usage
+    #[instrument(level = "trace", skip_all, ret)]
+    pub fn get_fee_rate_multiplier(&self, usage_ratio: f64) -> f64 {
+        let multiplier = self.calculate_fee_multiplier(usage_ratio);
+
+        debug!("DA usage ratio: {usage_ratio:.2}, multiplier: {multiplier:.2}");
+        multiplier
+    }
+
+    /// Calculates fee multiplier based on DA usage ratio
+    /// Returns base_fee_multiplier (1.0) when usage is below capacity threshold
+    /// When usage exceeds threshold, increases as: base_fee_multiplier * (1 + scalar * x^factor)
+    /// where x is the normalized excess usage, capped at max_fee_multiplier
+    /// Resulting multiplier is capped at max_fee_multiplier
+    fn calculate_fee_multiplier(&self, da_usage_ratio: f64) -> f64 {
+        if da_usage_ratio <= self.config.capacity_threshold {
+            self.config.base_fee_multiplier
+        } else {
+            let excess = da_usage_ratio - self.config.capacity_threshold;
+            let normalized_excess = excess / (1.0 - self.config.capacity_threshold);
+            let multiplier = self.config.base_fee_multiplier
+                * (1.0
+                    + self.config.fee_multiplier_scalar
+                        * normalized_excess.powf(self.config.fee_exponential_factor));
+
+            multiplier.min(self.config.max_fee_multiplier)
+        }
     }
 
     /// Bump TX fee via cpfp.
@@ -176,7 +219,26 @@ pub(crate) async fn get_fee_rate_from_mempool_space(
 #[cfg(test)]
 mod tests {
 
-    use super::get_fee_rate_from_mempool_space;
+    use std::sync::Arc;
+
+    use bitcoincore_rpc::{Auth, Client};
+
+    use super::*;
+
+    async fn get_test_client() -> Arc<Client> {
+        Arc::new(
+            Client::new(
+                "http://localhost:38332/wallet/other",
+                Auth::UserPass("chainway".to_string(), "topsecret".to_string()),
+            )
+            .await
+            .unwrap(),
+        )
+    }
+
+    async fn get_test_fee_service() -> FeeService {
+        FeeService::new(get_test_client().await, Network::Regtest, None).unwrap()
+    }
 
     #[tokio::test]
     async fn test_mempool_space_fee_rate() {
@@ -198,5 +260,33 @@ mod tests {
                 .await
                 .unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn test_fee_multiplier() {
+        let test_cases = vec![
+            (0.0, 1.0),   // No usage
+            (0.25, 1.0),  // Below threshold
+            (0.5, 1.0),   // At threshold
+            (0.6, 1.016), // Above threshold, start increasing fee
+            (0.7, 1.256),
+            (0.8, 2.296),
+            (0.85, 3.40),
+            (0.9, 4.0), // Max multiplier hit
+            (0.95, 4.0),
+            (1.0, 4.0),
+        ];
+
+        let fee_service = get_test_fee_service().await;
+        for (usage, expected) in test_cases {
+            let multiplier = fee_service.calculate_fee_multiplier(usage);
+            assert!(
+                (multiplier - expected).abs() < 0.1,
+                "Usage {}: expected multiplier {}, got {}",
+                usage,
+                expected,
+                multiplier
+            );
+        }
     }
 }

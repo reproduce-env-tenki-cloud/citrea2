@@ -34,6 +34,7 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, trace, warn};
 
+use crate::fee::config::FeeServiceConfig;
 use crate::fee::{BumpFeeMethod, FeeService};
 use crate::helpers::builders::batch_proof_namespace::{
     create_seqcommitment_transactions, BatchProvingTxs,
@@ -81,6 +82,7 @@ pub struct BitcoinServiceConfig {
     pub tx_backup_dir: String,
 
     pub monitoring: Option<MonitoringConfig>,
+    pub fee: Option<FeeServiceConfig>,
 }
 
 impl citrea_common::FromEnv for BitcoinServiceConfig {
@@ -92,11 +94,8 @@ impl citrea_common::FromEnv for BitcoinServiceConfig {
             network: serde_json::from_str(&format!("\"{}\"", std::env::var("NETWORK")?))?,
             da_private_key: std::env::var("DA_PRIVATE_KEY").ok(),
             tx_backup_dir: std::env::var("TX_BACKUP_DIR")?,
-            monitoring: Some(MonitoringConfig {
-                check_interval: std::env::var("DA_MONITORING_CHECK_INTERVAL")?.parse()?,
-                history_limit: std::env::var("DA_MONITORING_HISTORY_LIMIT")?.parse()?,
-                max_history_size: std::env::var("DA_MONITORING_MAX_HISTORY_SIZE")?.parse()?,
-            }),
+            monitoring: MonitoringConfig::from_env().ok(),
+            fee: FeeServiceConfig::from_env().ok(),
         })
     }
 }
@@ -112,7 +111,7 @@ pub struct BitcoinService {
     inscribes_queue: UnboundedSender<SenderWithNotifier<TxidWrapper>>,
     tx_backup_dir: PathBuf,
     pub monitoring: Arc<MonitoringService>,
-    fee: FeeService,
+    pub fee: FeeService,
 }
 
 impl BitcoinService {
@@ -153,7 +152,7 @@ impl BitcoinService {
         }
 
         let monitoring = Arc::new(MonitoringService::new(client.clone(), config.monitoring));
-        let fee = FeeService::new(client.clone(), config.network);
+        let fee = FeeService::new(client.clone(), config.network, config.fee)?;
         Ok(Self {
             client,
             network: config.network,
@@ -195,7 +194,7 @@ impl BitcoinService {
         }
 
         let monitoring = Arc::new(MonitoringService::new(client.clone(), config.monitoring));
-        let fee = FeeService::new(client.clone(), config.network);
+        let fee = FeeService::new(client.clone(), config.network, config.fee)?;
 
         Ok(Self {
             client,
@@ -1024,8 +1023,13 @@ impl DaService for BitcoinService {
     async fn get_fee_rate(&self) -> Result<u128> {
         let sat_vb_ceil = self.fee.get_fee_rate_as_sat_vb().await? as u128;
 
+        let usage_ratio = self.monitoring.get_da_usage_ratio().await;
+        let throttle_multiplier = self.fee.get_fee_rate_multiplier(usage_ratio);
         // multiply with 10^10/4 = 25*10^8 = 2_500_000_000 for BTC to CBTC conversion (decimals)
-        let multiplied_fee = sat_vb_ceil.saturating_mul(2_500_000_000);
+        let base_multiplier = 2_500_000_000f64;
+        let multiplier = (base_multiplier * throttle_multiplier) as u128;
+
+        let multiplied_fee = sat_vb_ceil.saturating_mul(multiplier);
         Ok(multiplied_fee)
     }
 
@@ -1228,7 +1232,7 @@ mod tests {
         path.to_str().unwrap().to_string()
     }
 
-    async fn get_service(task_manager: &mut TaskManager<()>) -> Arc<BitcoinService> {
+    pub async fn get_service(task_manager: &mut TaskManager<()>) -> Arc<BitcoinService> {
         let runtime_config = BitcoinServiceConfig {
             node_url: "http://localhost:38332/wallet/test".to_string(),
             node_username: "chainway".to_string(),
@@ -1239,6 +1243,7 @@ mod tests {
             ),
             tx_backup_dir: get_tx_backup_dir(),
             monitoring: None,
+            fee: None,
         };
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1274,6 +1279,7 @@ mod tests {
             ),
             tx_backup_dir: get_tx_backup_dir(),
             monitoring: None,
+            fee: None,
         };
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1308,6 +1314,7 @@ mod tests {
             ),
             tx_backup_dir: get_tx_backup_dir(),
             monitoring: None,
+            fee: None,
         };
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1606,6 +1613,7 @@ mod tests {
             ),
             tx_backup_dir: get_tx_backup_dir(),
             monitoring: None,
+            fee: None,
         };
 
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
