@@ -11,14 +11,11 @@ help: ## Display this help message
 
 .PHONY: build-risc0
 build-risc0:
-	cargo risczero build --manifest-path guests/risc0/batch-proof-mock/Cargo.toml
-	cargo risczero build --manifest-path guests/risc0/light-client-proof-mock/Cargo.toml
-	cargo risczero build --manifest-path guests/risc0/batch-proof-bitcoin/Cargo.toml
-	cargo risczero build --manifest-path guests/risc0/light-client-proof-bitcoin/Cargo.toml
+	$(MAKE) -C guests/risc0 all
 
 .PHONY: build-sp1
 build-sp1:
-	echo "Skipping SP1 build"
+	$(MAKE) -C guests/sp1 all
 
 .PHONY: build
 build: build-risc0 build-sp1 ## Build the project
