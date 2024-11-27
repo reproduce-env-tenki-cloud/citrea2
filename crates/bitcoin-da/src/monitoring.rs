@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -23,43 +23,41 @@ use crate::spec::utxo::UTXO;
 type BlockHeight = u64;
 type Result<T> = std::result::Result<T, MonitorError>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DaUsageWindow {
-    pub start_time: SystemTime,
-    pub current_da_usage: u64,
-    duration_secs: u64,
+    pub start_time: AtomicU64,
+    pub current_da_usage: AtomicU64,
     max_da_bandwith_bytes: u64,
 }
 
 impl DaUsageWindow {
-    fn new(duration_secs: u64, max_da_bandwith_bytes: u64) -> Self {
+    fn new(max_da_bandwith_bytes: u64) -> Self {
         Self {
-            start_time: SystemTime::now(),
-            current_da_usage: 0,
-            duration_secs,
+            start_time: AtomicU64::new(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            ),
+            current_da_usage: AtomicU64::new(0),
             max_da_bandwith_bytes,
         }
     }
 
-    fn is_expired(&self) -> bool {
-        SystemTime::now()
-            .duration_since(self.start_time)
-            .map(|duration| duration.as_secs() >= self.duration_secs)
-            .unwrap_or(true) // Shouldn't happen but default to true if time went backwards
-    }
-
     pub fn usage_ratio(&self) -> f64 {
-        println!("self.currant_da_usage : {:?}", self.current_da_usage);
-        println!(
-            "self.max_da_bandwith_bytes : {:?}",
-            self.max_da_bandwith_bytes
-        );
-        self.current_da_usage as f64 / self.max_da_bandwith_bytes as f64
+        let current_usage = self.current_da_usage.load(Ordering::SeqCst);
+        current_usage as f64 / self.max_da_bandwith_bytes as f64
     }
 
-    fn reset(&mut self) {
-        self.start_time = SystemTime::now();
-        self.current_da_usage = 0;
+    fn reset(&self) {
+        self.start_time.store(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            Ordering::SeqCst,
+        );
+        self.current_da_usage.store(0, Ordering::SeqCst);
     }
 }
 
@@ -248,7 +246,7 @@ pub struct MonitoringService {
     // Keep track of total monitored transaction size
     // Only takes into account inner tx field from MonitoredTx
     total_size: AtomicUsize,
-    usage_window: Arc<RwLock<DaUsageWindow>>,
+    usage_window: Arc<DaUsageWindow>,
 }
 
 impl MonitoringService {
@@ -258,10 +256,7 @@ impl MonitoringService {
             client,
             monitored_txs: RwLock::new(HashMap::new()),
             chain_state: RwLock::new(ChainState::default()),
-            usage_window: Arc::new(RwLock::new(DaUsageWindow::new(
-                config.window_duration_secs,
-                config.max_da_bandwidth_bytes,
-            ))),
+            usage_window: Arc::new(DaUsageWindow::new(config.max_da_bandwidth_bytes)),
             config,
             last_tx: Mutex::new(None),
             total_size: AtomicUsize::new(0),
@@ -312,7 +307,8 @@ impl MonitoringService {
 
     /// Run monitoring to keep track of TX status and chain re-orgs
     pub async fn run(self: Arc<Self>, token: CancellationToken) {
-        let mut interval = interval(Duration::from_secs(self.config.check_interval));
+        let mut check_interval = interval(Duration::from_secs(self.config.check_interval));
+        let mut window_interval = interval(Duration::from_secs(self.config.window_duration_secs));
         loop {
             select! {
                 biased;
@@ -320,7 +316,10 @@ impl MonitoringService {
                     debug!("Monitoring service received shutdown signal");
                     break;
                 }
-                _ = interval.tick() => {
+                _ = window_interval.tick() => {
+                    self.usage_window.reset();
+                }
+                _ = check_interval.tick() => {
                     if let Err(e) = self.check_chain_state().await {
                         error!("Error checking chain state: {}", e);
                     }
@@ -667,36 +666,34 @@ impl MonitoringService {
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn get_current_usage_window(&self) -> DaUsageWindow {
-        self.usage_window.read().await.clone()
+    pub fn get_current_usage_window(&self) -> Arc<DaUsageWindow> {
+        self.usage_window.clone()
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn get_da_usage_ratio(&self) -> f64 {
-        self.usage_window.read().await.usage_ratio()
+    pub fn get_da_usage_ratio(&self) -> f64 {
+        self.usage_window.usage_ratio()
     }
 
     #[instrument(level = "trace", skip_all)]
     pub async fn record_da_usage(&self, tx: &Transaction) {
-        let mut window = self.usage_window.write().await;
-
-        if window.is_expired() {
-            window.reset();
-        }
-
         let tx_size = tx.total_size() as u64;
-        window.current_da_usage = window.current_da_usage.saturating_add(tx_size);
+        let new_usage = self
+            .usage_window
+            .current_da_usage
+            .fetch_add(tx_size, Ordering::SeqCst)
+            + tx_size;
 
         debug!(
             "Recording usage for tx {tx:?}, size {tx_size} bytes. Current total: {} bytes",
-            window.current_da_usage
+            new_usage
         );
 
         // TODO decide what to do when TX goes above max_da_bandwidth_bytes.
-        if window.current_da_usage > self.config.max_da_bandwidth_bytes {
+        if new_usage > self.config.max_da_bandwidth_bytes {
             warn!(
                 "DA usage above the max limit. Current usage {}, limit {}",
-                window.current_da_usage, self.config.max_da_bandwidth_bytes
+                new_usage, self.config.max_da_bandwidth_bytes
             )
         }
     }

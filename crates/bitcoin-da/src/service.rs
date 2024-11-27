@@ -1026,7 +1026,7 @@ impl DaService for BitcoinService {
     async fn get_fee_rate(&self) -> Result<u128> {
         let sat_vb_ceil = self.fee.get_fee_rate_as_sat_vb().await? as u128;
 
-        let usage_ratio = self.monitoring.get_da_usage_ratio().await;
+        let usage_ratio = self.monitoring.get_da_usage_ratio();
         let throttle_multiplier = self.fee_throttle.as_ref().map_or(1.0f64, |throttler| {
             throttler.get_fee_rate_multiplier(usage_ratio)
         });

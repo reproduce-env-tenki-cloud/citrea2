@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use bitcoin::Txid;
@@ -158,7 +159,7 @@ impl DaRpcServer for DaRpcServerImpl {
     }
 
     async fn da_usage_window(&self) -> RpcResult<DaUsageResponse> {
-        let usage_window = self.da.monitoring.get_current_usage_window().await;
+        let usage_window = self.da.monitoring.get_current_usage_window();
         let usage_ratio = usage_window.usage_ratio();
         let fee_multiplier = self
             .da
@@ -167,12 +168,8 @@ impl DaRpcServer for DaRpcServerImpl {
             .map(|throttler| throttler.get_fee_rate_multiplier(usage_ratio));
 
         Ok(DaUsageResponse {
-            total_bytes: usage_window.current_da_usage,
-            start_time: usage_window
-                .start_time
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            total_bytes: usage_window.current_da_usage.load(Ordering::Relaxed),
+            start_time: usage_window.start_time.load(Ordering::Relaxed),
             usage_ratio,
             fee_multiplier,
         })

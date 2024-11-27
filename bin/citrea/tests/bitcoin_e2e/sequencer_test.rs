@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::time::{Duration, SystemTime};
 
 use anyhow::bail;
 use async_trait::async_trait;
@@ -158,9 +159,11 @@ impl TestCase for DaThrottleTest {
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
         let sequencer = f.sequencer.as_ref().unwrap();
         let da = f.bitcoin_nodes.get(0).expect("DA not running.");
+
+        let seq_config = sequencer.config();
         let seq_test_client = make_test_client(SocketAddr::new(
-            sequencer.config().rpc_bind_host().parse()?,
-            sequencer.config().rpc_bind_port(),
+            seq_config.rpc_bind_host().parse()?,
+            seq_config.rpc_bind_port(),
         ))
         .await?;
 
@@ -202,7 +205,6 @@ impl TestCase for DaThrottleTest {
         let seq_block = seq_test_client
             .eth_get_block_by_number_with_detail(Some(BlockNumberOrTag::Latest))
             .await;
-        println!("seq_block : {:?}", seq_block);
 
         // Check that usage is above threshold and multiplier > 1
         let usage_after_seqcom = sequencer.client.http_client().da_usage_window().await?;
@@ -221,6 +223,28 @@ impl TestCase for DaThrottleTest {
             (base_l1_fee_rate * usage_after_seqcom.fee_multiplier.unwrap()).floor()
         );
 
+        // Check that usage window is correclty resetted on interval
+        let interval = seq_config
+            .rollup_config()
+            .da
+            .monitoring
+            .as_ref()
+            .unwrap()
+            .window_duration_secs;
+        let next_reset = interval
+            - (SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                - da_usage.start_time);
+
+        // Sleep until next_reset + a 1s buffer
+        tokio::time::sleep(Duration::from_secs(next_reset + 1)).await;
+        let resetted_usage = sequencer.client.http_client().da_usage_window().await?;
+        assert_eq!(resetted_usage.total_bytes, 0);
+        assert_eq!(resetted_usage.usage_ratio, 0.0);
+        assert_eq!(resetted_usage.fee_multiplier, Some(1.0));
+        assert_eq!(resetted_usage.start_time, da_usage.start_time + interval);
         Ok(())
     }
 }
