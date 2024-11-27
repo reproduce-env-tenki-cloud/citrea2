@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use anyhow::bail;
 use citrea_pruning::PruningConfig;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -311,6 +312,8 @@ pub struct SequencerConfig {
     pub da_update_interval_ms: u64,
     /// Block production interval in ms
     pub block_production_interval_ms: u64,
+    /// Fee throttle config
+    pub fee_throttle: FeeThrottleConfig,
 }
 
 impl Default for SequencerConfig {
@@ -324,6 +327,7 @@ impl Default for SequencerConfig {
             block_production_interval_ms: 100,
             da_update_interval_ms: 100,
             mempool_conf: Default::default(),
+            fee_throttle: FeeThrottleConfig::default(),
         }
     }
 }
@@ -340,6 +344,7 @@ impl FromEnv for SequencerConfig {
             mempool_conf: SequencerMempoolConfig::from_env()?,
             da_update_interval_ms: std::env::var("DA_UPDATE_INTERVAL_MS")?.parse()?,
             block_production_interval_ms: std::env::var("BLOCK_PRODUCTION_INTERVAL_MS")?.parse()?,
+            fee_throttle: FeeThrottleConfig::from_env()?,
         })
     }
 }
@@ -389,6 +394,128 @@ impl FromEnv for SequencerMempoolConfig {
         })
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FeeThrottleConfig {
+    #[serde(default = "defaults::capacity_threshold")]
+    pub capacity_threshold: f64,
+    #[serde(default = "defaults::base_fee_multiplier")]
+    pub base_fee_multiplier: f64,
+    #[serde(default = "defaults::max_fee_multiplier")]
+    pub max_fee_multiplier: f64,
+    #[serde(default = "defaults::fee_exponential_factor")]
+    pub fee_exponential_factor: f64,
+    #[serde(default = "defaults::fee_multiplier_scalar")]
+    pub fee_multiplier_scalar: f64,
+}
+
+mod defaults {
+    // Threshold after which fee start to increase exponentially
+    pub const fn capacity_threshold() -> f64 {
+        0.50
+    }
+
+    // Multiplier used while below CAPACITY_THRESHOLD
+    pub const fn base_fee_multiplier() -> f64 {
+        1.0
+    }
+
+    // Max multiplier over threshold
+    pub const fn max_fee_multiplier() -> f64 {
+        4.0
+    }
+
+    // Exponential factor to adjust steepness of fee rise
+    pub const fn fee_exponential_factor() -> f64 {
+        4.0
+    }
+
+    pub const fn fee_multiplier_scalar() -> f64 {
+        10.0
+    }
+}
+
+impl Default for FeeThrottleConfig {
+    fn default() -> Self {
+        Self {
+            capacity_threshold: defaults::capacity_threshold(),
+            base_fee_multiplier: defaults::base_fee_multiplier(),
+            max_fee_multiplier: defaults::max_fee_multiplier(),
+            fee_exponential_factor: defaults::fee_exponential_factor(),
+            fee_multiplier_scalar: defaults::fee_multiplier_scalar(),
+        }
+    }
+}
+
+impl FromEnv for FeeThrottleConfig {
+    fn from_env() -> anyhow::Result<Self> {
+        Ok(FeeThrottleConfig {
+            capacity_threshold: std::env::var("DA_FEE_CAPACITY_THRESHOLD").map_or_else(
+                |_| Ok(defaults::capacity_threshold()),
+                |v| v.parse().map_err(Into::<anyhow::Error>::into),
+            )?,
+            base_fee_multiplier: std::env::var("DA_FEE_BASE_FEE_MULTIPLIER").map_or_else(
+                |_| Ok(defaults::base_fee_multiplier()),
+                |v| v.parse().map_err(Into::<anyhow::Error>::into),
+            )?,
+            max_fee_multiplier: std::env::var("DA_FEE_MAX_FEE_MULTIPLIER").map_or_else(
+                |_| Ok(defaults::max_fee_multiplier()),
+                |v| v.parse().map_err(Into::<anyhow::Error>::into),
+            )?,
+            fee_exponential_factor: std::env::var("DA_FEE_EXPONENTIAL_FACTOR").map_or_else(
+                |_| Ok(defaults::fee_exponential_factor()),
+                |v| v.parse().map_err(Into::<anyhow::Error>::into),
+            )?,
+            fee_multiplier_scalar: std::env::var("DA_FEE_MULTIPLIER_SCALAR").map_or_else(
+                |_| Ok(defaults::fee_multiplier_scalar()),
+                |v| v.parse().map_err(Into::<anyhow::Error>::into),
+            )?,
+        })
+    }
+}
+
+impl FeeThrottleConfig {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if !(0.0..=1.0).contains(&self.capacity_threshold) {
+            bail!(
+                "capacity_threshold must be between 0 and 1, got {}",
+                self.capacity_threshold
+            );
+        }
+
+        if self.base_fee_multiplier < 1.0 {
+            bail!(
+                "base_fee_multiplier must be >= 1.0, got {}",
+                self.base_fee_multiplier
+            );
+        }
+
+        if self.max_fee_multiplier <= self.base_fee_multiplier {
+            bail!(
+                "max_fee_multiplier must be > base_fee_multiplier ({} <= {})",
+                self.max_fee_multiplier,
+                self.base_fee_multiplier
+            );
+        }
+
+        if self.fee_exponential_factor <= 0.0 {
+            bail!(
+                "fee_exponential_factor must be > 0, got {}",
+                self.fee_exponential_factor
+            );
+        }
+
+        if self.fee_multiplier_scalar <= 0.0 {
+            bail!(
+                "fee_multiplier_scalar must be > 0, got {}",
+                self.fee_multiplier_scalar
+            );
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
@@ -411,7 +538,7 @@ mod tests {
             sequencer_public_key = "0000000000000000000000000000000000000000000000000000000000000000"
             sequencer_da_pub_key = "7777777777777777777777777777777777777777777777777777777777777777"
             prover_da_pub_key = ""
-            
+
             [rpc]
             bind_host = "127.0.0.1"
             bind_port = 12345
@@ -422,11 +549,11 @@ mod tests {
             [da]
             sender_address = "0000000000000000000000000000000000000000000000000000000000000000"
             db_path = "/tmp/da"
-            
+
             [storage]
             path = "/tmp/rollup"
             db_max_open_files = 123
-            
+
             [runner]
             include_tx_body = true
             sequencer_client_url = "http://0.0.0.0:12346"

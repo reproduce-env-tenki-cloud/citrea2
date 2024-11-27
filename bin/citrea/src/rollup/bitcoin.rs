@@ -8,7 +8,9 @@ use bitcoin_da::spec::{BitcoinSpec, RollupParams};
 use bitcoin_da::verifier::BitcoinVerifier;
 use citrea_common::rpc::register_healthcheck_rpc;
 use citrea_common::tasks::manager::TaskManager;
-use citrea_common::{BatchProverConfig, FullNodeConfig, LightClientProverConfig};
+use citrea_common::{
+    BatchProverConfig, FeeThrottleConfig, FullNodeConfig, LightClientProverConfig,
+};
 use citrea_primitives::{TO_BATCH_PROOF_PREFIX, TO_LIGHT_CLIENT_PREFIX};
 use citrea_risc0_adapter::host::Risc0BonsaiHost;
 use citrea_risc0_adapter::Digest;
@@ -137,6 +139,7 @@ impl RollupBlueprint for BitcoinRollup {
         rollup_config: &FullNodeConfig<Self::DaConfig>,
         require_wallet_check: bool,
         task_manager: &mut TaskManager<()>,
+        throttle_config: Option<FeeThrottleConfig>,
     ) -> Result<Arc<Self::DaService>, anyhow::Error> {
         let (tx, rx) = unbounded_channel::<SenderWithNotifier<TxidWrapper>>();
 
@@ -148,6 +151,7 @@ impl RollupBlueprint for BitcoinRollup {
                     to_batch_proof_prefix: TO_BATCH_PROOF_PREFIX.to_vec(),
                 },
                 tx,
+                throttle_config,
             )
             .await?
         } else {
@@ -162,6 +166,7 @@ impl RollupBlueprint for BitcoinRollup {
             .await?
         };
         let service = Arc::new(bitcoin_service);
+
         // until forced transactions are implemented,
         // require_wallet_check is set false for full nodes.
         if require_wallet_check {

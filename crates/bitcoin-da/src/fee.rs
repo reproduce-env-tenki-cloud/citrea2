@@ -2,10 +2,10 @@
 #![allow(clippy::blocks_in_conditions)]
 
 use anyhow::{bail, Context, Result};
+use citrea_common::FeeThrottleConfig;
 
 use crate::monitoring::{MonitoredTx, MonitoredTxKind};
 use crate::spec::utxo::UTXO;
-pub mod config;
 use core::result::Result::Ok;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,7 +15,6 @@ use bitcoincore_rpc::json::{
     BumpFeeResult, CreateRawTransactionInput, WalletCreateFundedPsbtOptions,
 };
 use bitcoincore_rpc::{Client, RpcApi};
-use config::FeeServiceConfig;
 use tracing::{debug, instrument, trace, warn};
 
 const MEMPOOL_SPACE_URL: &str = "https://mempool.space/";
@@ -32,23 +31,11 @@ pub enum BumpFeeMethod {
 pub struct FeeService {
     client: Arc<Client>,
     network: Network,
-    config: FeeServiceConfig,
 }
 
 impl FeeService {
-    pub fn new(
-        client: Arc<Client>,
-        network: bitcoin::Network,
-        config: Option<FeeServiceConfig>,
-    ) -> Result<Self> {
-        let config = config.unwrap_or_default();
-        config.validate()?;
-
-        Ok(Self {
-            client,
-            network,
-            config,
-        })
+    pub fn new(client: Arc<Client>, network: bitcoin::Network) -> Result<Self> {
+        Ok(Self { client, network })
     }
 
     #[instrument(level = "trace", skip_all, ret)]
@@ -81,35 +68,6 @@ impl FeeService {
 
         tracing::debug!("Fee rate: {} sat/vb", sat_vkb / 1000);
         Ok(sat_vkb / 1000)
-    }
-
-    /// Get adjusted fee rate according to current da usage
-    #[instrument(level = "trace", skip_all, ret)]
-    pub fn get_fee_rate_multiplier(&self, usage_ratio: f64) -> f64 {
-        let multiplier = self.calculate_fee_multiplier(usage_ratio);
-
-        debug!("DA usage ratio: {usage_ratio:.2}, multiplier: {multiplier:.2}");
-        multiplier
-    }
-
-    /// Calculates fee multiplier based on DA usage ratio
-    /// Returns base_fee_multiplier (1.0) when usage is below capacity threshold
-    /// When usage exceeds threshold, increases as: base_fee_multiplier * (1 + scalar * x^factor)
-    /// where x is the normalized excess usage, capped at max_fee_multiplier
-    /// Resulting multiplier is capped at max_fee_multiplier
-    fn calculate_fee_multiplier(&self, da_usage_ratio: f64) -> f64 {
-        if da_usage_ratio <= self.config.capacity_threshold {
-            self.config.base_fee_multiplier
-        } else {
-            let excess = da_usage_ratio - self.config.capacity_threshold;
-            let normalized_excess = excess / (1.0 - self.config.capacity_threshold);
-            let multiplier = self.config.base_fee_multiplier
-                * (1.0
-                    + self.config.fee_multiplier_scalar
-                        * normalized_excess.powf(self.config.fee_exponential_factor));
-
-            multiplier.min(self.config.max_fee_multiplier)
-        }
     }
 
     /// Bump TX fee via cpfp.
@@ -214,6 +172,48 @@ pub(crate) async fn get_fee_rate_from_mempool_space(
         .context("Failed to get fee rate from mempool space")?;
 
     Ok(Some(fee_rate))
+}
+
+#[derive(Debug, Clone)]
+pub struct FeeThrottleService {
+    config: FeeThrottleConfig,
+}
+
+impl FeeThrottleService {
+    pub fn new(config: FeeThrottleConfig) -> Result<Self> {
+        config.validate()?;
+
+        Ok(Self { config })
+    }
+
+    /// Get adjusted fee rate according to current da usage
+    #[instrument(level = "trace", skip_all, ret)]
+    pub fn get_fee_rate_multiplier(&self, usage_ratio: f64) -> f64 {
+        let multiplier = self.calculate_fee_multiplier(usage_ratio);
+
+        debug!("DA usage ratio: {usage_ratio:.2}, multiplier: {multiplier:.2}");
+        multiplier
+    }
+
+    /// Calculates fee multiplier based on DA usage ratio
+    /// Returns base_fee_multiplier (1.0) when usage is below capacity threshold
+    /// When usage exceeds threshold, increases as: base_fee_multiplier * (1 + scalar * x^factor)
+    /// where x is the normalized excess usage, capped at max_fee_multiplier
+    /// Resulting multiplier is capped at max_fee_multiplier
+    fn calculate_fee_multiplier(&self, da_usage_ratio: f64) -> f64 {
+        if da_usage_ratio <= self.config.capacity_threshold {
+            self.config.base_fee_multiplier
+        } else {
+            let excess = da_usage_ratio - self.config.capacity_threshold;
+            let normalized_excess = excess / (1.0 - self.config.capacity_threshold);
+            let multiplier = self.config.base_fee_multiplier
+                * (1.0
+                    + self.config.fee_multiplier_scalar
+                        * normalized_excess.powf(self.config.fee_exponential_factor));
+
+            multiplier.min(self.config.max_fee_multiplier)
+        }
+    }
 }
 
 #[cfg(test)]

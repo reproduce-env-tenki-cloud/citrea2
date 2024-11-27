@@ -47,7 +47,12 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
     {
         let mut task_manager = TaskManager::default();
         let da_service = self
-            .create_da_service(&rollup_config, true, &mut task_manager)
+            .create_da_service(
+                &rollup_config,
+                true,
+                &mut task_manager,
+                Some(sequencer_config.fee_throttle.clone()),
+            )
             .await?;
 
         // TODO: Double check what kind of storage needed here.
@@ -158,7 +163,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
     {
         let mut task_manager = TaskManager::default();
         let da_service = self
-            .create_da_service(&rollup_config, false, &mut task_manager)
+            .create_da_service(&rollup_config, false, &mut task_manager, None)
             .await?;
 
         // TODO: Double check what kind of storage needed here.
@@ -272,7 +277,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
     {
         let mut task_manager = TaskManager::default();
         let da_service = self
-            .create_da_service(&rollup_config, true, &mut task_manager)
+            .create_da_service(&rollup_config, true, &mut task_manager, None)
             .await?;
 
         // Migrate before constructing ledger_db instance so that no lock is present.
@@ -401,7 +406,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
 
         let mut task_manager = TaskManager::default();
         let da_service = self
-            .create_da_service(&rollup_config, true, &mut task_manager)
+            .create_da_service(&rollup_config, true, &mut task_manager, None)
             .await?;
 
         let rocksdb_config = RocksdbConfig::new(

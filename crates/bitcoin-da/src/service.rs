@@ -20,6 +20,7 @@ use bitcoin::{Amount, BlockHash, CompactTarget, Transaction, Txid, Wtxid};
 use bitcoincore_rpc::json::{SignRawTransactionInput, TestMempoolAcceptResult};
 use bitcoincore_rpc::{Auth, Client, Error, RpcApi, RpcError};
 use borsh::BorshDeserialize;
+use citrea_common::FeeThrottleConfig;
 use citrea_primitives::compression::{compress_blob, decompress_blob};
 use citrea_primitives::MAX_TXBODY_SIZE;
 use serde::{Deserialize, Serialize};
@@ -34,8 +35,7 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, trace, warn};
 
-use crate::fee::config::FeeServiceConfig;
-use crate::fee::{BumpFeeMethod, FeeService};
+use crate::fee::{BumpFeeMethod, FeeService, FeeThrottleService};
 use crate::helpers::builders::batch_proof_namespace::{
     create_seqcommitment_transactions, BatchProvingTxs,
 };
@@ -82,7 +82,6 @@ pub struct BitcoinServiceConfig {
     pub tx_backup_dir: String,
 
     pub monitoring: Option<MonitoringConfig>,
-    pub fee: Option<FeeServiceConfig>,
 }
 
 impl citrea_common::FromEnv for BitcoinServiceConfig {
@@ -95,7 +94,6 @@ impl citrea_common::FromEnv for BitcoinServiceConfig {
             da_private_key: std::env::var("DA_PRIVATE_KEY").ok(),
             tx_backup_dir: std::env::var("TX_BACKUP_DIR")?,
             monitoring: MonitoringConfig::from_env().ok(),
-            fee: FeeServiceConfig::from_env().ok(),
         })
     }
 }
@@ -112,6 +110,7 @@ pub struct BitcoinService {
     tx_backup_dir: PathBuf,
     pub monitoring: Arc<MonitoringService>,
     pub fee: FeeService,
+    pub fee_throttle: Option<FeeThrottleService>,
 }
 
 impl BitcoinService {
@@ -120,6 +119,7 @@ impl BitcoinService {
         config: BitcoinServiceConfig,
         chain_params: RollupParams,
         tx: UnboundedSender<SenderWithNotifier<TxidWrapper>>,
+        throttle_config: Option<FeeThrottleConfig>,
     ) -> Result<Self> {
         let client = Arc::new(
             Client::new(
@@ -152,7 +152,7 @@ impl BitcoinService {
         }
 
         let monitoring = Arc::new(MonitoringService::new(client.clone(), config.monitoring));
-        let fee = FeeService::new(client.clone(), config.network, config.fee)?;
+        let fee = FeeService::new(client.clone(), config.network)?;
         Ok(Self {
             client,
             network: config.network,
@@ -163,6 +163,7 @@ impl BitcoinService {
             tx_backup_dir: tx_backup_dir.to_path_buf(),
             monitoring,
             fee,
+            fee_throttle: throttle_config.map(FeeThrottleService::new).transpose()?,
         })
     }
 
@@ -194,7 +195,7 @@ impl BitcoinService {
         }
 
         let monitoring = Arc::new(MonitoringService::new(client.clone(), config.monitoring));
-        let fee = FeeService::new(client.clone(), config.network, config.fee)?;
+        let fee = FeeService::new(client.clone(), config.network)?;
 
         Ok(Self {
             client,
@@ -206,6 +207,7 @@ impl BitcoinService {
             tx_backup_dir: tx_backup_dir.to_path_buf(),
             monitoring,
             fee,
+            fee_throttle: None,
         })
     }
 
@@ -1025,7 +1027,10 @@ impl DaService for BitcoinService {
         let sat_vb_ceil = self.fee.get_fee_rate_as_sat_vb().await? as u128;
 
         let usage_ratio = self.monitoring.get_da_usage_ratio().await;
-        let throttle_multiplier = self.fee.get_fee_rate_multiplier(usage_ratio);
+        let throttle_multiplier = self.fee_throttle.as_ref().map_or(1.0f64, |throttler| {
+            throttler.get_fee_rate_multiplier(usage_ratio)
+        });
+
         // multiply with 10^10/4 = 25*10^8 = 2_500_000_000 for BTC to CBTC conversion (decimals)
         let base_multiplier = 2_500_000_000f64;
         let multiplier = (base_multiplier * throttle_multiplier) as u128;

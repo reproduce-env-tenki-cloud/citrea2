@@ -8,7 +8,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use citrea_common::tasks::manager::TaskManager;
-use citrea_common::{BatchProverConfig, FullNodeConfig, LightClientProverConfig};
+use citrea_common::{
+    BatchProverConfig, FeeThrottleConfig, FullNodeConfig, LightClientProverConfig,
+};
 pub use runtime_rpc::*;
 use sov_db::ledger_db::LedgerDB;
 use sov_db::rocks_db_config::RocksdbConfig;
@@ -108,6 +110,7 @@ pub trait RollupBlueprint: Sized + Send + Sync {
         rollup_config: &FullNodeConfig<Self::DaConfig>,
         require_wallet_check: bool,
         task_manager: &mut TaskManager<()>,
+        throttle_config: Option<FeeThrottleConfig>,
     ) -> Result<Arc<Self::DaService>, anyhow::Error>;
 
     /// Creates instance of [`ProverService`].

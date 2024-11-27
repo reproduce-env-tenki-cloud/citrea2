@@ -49,7 +49,7 @@ pub struct DaUsageResponse {
     pub total_bytes: u64,
     pub start_time: u64,
     pub usage_ratio: f64,
-    pub fee_multiplier: f64,
+    pub fee_multiplier: Option<f64>,
 }
 
 #[rpc(client, server, namespace = "da")]
@@ -160,7 +160,11 @@ impl DaRpcServer for DaRpcServerImpl {
     async fn da_usage_window(&self) -> RpcResult<DaUsageResponse> {
         let usage_window = self.da.monitoring.get_current_usage_window().await;
         let usage_ratio = usage_window.usage_ratio();
-        let fee_multiplier = self.da.fee.get_fee_rate_multiplier(usage_ratio);
+        let fee_multiplier = self
+            .da
+            .fee_throttle
+            .as_ref()
+            .map(|throttler| throttler.get_fee_rate_multiplier(usage_ratio));
 
         Ok(DaUsageResponse {
             total_bytes: usage_window.current_da_usage,

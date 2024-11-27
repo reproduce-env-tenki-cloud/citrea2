@@ -4,7 +4,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use citrea_common::rpc::register_healthcheck_rpc;
 use citrea_common::tasks::manager::TaskManager;
-use citrea_common::{BatchProverConfig, FullNodeConfig, LightClientProverConfig};
+use citrea_common::{
+    BatchProverConfig, FeeThrottleConfig, FullNodeConfig, LightClientProverConfig,
+};
 // use citrea_sp1::host::SP1Host;
 use citrea_risc0_adapter::host::Risc0BonsaiHost;
 use citrea_risc0_adapter::Digest;
@@ -108,6 +110,7 @@ impl RollupBlueprint for MockDemoRollup {
         rollup_config: &FullNodeConfig<Self::DaConfig>,
         _require_wallet_check: bool,
         _task_manager: &mut TaskManager<()>,
+        _throttle_config: Option<FeeThrottleConfig>,
     ) -> Result<Arc<Self::DaService>, anyhow::Error> {
         Ok(Arc::new(MockDaService::new(
             rollup_config.da.sender_address,
