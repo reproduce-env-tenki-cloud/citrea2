@@ -11,7 +11,7 @@ help: ## Display this help message
 
 .PHONY: build-risc0
 build-risc0:
-	$(MAKE) -C guests/risc0 all
+	$(MAKE) -j 4 -C guests/risc0 all
 
 .PHONY: build-sp1
 build-sp1:
