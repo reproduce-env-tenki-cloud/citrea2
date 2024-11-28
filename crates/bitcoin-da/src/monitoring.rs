@@ -458,6 +458,13 @@ impl MonitoringService {
             next_txid: monitored_tx.next_txid,
         };
 
+        // Update da usage with replacing tx
+        let old_tx_size = monitored_tx.tx.total_size() as u64;
+        self.usage_window
+            .current_da_usage
+            .fetch_sub(old_tx_size, Ordering::SeqCst);
+        self.record_da_usage(&new_tx.tx).await;
+
         {
             let mut monitored_txs = self.monitored_txs.write().await;
             if let Some(prev_tx) = monitored_txs.get_mut(&prev_txid) {
