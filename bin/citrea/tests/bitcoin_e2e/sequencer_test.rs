@@ -167,6 +167,8 @@ impl TestCase for DaThrottleTest {
         ))
         .await?;
 
+        let base_l1_fee_rate = 2_500_000_000f64;
+
         // Get initial usage stats
         let initial_usage = sequencer.client.http_client().da_usage_window().await?;
         assert_eq!(initial_usage.total_bytes, 0);
@@ -179,8 +181,8 @@ impl TestCase for DaThrottleTest {
             .eth_get_block_by_number_with_detail(Some(BlockNumberOrTag::Latest))
             .await;
 
-        let base_l1_fee_rate = seq_block.other.get("l1FeeRate").unwrap().as_f64().unwrap();
-        assert_eq!(base_l1_fee_rate, 2_500_000_000f64);
+        let l1_fee_rate = seq_block.other.get("l1FeeRate").unwrap().as_f64().unwrap();
+        assert_eq!(l1_fee_rate, base_l1_fee_rate);
 
         // Generate seqcommitments to increase DA usage
         for _ in 0..sequencer.min_soft_confirmations_per_commitment() - 1 {
@@ -201,10 +203,6 @@ impl TestCase for DaThrottleTest {
             }
         }
         da.wait_mempool_len(2 + 2 * n_txs, None).await?;
-
-        let seq_block = seq_test_client
-            .eth_get_block_by_number_with_detail(Some(BlockNumberOrTag::Latest))
-            .await;
 
         // Check that usage is above threshold and multiplier > 1
         let usage_after_seqcom = sequencer.client.http_client().da_usage_window().await?;
@@ -245,6 +243,14 @@ impl TestCase for DaThrottleTest {
         assert_eq!(resetted_usage.usage_ratio, 0.0);
         assert_eq!(resetted_usage.fee_multiplier, Some(1.0));
         assert_eq!(resetted_usage.start_time, da_usage.start_time + interval);
+
+        sequencer.client.send_publish_batch_request().await?;
+
+        let seq_block = seq_test_client
+            .eth_get_block_by_number_with_detail(Some(BlockNumberOrTag::Latest))
+            .await;
+        let l1_fee_rate = seq_block.other.get("l1FeeRate").unwrap().as_f64().unwrap();
+        assert_eq!(l1_fee_rate, base_l1_fee_rate);
         Ok(())
     }
 }
