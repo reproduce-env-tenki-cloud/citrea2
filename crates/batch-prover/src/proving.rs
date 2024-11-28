@@ -309,13 +309,15 @@ where
         >(&proof)
         .expect("Proof should be deserializable");
 
-        info!("Verifying proof!");
-
         let last_active_spec_id =
             fork_from_block_number(FORKS, circuit_output.last_l2_height).spec_id;
+
         let code_commitment = code_commitments_by_spec
             .get(&last_active_spec_id)
             .expect("Proof public input must contain valid spec id");
+
+        info!("Verifying proof with image ID: {:?}", code_commitment);
+
         Vm::verify(proof.as_slice(), code_commitment)
             .map_err(|err| anyhow!("Failed to verify proof: {:?}. Skipping it...", err))?;
 

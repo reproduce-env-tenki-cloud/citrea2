@@ -38,15 +38,11 @@ impl RollupBlueprint for MockDemoRollup {
     type DaSpec = MockDaSpec;
     type DaConfig = MockDaConfig;
     type Vm = Risc0BonsaiHost;
-
     type ZkContext = ZkDefaultContext;
     type NativeContext = DefaultContext;
-
     type StorageManager = ProverStorageManager<MockDaSpec>;
-
     type ZkRuntime = Runtime<Self::ZkContext, Self::DaSpec>;
     type NativeRuntime = Runtime<Self::NativeContext, Self::DaSpec>;
-
     type ProverService = ParallelProverService<
         Self::DaService,
         Self::Vm,

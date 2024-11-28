@@ -1225,6 +1225,7 @@ dependencies = [
  "bitcoincore-rpc",
  "borsh",
  "citrea-common",
+ "citrea-e2e 0.1.0 (git+https://github.com/chainwayxyz/citrea-e2e?rev=5baaef3)",
  "citrea-primitives",
  "crypto-bigint",
  "futures",
@@ -1714,7 +1715,7 @@ dependencies = [
  "borsh",
  "citrea-batch-prover",
  "citrea-common",
- "citrea-e2e",
+ "citrea-e2e 0.1.0 (git+https://github.com/chainwayxyz/citrea-e2e?rev=f301b7e)",
  "citrea-evm",
  "citrea-fullnode",
  "citrea-light-client-prover",
@@ -1829,6 +1830,29 @@ dependencies = [
  "toml",
  "tower-http",
  "tracing",
+]
+
+[[package]]
+name = "citrea-e2e"
+version = "0.1.0"
+source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=5baaef3#5baaef32ac8d2c7032bca26cbb10d0f6060440dc"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bitcoin",
+ "bitcoincore-rpc",
+ "bollard",
+ "futures",
+ "hex",
+ "jsonrpsee",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber 0.3.18",
 ]
 
 [[package]]

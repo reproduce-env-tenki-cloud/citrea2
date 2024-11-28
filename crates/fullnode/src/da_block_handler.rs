@@ -296,7 +296,7 @@ where
             "Processing zk proof at height: {}",
             l1_block.header().height()
         );
-        tracing::debug!("ZK proof: {:?}", proof);
+        tracing::trace!("ZK proof: {:?}", proof);
 
         // TODO: select output version based on spec
         let batch_proof_output = Vm::extract_output::<
