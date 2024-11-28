@@ -1,21 +1,21 @@
 // fix clippy for tracing::instrument
 #![allow(clippy::blocks_in_conditions)]
 
-use anyhow::{bail, Context, Result};
-use citrea_common::FeeThrottleConfig;
-
-use crate::monitoring::{MonitoredTx, MonitoredTxKind};
-use crate::spec::utxo::UTXO;
 use core::result::Result::Ok;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use anyhow::{bail, Context, Result};
 use bitcoin::{Amount, Network, Sequence, Txid};
 use bitcoincore_rpc::json::{
     BumpFeeResult, CreateRawTransactionInput, WalletCreateFundedPsbtOptions,
 };
 use bitcoincore_rpc::{Client, RpcApi};
+use citrea_common::FeeThrottleConfig;
 use tracing::{debug, instrument, trace, warn};
+
+use crate::monitoring::{MonitoredTx, MonitoredTxKind};
+use crate::spec::utxo::UTXO;
 
 const MEMPOOL_SPACE_URL: &str = "https://mempool.space/";
 const MEMPOOL_SPACE_RECOMMENDED_FEE_ENDPOINT: &str = "api/v1/fees/recommended";
