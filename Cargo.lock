@@ -1715,7 +1715,7 @@ dependencies = [
  "borsh",
  "citrea-batch-prover",
  "citrea-common",
- "citrea-e2e 0.1.0 (git+https://github.com/chainwayxyz/citrea-e2e?rev=f301b7e)",
+ "citrea-e2e 0.1.0 (git+https://github.com/chainwayxyz/citrea-e2e?rev=9cd86d2)",
  "citrea-evm",
  "citrea-fullnode",
  "citrea-light-client-prover",
@@ -1858,7 +1858,7 @@ dependencies = [
 [[package]]
 name = "citrea-e2e"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=f301b7e#f301b7e35b185eb8fb1f6fc50cc4999173d297c4"
+source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=9cd86d2#9cd86d2b683da0d65a3c400ca524f30f06432454"
 dependencies = [
  "anyhow",
  "async-trait",
