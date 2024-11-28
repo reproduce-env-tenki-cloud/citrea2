@@ -187,32 +187,26 @@ impl FeeThrottleService {
     }
 
     /// Get adjusted fee rate according to current da usage
-    #[instrument(level = "trace", skip_all, ret)]
-    pub fn get_fee_rate_multiplier(&self, usage_ratio: f64) -> f64 {
-        let multiplier = self.calculate_fee_multiplier(usage_ratio);
-
-        debug!("DA usage ratio: {usage_ratio:.2}, multiplier: {multiplier:.2}");
-        multiplier
-    }
-
-    /// Calculates fee multiplier based on DA usage ratio
     /// Returns base_fee_multiplier (1.0) when usage is below capacity threshold
     /// When usage exceeds threshold, increases as: base_fee_multiplier * (1 + scalar * x^factor)
     /// where x is the normalized excess usage, capped at max_fee_multiplier
     /// Resulting multiplier is capped at max_fee_multiplier
-    fn calculate_fee_multiplier(&self, da_usage_ratio: f64) -> f64 {
-        if da_usage_ratio <= self.config.capacity_threshold {
-            self.config.base_fee_multiplier
-        } else {
-            let excess = da_usage_ratio - self.config.capacity_threshold;
-            let normalized_excess = excess / (1.0 - self.config.capacity_threshold);
-            let multiplier = self.config.base_fee_multiplier
-                * (1.0
-                    + self.config.fee_multiplier_scalar
-                        * normalized_excess.powf(self.config.fee_exponential_factor));
-
-            multiplier.min(self.config.max_fee_multiplier)
+    #[instrument(level = "trace", skip_all, ret)]
+    pub fn get_fee_rate_multiplier(&self, usage_ratio: f64) -> f64 {
+        if usage_ratio <= self.config.capacity_threshold {
+            return self.config.base_fee_multiplier;
         }
+
+        let excess = usage_ratio - self.config.capacity_threshold;
+        let normalized_excess = excess / (1.0 - self.config.capacity_threshold);
+        let multiplier = (self.config.base_fee_multiplier
+            * (1.0
+                + self.config.fee_multiplier_scalar
+                    * normalized_excess.powf(self.config.fee_exponential_factor)))
+        .min(self.config.max_fee_multiplier);
+
+        debug!("DA usage ratio: {usage_ratio:.2}, multiplier: {multiplier:.2}");
+        multiplier
     }
 }
 
@@ -242,8 +236,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_fee_multiplier() {
+    #[test]
+    fn test_fee_multiplier() {
         let test_cases = vec![
             (0.0, 1.0),   // No usage
             (0.25, 1.0),  // Below threshold
@@ -259,7 +253,7 @@ mod tests {
 
         let fee_service = FeeThrottleService::new(FeeThrottleConfig::default()).unwrap();
         for (usage, expected) in test_cases {
-            let multiplier = fee_service.calculate_fee_multiplier(usage);
+            let multiplier = fee_service.get_fee_rate_multiplier(usage);
             assert!(
                 (multiplier - expected).abs() < 0.1,
                 "Usage {}: expected multiplier {}, got {}",
