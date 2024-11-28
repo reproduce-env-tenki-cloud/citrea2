@@ -1,5 +1,5 @@
 .PHONY: all
-all: batch-proof-mock batch-proof-bitcoin light-client-mock light-client-mock
+all: batch-proof-mock batch-proof-bitcoin light-client-mock light-client-bitcoin
 
 .PHONY: batch-proof-mock
 batch-proof-mock:
