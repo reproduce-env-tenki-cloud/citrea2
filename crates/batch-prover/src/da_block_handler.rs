@@ -470,7 +470,7 @@ pub(crate) fn break_sequencer_commitments_into_groups<DB: BatchProverLedgerOps>(
         let state_diff_threshold_reached = compressed_state_diff.len() > MAX_TXBODY_SIZE;
 
         let commitment_spec =
-            fork_from_block_number(FORKS, sequencer_commitment.l2_start_block_number).spec_id;
+            fork_from_block_number(FORKS, sequencer_commitment.l2_end_block_number).spec_id;
 
         if commitment_spec != current_spec || state_diff_threshold_reached {
             result_range.push(range);
