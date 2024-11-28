@@ -418,6 +418,7 @@ jobs:
           TEST_OUT_DIR: ${{ runner.temp }}/test
 
       - name: Upload e2e test dir
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-test-dir
