@@ -187,6 +187,7 @@ pub(crate) async fn prove_l1<Da, Ps, Vm, DB, StateRoot, Witness, Tx>(
     prover_service: Arc<Ps>,
     ledger: DB,
     code_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
+    elfs_by_spec: HashMap<SpecId, Vec<u8>>,
     l1_block: Da::FilteredBlock,
     sequencer_commitments: Vec<SequencerCommitment>,
     inputs: Vec<BatchProofCircuitInputV2<'_, StateRoot, Witness, Da::Spec, Tx>>,
@@ -221,8 +222,18 @@ where
         }
     }
 
+    let last_l2_height = sequencer_commitments
+        .last()
+        .expect("Should have at least 1 commitment")
+        .l2_end_block_number;
+    let current_spec = fork_from_block_number(FORKS, last_l2_height).spec_id;
+    let elf = elfs_by_spec
+        .get(&current_spec)
+        .expect("Every fork should have an elf attached")
+        .clone();
+
     // Prove all proofs in parallel
-    let proofs = prover_service.prove().await?;
+    let proofs = prover_service.prove(elf).await?;
 
     let txs_and_proofs = prover_service.submit_proofs(proofs).await?;
 
@@ -298,13 +309,15 @@ where
         >(&proof)
         .expect("Proof should be deserializable");
 
-        info!("Verifying proof!");
-
         let last_active_spec_id =
             fork_from_block_number(FORKS, circuit_output.last_l2_height).spec_id;
+
         let code_commitment = code_commitments_by_spec
             .get(&last_active_spec_id)
             .expect("Proof public input must contain valid spec id");
+
+        info!("Verifying proof with image ID: {:?}", code_commitment);
+
         Vm::verify(proof.as_slice(), code_commitment)
             .map_err(|err| anyhow!("Failed to verify proof: {:?}. Skipping it...", err))?;
 

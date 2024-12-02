@@ -32,7 +32,7 @@ async fn test_successful_prover_execution() {
         .await;
 
     vm.make_proof();
-    let proofs = prover_service.prove().await.unwrap();
+    let proofs = prover_service.prove([0; 1].to_vec()).await.unwrap();
 
     prover_service.submit_proofs(proofs).await.unwrap();
 }
@@ -66,7 +66,7 @@ async fn test_parallel_proving_and_submit() {
         .await;
 
     vm.make_proof();
-    let proofs = prover_service.prove().await.unwrap();
+    let proofs = prover_service.prove([0; 1].to_vec()).await.unwrap();
 
     let txs_and_proofs = prover_service.submit_proofs(proofs).await.unwrap();
     assert_eq!(txs_and_proofs.len(), 2);
