@@ -18,10 +18,9 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, warn};
 
-use self::strategy::{CommitmentController, MinSoftConfirmations, StateDiffThreshold};
-use crate::commitment::strategy::CommitmentStrategy;
+use self::controller::CommitmentController;
 
-mod strategy;
+mod controller;
 
 #[derive(Clone, Debug)]
 pub struct CommitmentInfo {
@@ -34,32 +33,29 @@ where
     Da: DaService,
     Db: SequencerLedgerOps,
 {
-    ledger_db: Arc<Db>,
+    ledger_db: Db,
     da_service: Arc<Da>,
     sequencer_da_pub_key: Vec<u8>,
     soft_confirmation_rx: UnboundedReceiver<(u64, StateDiff)>,
-    commitment_controller: Arc<RwLock<CommitmentController>>,
+    commitment_controller: Arc<RwLock<CommitmentController<Db>>>,
 }
 
 impl<Da, Db> CommitmentService<Da, Db>
 where
     Da: DaService,
-    Db: SequencerLedgerOps + Send + Sync + 'static,
+    Db: SequencerLedgerOps + Clone + Send + Sync + 'static,
 {
     pub fn new(
-        ledger_db: Arc<Db>,
+        ledger_db: Db,
         da_service: Arc<Da>,
         sequencer_da_pub_key: Vec<u8>,
         min_soft_confirmations: u64,
         soft_confirmation_rx: UnboundedReceiver<(u64, StateDiff)>,
     ) -> Self {
-        let commitment_controller = Arc::new(RwLock::new(CommitmentController::new(vec![
-            Box::new(MinSoftConfirmations::new(
-                ledger_db.clone(),
-                min_soft_confirmations,
-            )),
-            Box::new(StateDiffThreshold::new(ledger_db.clone())),
-        ])));
+        let commitment_controller = Arc::new(RwLock::new(CommitmentController::new(
+            ledger_db.clone(),
+            min_soft_confirmations,
+        )));
         Self {
             ledger_db,
             da_service,
@@ -80,6 +76,7 @@ where
                     let Some((height, state_diff)) = info else {
                         // An error is returned because the channel is either
                         // closed or lagged.
+                        error!("Commitment service soft confirmation channel closed abruptly");
                         return;
                     };
 
@@ -125,9 +122,6 @@ where
         let l2_start = *commitment_info.l2_height_range.start();
         let l2_end = *commitment_info.l2_height_range.end();
 
-        // Clear state diff early
-        self.ledger_db.set_state_diff(vec![])?;
-
         let soft_confirmation_hashes = self
             .ledger_db
             .get_soft_confirmation_range(&(l2_start..=l2_end))?
@@ -139,7 +133,7 @@ where
 
         debug!("Sequencer: submitting commitment: {:?}", commitment);
 
-        let da_data = DaData::SequencerCommitment(commitment.clone());
+        let da_data = DaData::SequencerCommitment(commitment);
         let (notify, rx) = oneshot::channel();
         let request = SenderWithNotifier { da_data, notify };
         self.da_service
