@@ -86,7 +86,7 @@ impl<C: sov_modules_api::Context, Da: DaService> Ethereum<C, Da> {
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub(crate) fn max_fee_per_gas(&self, working_set: &mut WorkingSet<C>) -> (U256, U256) {
+    pub(crate) fn max_fee_per_gas(&self, working_set: &mut WorkingSet<C::Storage>) -> (U256, U256) {
         let evm = Evm::<C>::default();
         let base_fee = evm
             .get_block_by_number(None, None, working_set)
