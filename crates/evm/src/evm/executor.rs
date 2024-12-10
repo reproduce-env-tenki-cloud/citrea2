@@ -1,4 +1,3 @@
-use alloy_eips::eip4844::MAX_DATA_GAS_PER_BLOCK;
 use reth_primitives::TransactionSignedEcRecovered;
 use revm::primitives::{
     BlockEnv, CfgEnvWithHandlerCfg, EVMError, Env, EvmState, ExecutionResult, ResultAndState,
@@ -77,7 +76,6 @@ pub(crate) fn execute_multiple_tx<
     config_env: CfgEnvWithHandlerCfg,
     ext: &mut EXT,
     prev_gas_used: u64,
-    blob_gas_used: &mut u64,
 ) -> Result<Vec<ExecutionResult>, SoftConfirmationModuleCallError> {
     if txs.is_empty() {
         return Ok(vec![]);
@@ -101,12 +99,12 @@ pub(crate) fn execute_multiple_tx<
             return Err(SoftConfirmationModuleCallError::EvmMisplacedSystemTx);
         }
 
-        if tx.is_eip4844()
-            // can unwrap because we checked if it's EIP-4844
-            && *blob_gas_used + tx.blob_gas_used().unwrap() > MAX_DATA_GAS_PER_BLOCK
-        {
-            native_error!("Blob gas used exceeds block gas limit");
-            return Err(SoftConfirmationModuleCallError::EvmBlobGasUsedExceedsBlockGasLimit);
+        // if tx is eip4844 error out
+        if tx.is_eip4844() {
+            native_error!("EIP-4844 transaction is not supported");
+            return Err(SoftConfirmationModuleCallError::EvmTxTypeNotSupported(
+                "EIP-4844".to_string(),
+            ));
         }
 
         let result_and_state = evm.transact(tx).map_err(|e| {
@@ -133,10 +131,6 @@ pub(crate) fn execute_multiple_tx<
         native_trace!("Commiting tx to DB");
         evm.commit(result_and_state.state);
         cumulative_gas_used += result_and_state.result.gas_used();
-
-        if tx.is_eip4844() {
-            *blob_gas_used += tx.blob_gas_used().unwrap();
-        }
 
         tx_results.push(result_and_state.result);
     }
