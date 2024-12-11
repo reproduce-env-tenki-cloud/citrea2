@@ -53,6 +53,7 @@ pub struct BlockchainTestCase {
 }
 
 impl BlockchainTestCase {
+    #[allow(clippy::too_many_arguments)]
     fn execute_transactions(
         &self,
         evm: &mut Evm<DefaultContext>,
@@ -61,6 +62,7 @@ impl BlockchainTestCase {
         storage: ProverStorage<SnapshotManager>,
         root: &[u8; 32],
         l2_height: u64,
+        current_spec: SovSpecId,
     ) -> (
         WorkingSet<ProverStorage<SnapshotManager>>,
         ProverStorage<SnapshotManager>,
@@ -73,7 +75,7 @@ impl BlockchainTestCase {
             da_slot_height: 0,
             da_slot_txs_commitment: [0u8; 32],
             pre_state_root: root.to_vec(),
-            current_spec: SovSpecId::Genesis,
+            current_spec,
             pub_key: vec![],
             deposit_data: vec![],
             l1_fee_rate,
@@ -125,7 +127,7 @@ impl Case for BlockchainTestCase {
         // Iterate through test cases, filtering by the network type to exclude specific forks.
         self.tests
             .values()
-            .filter(|case| matches!(case.network, ForkSpec::Shanghai))
+            .filter(|case| case.network <= ForkSpec::Cancun || case.network == ForkSpec::Unknown)
             .par_bridge()
             .try_for_each(|case| {
                 let mut evm_config = EvmConfig::default();
@@ -207,6 +209,11 @@ impl Case for BlockchainTestCase {
 
                 let root = case.genesis_block_header.state_root;
 
+                let current_spec = if case.network == ForkSpec::Cancun {
+                    SovSpecId::Fork1
+                } else {
+                    SovSpecId::Genesis
+                };
                 // Decode and insert blocks, creating a chain of blocks for the test case.
                 for block in case.blocks.iter() {
                     let decoded = SealedBlock::decode(&mut block.rlp.as_ref())?;
@@ -227,6 +234,7 @@ impl Case for BlockchainTestCase {
                         storage,
                         &root,
                         l2_height,
+                        current_spec,
                     );
 
                     l2_height += 1;
@@ -314,9 +322,15 @@ pub fn should_skip(path: &Path) -> bool {
         | "loopMul.json"
         | "CALLBlake2f_MaxRounds.json"
         | "shiftCombinations.json"
+
+        // In VMTests/vmIOandFlowOperations, returns state root instead of latest state,
+        // hence we can't test it due to us using different tree than Ethereum
+        | "jumpToPush.json"
     )
-    // Ignore outdated EOF tests that haven't been updated for Cancun yet.
-    || path_contains(path_str, &["EIPTests", "stEOF"])
+    // We don't support blob transactions
+    || path_contains(path_str, &["Cancun", "stEIP4844-blobtransactions"])
+    || path_contains(path_str, &["Pyspecs", "cancun", "eip4844_blobs"])
+    || path_contains(path_str, &["Pyspecs", "cancun", "eip7516_blobgasfee"])
 }
 
 /// `str::contains` but for a path. Takes into account the OS path separator (`/` or `\`).
