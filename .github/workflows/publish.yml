@@ -1,5 +1,5 @@
 name: Publish
-
+run-name: ${{ inputs.release }} to ${{ inputs.service }} on ${{ inputs.environment }} by @${{ github.actor }}
 on:
   workflow_dispatch:
     inputs:

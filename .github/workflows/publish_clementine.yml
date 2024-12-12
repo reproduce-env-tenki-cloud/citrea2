@@ -1,4 +1,5 @@
 name: Publish to Clementine
+run-name: Publish to Clementine on ${{ inputs.environment }} by @${{ github.actor }}
 
 on:
   workflow_dispatch:
