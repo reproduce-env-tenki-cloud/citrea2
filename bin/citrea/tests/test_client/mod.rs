@@ -18,7 +18,6 @@ use reth_primitives::{Address, BlockId, BlockNumberOrTag, Bytes, TxHash, TxKind,
 // use reth_rpc_types::TransactionReceipt;
 use reth_rpc_types::trace::geth::{GethDebugTracingOptions, GethTrace};
 use reth_rpc_types::RichBlock;
-use sequencer_client::GetSoftConfirmationResponse;
 use sov_ledger_rpc::client::RpcClient;
 use sov_ledger_rpc::HexHash;
 use sov_rollup_interface::rpc::{
@@ -498,7 +497,7 @@ impl TestClient {
     >(
         &self,
         num: u64,
-    ) -> Option<GetSoftConfirmationResponse> {
+    ) -> Option<SoftConfirmationResponse> {
         self.http_client
             .request("ledger_getSoftConfirmationByNumber", rpc_params![num])
             .await

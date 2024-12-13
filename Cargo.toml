@@ -12,7 +12,6 @@ members = [
   "crates/fullnode",
   "crates/risc0-bonsai",
   "crates/sequencer",
-  "crates/sequencer-client",
   "crates/soft-confirmation-rule-enforcer",
   # Sovereign sdk
   "crates/sovereign-sdk/rollup-interface",

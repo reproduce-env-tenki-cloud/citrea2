@@ -1721,7 +1721,6 @@ dependencies = [
  "rs_merkle",
  "rustc_version_runtime",
  "secp256k1",
- "sequencer-client",
  "serde",
  "serde_json",
  "sha2",
@@ -1860,12 +1859,13 @@ dependencies = [
  "hex",
  "jsonrpsee",
  "rand 0.8.5",
+ "reth-primitives",
  "rs_merkle",
- "sequencer-client",
  "serde",
  "serde_json",
  "sha2",
  "sov-db",
+ "sov-ledger-rpc 0.5.0-rc.1",
  "sov-mock-da",
  "sov-mock-zkvm",
  "sov-modules-api",
@@ -1914,11 +1914,12 @@ dependencies = [
  "parking_lot",
  "rand 0.8.5",
  "rayon",
+ "reth-primitives",
  "rs_merkle",
- "sequencer-client",
  "serde",
  "sha2",
  "sov-db",
+ "sov-ledger-rpc 0.5.0-rc.1",
  "sov-mock-da",
  "sov-mock-zkvm",
  "sov-modules-api",
@@ -1926,6 +1927,7 @@ dependencies = [
  "sov-modules-rollup-blueprint",
  "sov-modules-stf-blueprint",
  "sov-rollup-interface 0.5.0-rc.1",
+ "sov-state",
  "sov-stf-runner",
  "tempfile",
  "tokio",
@@ -2807,6 +2809,7 @@ dependencies = [
  "borsh",
  "citrea-evm",
  "citrea-primitives",
+ "citrea-sequencer",
  "futures",
  "jsonrpsee",
  "parking_lot",
@@ -2817,10 +2820,10 @@ dependencies = [
  "reth-rpc-types-compat",
  "rustc_version_runtime",
  "schnellru",
- "sequencer-client",
  "serde",
  "serde_json",
  "sov-db",
+ "sov-ledger-rpc 0.5.0-rc.1",
  "sov-modules-api",
  "sov-rollup-interface 0.5.0-rc.1",
  "tokio",
@@ -7060,23 +7063,6 @@ name = "send_wrapper"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f638d531eccd6e23b980caf34876660d38e265409d8e99b397ab71eb3612fad0"
-
-[[package]]
-name = "sequencer-client"
-version = "0.5.0-rc.1"
-dependencies = [
- "anyhow",
- "citrea-primitives",
- "hex",
- "jsonrpsee",
- "reth-primitives",
- "reth-rpc-types",
- "serde",
- "serde_json",
- "sov-rollup-interface 0.5.0-rc.1",
- "tokio",
- "tracing",
-]
 
 [[package]]
 name = "serde"
