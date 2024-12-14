@@ -38,6 +38,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         >>::GenesisPaths,
         rollup_config: FullNodeConfig<Self::DaConfig>,
         sequencer_config: SequencerConfig,
+        roll_back_to: Option<u64>,
     ) -> Result<Sequencer<Self>, anyhow::Error>
     where
         <Self::NativeContext as Spec>::Storage: NativeStorage,
@@ -53,10 +54,27 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
             rollup_config.storage.db_max_open_files,
         );
         let ledger_db = self.create_ledger_db(&rocksdb_config);
+
+        if let Some(roll_back_to) = roll_back_to {
+            tracing::warn!("Rolling back to batch number: {}", roll_back_to);
+            ledger_db.roll_back_soft_confirmations_to(BatchNumber(roll_back_to))?;
+        }
+
         let genesis_config = self.create_genesis_config(runtime_genesis_paths, &rollup_config)?;
 
         let mut storage_manager = self.create_storage_manager(&rollup_config)?;
-        let prover_storage = storage_manager.create_finalized_storage()?;
+
+        let prover_storage = match roll_back_to {
+            Some(roll_back_to) => {
+                tracing::warn!(
+                    "Rolling back to batch number for prover storage: {}",
+                    roll_back_to - 1
+                );
+                storage_manager.create_storage_on_l2_height(roll_back_to)?;
+                storage_manager.create_finalized_storage()?
+            }
+            None => storage_manager.create_finalized_storage()?,
+        };
 
         let (soft_confirmation_tx, soft_confirmation_rx) = broadcast::channel(10);
         // If subscriptions disabled, pass None

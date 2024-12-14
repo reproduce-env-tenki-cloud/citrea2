@@ -169,6 +169,28 @@ impl SharedLedgerOps for LedgerDB {
         schema_batch.put::<SoftConfirmationByHash>(&batch.hash, batch_number)
     }
 
+    #[instrument(level = "trace", skip(self), err, ret)]
+    fn roll_back_soft_confirmations_to(
+        &self,
+        batch_number: BatchNumber,
+    ) -> Result<(), anyhow::Error> {
+        let mut schema_batch = SchemaBatch::new();
+        let mut iter = self.db.iter::<SoftConfirmationByNumber>()?;
+        let num = batch_number.0 + 1;
+        iter.seek(&BatchNumber(num)).unwrap();
+
+        for item in iter {
+            let item = item?;
+            println!("Rolling back soft confirmation with num: {:?}", item.key);
+            schema_batch.delete::<SoftConfirmationByNumber>(&item.key)?;
+            schema_batch.delete::<SoftConfirmationByHash>(&item.value.hash)?;
+        }
+
+        self.db.write_schemas(schema_batch)?;
+
+        Ok(())
+    }
+
     /// Commits a soft confirmation to the database by inserting its transactions and batches before
     fn commit_soft_confirmation<T: Serialize, DS: DaSpec>(
         &self,
@@ -681,9 +703,9 @@ impl SequencerLedgerOps for LedgerDB {
         let l2_height = self.get_last_commitment_l2_height()?;
         match l2_height {
             Some(l2_height) => {
-                let soft_confirmation = self
-                    .get_soft_confirmation_by_number(&l2_height)?
-                    .expect("Expected soft confirmation to exist");
+                let soft_confirmation = self.get_soft_confirmation_by_number(&l2_height)?.expect(
+                    format!("Expected soft confirmation to exist {}", l2_height.0).as_str(),
+                );
                 Ok(Some(SlotNumber(soft_confirmation.da_slot_height)))
             }
             None => Ok(None),

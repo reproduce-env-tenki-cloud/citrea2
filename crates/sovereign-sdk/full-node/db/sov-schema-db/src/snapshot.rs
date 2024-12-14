@@ -83,6 +83,11 @@ impl<Q> DbSnapshot<Q> {
         }
     }
 
+    /// docs
+    pub fn get_id(&self) -> SnapshotId {
+        self.id
+    }
+
     /// Store a value in snapshot
     pub fn put<S: Schema>(
         &self,

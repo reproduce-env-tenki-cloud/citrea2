@@ -22,6 +22,9 @@ pub trait SharedLedgerOps {
         schema_batch: &mut SchemaBatch,
     ) -> Result<()>;
 
+    /// Rolls back soft confirmations to a given batch number
+    fn roll_back_soft_confirmations_to(&self, batch_number: BatchNumber) -> Result<()>;
+
     /// Commits a soft confirmation to the database by inserting its transactions and batches before
     fn commit_soft_confirmation<T: Serialize, DS: DaSpec>(
         &self,

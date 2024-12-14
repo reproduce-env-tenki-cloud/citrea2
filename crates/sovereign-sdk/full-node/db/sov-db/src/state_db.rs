@@ -61,7 +61,14 @@ impl<Q> StateDB<Q> {
 impl<Q: QueryManager> StateDB<Q> {
     /// Creating instance of [`StateDB`] from [`DbSnapshot`]
     pub fn with_db_snapshot(db_snapshot: DbSnapshot<Q>) -> anyhow::Result<Self> {
-        let next_version = Self::next_version_from(&db_snapshot)?;
+        println!(
+            "with_db_snapshot, db_snapshot_id: {:?}",
+            db_snapshot.get_id()
+        );
+        // LOL
+        // let next_version = Self::next_version_from(&db_snapshot)?;
+        let next_version = db_snapshot.get_id() + 1; // ??
+        println!("next_version: {:?}", next_version);
         Ok(Self {
             db: Arc::new(db_snapshot),
             next_version: Arc::new(Mutex::new(next_version)),

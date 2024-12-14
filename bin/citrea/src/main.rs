@@ -41,6 +41,11 @@ struct Args {
     #[arg(long, conflicts_with = "sequencer")]
     prover: Option<Option<String>>,
 
+    /// Inclusive. Option to roll back to a specific block height. Inclusive.
+    /// Inclusive. Prunes down the state tree and ledger db to that specific block height. Inclusive.
+    #[arg(long)]
+    roll_back_to: Option<u64>,
+
     /// Logging verbosity
     #[arg(long, short = 'v', action = clap::ArgAction::Count, default_value = "2")]
     verbose: u8,
@@ -108,6 +113,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 args.rollup_config_path,
                 prover_config,
                 sequencer_config,
+                args.roll_back_to,
             )
             .await?;
         }
@@ -117,6 +123,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 args.rollup_config_path,
                 prover_config,
                 sequencer_config,
+                args.roll_back_to,
             )
             .await?;
         }
@@ -134,6 +141,7 @@ async fn start_rollup<S, DaC>(
     rollup_config_path: Option<String>,
     prover_config: Option<ProverConfig>,
     sequencer_config: Option<SequencerConfig>,
+    roll_back_to: Option<u64>,
 ) -> Result<(), anyhow::Error>
 where
     DaC: serde::de::DeserializeOwned + DebugTrait + Clone + FromEnv,
@@ -150,7 +158,12 @@ where
 
     if let Some(sequencer_config) = sequencer_config {
         let sequencer_rollup = rollup_blueprint
-            .create_new_sequencer(rt_genesis_paths, rollup_config.clone(), sequencer_config)
+            .create_new_sequencer(
+                rt_genesis_paths,
+                rollup_config.clone(),
+                sequencer_config,
+                roll_back_to,
+            )
             .await
             .expect("Could not start sequencer");
         if let Err(e) = sequencer_rollup.run().await {

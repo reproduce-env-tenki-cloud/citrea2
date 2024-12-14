@@ -61,6 +61,7 @@ pub async fn start_rollup(
             &rt_genesis_paths,
             rollup_config.clone(),
             sequencer_config,
+            None,
         )
         .instrument(span.clone())
         .await

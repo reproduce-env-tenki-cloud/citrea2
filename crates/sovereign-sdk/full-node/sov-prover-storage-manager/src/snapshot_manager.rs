@@ -45,12 +45,14 @@ impl SnapshotManager {
 
     pub(crate) fn add_snapshot(&mut self, snapshot: ReadOnlyDbSnapshot) {
         let snapshot_id = snapshot.get_id();
+        println!("Adding snapshot with id: {}", snapshot_id);
         if self.snapshots.insert(snapshot_id, snapshot).is_some() {
             panic!("Attempt to double save same snapshot");
         }
     }
 
     pub(crate) fn discard_snapshot(&mut self, snapshot_id: &SnapshotId) {
+        println!("Discarding snapshot with id: {}", snapshot_id);
         self.snapshots.remove(snapshot_id);
     }
 
@@ -58,7 +60,10 @@ impl SnapshotManager {
         if !self.snapshots.contains_key(snapshot_id) {
             anyhow::bail!("Attempt to commit unknown snapshot");
         }
-
+        println!(
+            "Committing and then discarding snapshot with id: {}",
+            snapshot_id
+        );
         let snapshot = self.snapshots.remove(snapshot_id).unwrap();
         self.db.write_schemas(snapshot.into())
     }

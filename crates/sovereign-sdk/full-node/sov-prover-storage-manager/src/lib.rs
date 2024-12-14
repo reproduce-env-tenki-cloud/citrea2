@@ -31,10 +31,6 @@ pub struct ProverStorageManager<Da: DaSpec, S: MerkleProofSpec> {
     // L2 block height to SnapshotId mapping
     block_height_to_snapshot_id: HashMap<u64, SnapshotId>,
 
-    // This is for tracking "finalized" storage and detect errors
-    // TODO: Should be removed after https://github.com/Sovereign-Labs/sovereign-sdk/issues/1218
-    orphaned_snapshots: HashSet<SnapshotId>,
-
     // Same reference for individual managers
     snapshot_id_to_parent: Arc<RwLock<HashMap<SnapshotId, SnapshotId>>>,
 
@@ -61,7 +57,6 @@ where
             latest_snapshot_id: 0,
             block_hash_to_snapshot_id: Default::default(),
             block_height_to_snapshot_id: Default::default(),
-            orphaned_snapshots: Default::default(),
             snapshot_id_to_parent,
             state_snapshot_manager: Arc::new(RwLock::new(state_snapshot_manager)),
             accessory_snapshot_manager: Arc::new(RwLock::new(accessory_snapshot_manager)),
@@ -91,6 +86,7 @@ where
         &self,
         snapshot_id: SnapshotId,
     ) -> anyhow::Result<ProverStorage<S, SnapshotManager>> {
+        println!("creating new snapshot with snapshot_id={}", snapshot_id);
         let state_db_snapshot = DbSnapshot::new(
             snapshot_id,
             ReadOnlyLock::new(self.state_snapshot_manager.clone()),
@@ -108,15 +104,19 @@ where
     }
 
     fn finalize_by_l2_height(&mut self, l2_block_height: u64) -> anyhow::Result<()> {
-        let snapshot_id = self
-            .block_height_to_snapshot_id
-            .remove(&l2_block_height)
-            .ok_or(anyhow::anyhow!("Attempt to finalize non existing snapshot"))?;
+        let snapshot_id = l2_block_height;
+        // self
+        //     .block_height_to_snapshot_id
+        //     .remove(&l2_block_height)
+        //     .ok_or(anyhow::anyhow!("Attempt to finalize non existing snapshot"))?;
 
         let mut state_manager = self.state_snapshot_manager.write().unwrap();
         let mut native_manager = self.accessory_snapshot_manager.write().unwrap();
         let mut snapshot_id_to_parent = self.snapshot_id_to_parent.write().unwrap();
         snapshot_id_to_parent.remove(&snapshot_id);
+
+        println!("Discarding snapshot={}", snapshot_id);
+        println!("l2 heigght={}", l2_block_height);
 
         // Return error here, as underlying database can return error
         state_manager.commit_snapshot(&snapshot_id)?;
@@ -207,20 +207,29 @@ where
         &mut self,
         l2_block_height: u64,
     ) -> anyhow::Result<Self::NativeStorage> {
+        println!(
+            "Requested native storage for block at height: {:?} ",
+            l2_block_height
+        );
         trace!(
             "Requested native storage for block at height: {:?} ",
             l2_block_height
         );
-        let snapshot_id = match self.block_height_to_snapshot_id.get(&l2_block_height) {
-            Some(snapshot_id) => *snapshot_id,
-            None => {
-                let new_snapshot_id = self.latest_snapshot_id + 1;
-                self.block_height_to_snapshot_id
-                    .insert(l2_block_height, new_snapshot_id);
-                self.latest_snapshot_id = new_snapshot_id;
-                new_snapshot_id
-            }
-        };
+        let snapshot_id = l2_block_height;
+        // match self.block_height_to_snapshot_id.get(&l2_block_height) {
+        //     Some(snapshot_id) => {
+        //         println!("In existing snapshot_id={}", snapshot_id);
+        //         *snapshot_id
+        //     }
+        //     None => {
+        //         let new_snapshot_id = l2_block_height;
+        //         println!("New snapshot_id={}", new_snapshot_id);
+        //         self.block_height_to_snapshot_id
+        //             .insert(l2_block_height, new_snapshot_id);
+        //         self.latest_snapshot_id = new_snapshot_id;
+        //         new_snapshot_id
+        //     }
+        // };
         debug!(
             "Requested native storage for block at height: {:?}, giving snapshot id={}",
             l2_block_height, snapshot_id
@@ -248,25 +257,23 @@ where
             );
         }
 
-        // Obviously alien
-        if snapshot_id > self.latest_snapshot_id {
-            anyhow::bail!("Attempt to save unknown snapshot with id={}", snapshot_id);
-        }
-
-        if self.orphaned_snapshots.remove(&snapshot_id) {
-            debug!(
-                "Discarded reference to 'finalized' snapshot={}",
-                snapshot_id
-            );
-            return Ok(());
-        }
+        // // Obviously alien
+        // if snapshot_id > self.latest_snapshot_id {
+        //     anyhow::bail!("Attempt to save unknown snapshot with id={}", snapshot_id);
+        // }
 
         {
             let mut state_manager = self.state_snapshot_manager.write().unwrap();
             let mut native_manager = self.accessory_snapshot_manager.write().unwrap();
 
-            state_manager.add_snapshot(state_snapshot);
+            println!("state snapshot: {:?}", state_snapshot.get_id());
+            println!("native snapshot: {:?}", native_snapshot.get_id());
             native_manager.add_snapshot(native_snapshot);
+            state_manager.add_snapshot(state_snapshot);
+            println!(
+                "Snapshot id={} for block at height={} has been saved to StorageManager",
+                snapshot_id, l2_block_height
+            );
         }
         debug!(
             "Snapshot id={} for block at height={} has been saved to StorageManager",
@@ -337,7 +344,7 @@ where
         self.latest_snapshot_id += 1;
         let snapshot_id = self.latest_snapshot_id;
         debug!("Giving 'finalized' storage ref with id {}", snapshot_id);
-        self.orphaned_snapshots.insert(snapshot_id);
+        println!("Giving 'finalized' storage ref with id {}", snapshot_id);
         let state_db_snapshot = DbSnapshot::new(
             snapshot_id,
             ReadOnlyLock::new(self.state_snapshot_manager.clone()),
@@ -379,14 +386,6 @@ where
         // Obviously alien
         if snapshot_id > self.latest_snapshot_id {
             anyhow::bail!("Attempt to save unknown snapshot with id={}", snapshot_id);
-        }
-
-        if self.orphaned_snapshots.remove(&snapshot_id) {
-            debug!(
-                "Discarded reference to 'finalized' snapshot={}",
-                snapshot_id
-            );
-            return Ok(());
         }
 
         {

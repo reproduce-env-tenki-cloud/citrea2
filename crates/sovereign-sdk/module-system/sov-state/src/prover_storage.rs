@@ -181,6 +181,7 @@ impl<S: MerkleProofSpec, Q: QueryManager> Storage for ProverStorage<S, Q> {
 
     fn commit(&self, state_update: &Self::StateUpdate, accessory_writes: &OrderedReadsAndWrites) {
         let latest_version = self.db.get_next_version() - 1;
+        println!("latest_version: {}", latest_version);
         self.db
             .put_preimages(
                 state_update
