@@ -2,7 +2,7 @@ use core::panic;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context as _};
 use backoff::exponential::ExponentialBackoffBuilder;
@@ -38,6 +38,7 @@ use tokio::time::sleep;
 use tracing::{debug, error, info, instrument};
 
 use crate::da_block_handler::L1BlockHandler;
+use crate::metrics::BATCH_PROVER_METRICS;
 use crate::rpc::{create_rpc_module, RpcContext};
 
 type StfStateRoot<C, Da, RT> = <StfBlueprint<C, Da, RT> as StateTransitionFunction<Da>>::StateRoot;
@@ -395,6 +396,8 @@ where
         l2_height: u64,
         soft_confirmation: &SoftConfirmationResponse,
     ) -> anyhow::Result<()> {
+        let start = Instant::now();
+
         let current_l1_block = get_da_block_at_height(
             &self.da_service,
             soft_confirmation.da_slot_height,
@@ -485,6 +488,13 @@ where
         info!(
             "New State Root after soft confirmation #{} is: {:?}",
             l2_height, self.state_root
+        );
+
+        BATCH_PROVER_METRICS.current_l2_block.set(l2_height as f64);
+        BATCH_PROVER_METRICS.process_soft_confirmation.record(
+            Instant::now()
+                .saturating_duration_since(start)
+                .as_secs_f64(),
         );
 
         Ok(())

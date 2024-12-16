@@ -51,6 +51,9 @@ hex = { workspace = true, optional = true }
 jsonrpsee = { workspace = true, features = ["http-client", "server"] }
 lazy_static = { workspace = true }
 log-panics = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true, default-features = true }
+metrics-util = { workspace = true }
 reth-primitives = { workspace = true }
 reth-rpc-types = { workspace = true }
 reth-transaction-pool = { workspace = true }

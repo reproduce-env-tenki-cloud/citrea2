@@ -28,6 +28,9 @@ bincode = { workspace = true }
 borsh = { workspace = true }
 hex = { workspace = true }
 jsonrpsee = { workspace = true, optional = true, features = ["http-client", "server", "client"] }
+metrics = { workspace = true, optional = true }
+metrics-derive = { workspace = true, optional = true }
+once_cell = { workspace = true, default-features = true, optional = true }
 reth-primitives = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
@@ -51,6 +54,9 @@ native = [
   "dep:anyhow",
   "dep:async-trait",
   "dep:jsonrpsee",
+  "dep:metrics",
+  "dep:metrics-derive",
+  "dep:once_cell",
   "dep:reth-primitives",
   "dep:tokio",
   "dep:tokio-util",

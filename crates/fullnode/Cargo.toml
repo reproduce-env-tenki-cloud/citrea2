@@ -30,6 +30,9 @@ borsh = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 jsonrpsee = { workspace = true }
+metrics = { workspace = true }
+metrics-derive = { workspace = true }
+once_cell = { workspace = true, default-features = true }
 rand = { workspace = true }
 reth-primitives = { workspace = true }
 rs_merkle = { workspace = true }
