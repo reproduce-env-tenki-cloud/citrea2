@@ -10,7 +10,6 @@ mod rollup;
 pub use bitcoin::*;
 pub use prover::ProverGuestRunConfig;
 pub use rollup::*;
-use sov_mock_da::MockAddress;
 
 /// Telemetry configuration.
 #[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
@@ -57,15 +56,17 @@ impl FromEnv for PruningConfig {
     }
 }
 
+#[cfg(feature = "mock")]
 /// The configuration for mock da
 #[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct MockDaConfig {
     /// The address to use to "submit" blobs on the mock da layer
-    pub sender_address: MockAddress,
+    pub sender_address: sov_mock_da::MockAddress,
     /// The path in which DA db is stored
     pub db_path: PathBuf,
 }
 
+#[cfg(feature = "mock")]
 impl FromEnv for MockDaConfig {
     fn from_env() -> anyhow::Result<Self> {
         Ok(Self {

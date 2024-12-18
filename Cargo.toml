@@ -150,7 +150,7 @@ alloy-eips = { version = "0.2.1", default-features = false }
 alloy-consensus = { version = "0.2.1", default-features = false }
 
 #citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "51a4d19" }
-citrea-e2e = { path = "/Users/jouz0/CHAINWAY/citrea-e2e" }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", branch = "citrea-configs" }
 
 [patch.crates-io]
 bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "ca3cfa2" }

@@ -7,9 +7,10 @@ use async_trait::async_trait;
 use bitcoin_da::service::{BitcoinService, FINALITY_DEPTH};
 use bitcoin_da::spec::RollupParams;
 use citrea_common::tasks::manager::TaskManager;
+use citrea_config::BitcoinServiceConfig;
 use citrea_e2e::config::{
-    BatchProverConfig, BitcoinServiceConfig, ProverGuestRunConfig, SequencerConfig,
-    SequencerMempoolConfig, TestCaseConfig, TestCaseEnv,
+    BatchProverConfig, ProverGuestRunConfig, SequencerConfig, SequencerMempoolConfig,
+    TestCaseConfig, TestCaseEnv,
 };
 use citrea_e2e::framework::TestFramework;
 use citrea_e2e::full_node::FullNode;

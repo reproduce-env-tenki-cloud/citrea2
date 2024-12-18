@@ -17,7 +17,7 @@ toml = { workspace = true }
 hex = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
-sov-mock-da = { path = "../sovereign-sdk/adapters/mock-da" }
+sov-mock-da = { path = "../sovereign-sdk/adapters/mock-da", optional = true }
 bitcoin = { workspace = true }
 tempfile = { workspace = true, optional = true }
 
@@ -25,6 +25,10 @@ tempfile = { workspace = true, optional = true }
 tempfile = { workspace = true }
 
 [features]
+default = [ "mock" ]
+mock = [
+    "dep:sov-mock-da"
+]
 testing = [
     "dep:tempfile"
 ]
