@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail};
-use citrea_common::SequencerMempoolConfig;
+use citrea_config::SequencerMempoolConfig;
 use citrea_evm::SYSTEM_SIGNER;
 use reth_chainspec::{Chain, ChainSpecBuilder};
 use reth_primitives::{Genesis, TxHash};

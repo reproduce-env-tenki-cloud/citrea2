@@ -5,7 +5,7 @@ use anyhow::anyhow;
 use borsh::BorshDeserialize;
 use citrea_common::cache::L1BlockCache;
 use citrea_common::da::get_da_block_at_height;
-use citrea_common::LightClientProverConfig;
+use citrea_config::LightClientProverConfig;
 use citrea_primitives::forks::FORKS;
 use jsonrpsee::http_client::HttpClient;
 use reth_primitives::U64;

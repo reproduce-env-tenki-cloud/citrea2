@@ -4,7 +4,7 @@
 use std::str::FromStr;
 use std::time::Duration;
 
-use citrea_common::{BatchProverConfig, SequencerConfig};
+use citrea_config::{BatchProverConfig, SequencerConfig};
 use citrea_stf::genesis_config::GenesisPaths;
 use reth_primitives::{Address, BlockNumberOrTag};
 use sov_db::ledger_db::migrations::copy_db_dir_recursive;

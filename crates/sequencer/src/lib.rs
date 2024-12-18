@@ -8,6 +8,6 @@ mod rpc;
 mod runner;
 mod utils;
 
-pub use citrea_common::{SequencerConfig, SequencerMempoolConfig};
+pub use citrea_config::{SequencerConfig, SequencerMempoolConfig};
 pub use rpc::SequencerRpcClient;
 pub use runner::CitreaSequencer;

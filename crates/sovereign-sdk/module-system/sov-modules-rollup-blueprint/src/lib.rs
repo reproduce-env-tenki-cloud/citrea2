@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use citrea_common::tasks::manager::TaskManager;
-use citrea_common::FullNodeConfig;
+use citrea_config::FullNodeConfig;
+use citrea_config::ProverGuestRunConfig;
 use derive_more::Display;
 use sov_db::ledger_db::LedgerDB;
 use sov_db::rocks_db_config::RocksdbConfig;
@@ -17,7 +18,7 @@ use sov_rollup_interface::da::DaVerifier;
 use sov_rollup_interface::services::da::DaService;
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::zk::{Zkvm, ZkvmHost};
-use sov_stf_runner::{ProverGuestRunConfig, ProverService};
+use sov_stf_runner::ProverService;
 use tokio::sync::broadcast;
 
 mod runtime_rpc;

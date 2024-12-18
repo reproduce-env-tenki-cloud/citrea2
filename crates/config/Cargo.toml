@@ -1,0 +1,30 @@
+[package]
+name = "citrea-config"
+authors = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+
+version = { workspace = true }
+publish = false
+resolver = "2"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+hex = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+sov-mock-da = { path = "../sovereign-sdk/adapters/mock-da" }
+bitcoin = { workspace = true }
+tempfile = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[features]
+testing = [
+    "dep:tempfile"
+]

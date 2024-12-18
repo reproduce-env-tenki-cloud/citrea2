@@ -8,6 +8,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::{Address, BlockHash, Transaction, Txid};
 use bitcoincore_rpc::json::GetTransactionResult;
 use bitcoincore_rpc::{Client, RpcApi};
+use citrea_config::MonitoringConfig;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::select;
@@ -18,10 +19,6 @@ use tracing::{debug, error, info, instrument};
 
 use crate::service::FINALITY_DEPTH;
 use crate::spec::utxo::UTXO;
-
-const DEFAULT_CHECK_INTERVAL: u64 = 60;
-const DEFAULT_HISTORY_LIMIT: usize = 1_000; // Keep track of last 1k txs
-const DEFAULT_MAX_HISTORY_SIZE: usize = 200_000_000; // Default max monitored tx total size to 200mb
 
 type BlockHeight = u64;
 type Result<T> = std::result::Result<T, MonitorError>;
@@ -122,23 +119,6 @@ pub enum MonitorError {
     BitcoinRpcError(#[from] bitcoincore_rpc::Error),
     #[error(transparent)]
     BitcoinEncodeError(#[from] bitcoin::consensus::encode::Error),
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct MonitoringConfig {
-    pub check_interval: u64,
-    pub history_limit: usize,
-    pub max_history_size: usize,
-}
-
-impl Default for MonitoringConfig {
-    fn default() -> Self {
-        Self {
-            check_interval: DEFAULT_CHECK_INTERVAL,
-            history_limit: DEFAULT_HISTORY_LIMIT,
-            max_history_size: DEFAULT_MAX_HISTORY_SIZE,
-        }
-    }
 }
 
 #[derive(Debug)]

@@ -1254,6 +1254,7 @@ dependencies = [
  "bitcoincore-rpc",
  "borsh",
  "citrea-common",
+ "citrea-config",
  "citrea-e2e",
  "citrea-primitives",
  "crypto-bigint",
@@ -1745,6 +1746,7 @@ dependencies = [
  "borsh",
  "citrea-batch-prover",
  "citrea-common",
+ "citrea-config",
  "citrea-e2e",
  "citrea-evm",
  "citrea-fullnode",
@@ -1806,6 +1808,7 @@ dependencies = [
  "backoff",
  "borsh",
  "citrea-common",
+ "citrea-config",
  "citrea-primitives",
  "citrea-stf",
  "futures",
@@ -1872,15 +1875,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "citrea-config"
+version = "0.5.0-rc.1"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "hex",
+ "serde",
+ "serde_json",
+ "sov-mock-da",
+ "tempfile",
+ "toml",
+ "tracing",
+]
+
+[[package]]
 name = "citrea-e2e"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=51a4d19#51a4d1958ead4021115bd81ac9aa1b1fcf6f7e0c"
 dependencies = [
  "anyhow",
  "async-trait",
  "bitcoin",
  "bitcoincore-rpc",
  "bollard",
+ "citrea-config",
  "futures",
  "hex",
  "jsonrpsee",
@@ -1950,6 +1968,7 @@ dependencies = [
  "backoff",
  "borsh",
  "citrea-common",
+ "citrea-config",
  "citrea-primitives",
  "citrea-pruning",
  "futures",
@@ -1989,6 +2008,7 @@ dependencies = [
  "bincode",
  "borsh",
  "citrea-common",
+ "citrea-config",
  "citrea-primitives",
  "hex",
  "jsonrpsee",
@@ -2029,6 +2049,7 @@ name = "citrea-pruning"
 version = "0.5.0-rc.1"
 dependencies = [
  "anyhow",
+ "citrea-config",
  "citrea-evm",
  "citrea-primitives",
  "futures",
@@ -2070,6 +2091,7 @@ dependencies = [
  "borsh",
  "chrono",
  "citrea-common",
+ "citrea-config",
  "citrea-evm",
  "citrea-primitives",
  "citrea-stf",
@@ -7738,6 +7760,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "citrea-common",
+ "citrea-config",
  "derive_more",
  "jsonrpsee",
  "sov-db",

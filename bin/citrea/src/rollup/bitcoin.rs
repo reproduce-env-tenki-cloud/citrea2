@@ -3,15 +3,16 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bitcoin_da::rpc::create_rpc_module as create_da_rpc_module;
-use bitcoin_da::service::{BitcoinService, BitcoinServiceConfig, TxidWrapper};
+use bitcoin_da::service::{BitcoinService, TxidWrapper};
 use bitcoin_da::spec::{BitcoinSpec, RollupParams};
 use bitcoin_da::verifier::BitcoinVerifier;
 use citrea_common::rpc::register_healthcheck_rpc;
 use citrea_common::tasks::manager::TaskManager;
-use citrea_common::FullNodeConfig;
+use citrea_config::{BitcoinServiceConfig, FullNodeConfig};
 use citrea_primitives::{TO_BATCH_PROOF_PREFIX, TO_LIGHT_CLIENT_PREFIX};
 use citrea_risc0_adapter::host::Risc0BonsaiHost;
 // use citrea_sp1::host::SP1Host;
+use citrea_config::ProverGuestRunConfig;
 use citrea_stf::genesis_config::StorageConfig;
 use citrea_stf::runtime::Runtime;
 use citrea_stf::verifier::StateTransitionVerifier;
@@ -25,7 +26,6 @@ use sov_prover_storage_manager::{ProverStorageManager, SnapshotManager};
 use sov_rollup_interface::da::DaVerifier;
 use sov_rollup_interface::services::da::SenderWithNotifier;
 use sov_state::{ProverStorage, ZkStorage};
-use sov_stf_runner::ProverGuestRunConfig;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::unbounded_channel;
 use tracing::instrument;
@@ -106,7 +106,7 @@ impl RollupBlueprint for BitcoinRollup {
     #[instrument(level = "trace", skip_all, err)]
     fn create_storage_manager(
         &self,
-        rollup_config: &citrea_common::FullNodeConfig<Self::DaConfig>,
+        rollup_config: &citrea_config::FullNodeConfig<Self::DaConfig>,
     ) -> Result<ProverStorageManager<Self::DaSpec>, anyhow::Error> {
         let storage_config = StorageConfig {
             path: rollup_config.storage.path.clone(),

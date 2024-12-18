@@ -2,11 +2,8 @@
 #![forbid(unsafe_code)]
 
 pub mod cache;
-pub mod config;
 pub mod da;
 pub mod error;
 pub mod rpc;
 pub mod tasks;
 pub mod utils;
-
-pub use config::*;

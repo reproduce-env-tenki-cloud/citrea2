@@ -3,19 +3,18 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context as _};
-use bitcoin_da::service::BitcoinServiceConfig;
 use citrea::{
     initialize_logging, BitcoinRollup, CitreaRollupBlueprint, MockDemoRollup, NetworkArg,
 };
-use citrea_common::{
-    from_toml_path, BatchProverConfig, FromEnv, FullNodeConfig, LightClientProverConfig,
-    SequencerConfig,
+use citrea_config::MockDaConfig;
+use citrea_config::{
+    from_toml_path, BatchProverConfig, BitcoinServiceConfig, FromEnv, FullNodeConfig,
+    LightClientProverConfig, SequencerConfig,
 };
 use citrea_stf::genesis_config::GenesisPaths;
 use clap::Parser;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_util::MetricKindMask;
-use sov_mock_da::MockDaConfig;
 use sov_modules_api::Spec;
 use sov_modules_rollup_blueprint::{Network, RollupBlueprint};
 use sov_state::storage::NativeStorage;

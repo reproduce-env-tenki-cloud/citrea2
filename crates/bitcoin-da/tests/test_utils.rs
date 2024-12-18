@@ -9,7 +9,7 @@ use bitcoin_da::helpers::parsers::{
     parse_batch_proof_transaction, parse_hex_transaction, parse_light_client_transaction,
     ParsedBatchProofTransaction, ParsedLightClientTransaction, VerifyParsed,
 };
-use bitcoin_da::service::{BitcoinService, BitcoinServiceConfig};
+use bitcoin_da::service::BitcoinService;
 use bitcoin_da::spec::blob::BlobWithSender;
 use bitcoin_da::spec::block::BitcoinBlock;
 use bitcoin_da::spec::header::HeaderWrapper;
@@ -17,6 +17,7 @@ use bitcoin_da::spec::transaction::TransactionWrapper;
 use bitcoin_da::spec::RollupParams;
 use bitcoincore_rpc::RpcApi;
 use citrea_common::tasks::manager::TaskManager;
+use citrea_config::BitcoinServiceConfig;
 use citrea_e2e::bitcoin::BitcoinNode;
 use citrea_e2e::config::BitcoinConfig;
 use citrea_e2e::node::NodeKind;

@@ -16,6 +16,7 @@ resolver = "2"
 bitcoin-da = { path = "../../crates/bitcoin-da", features = ["native"] }
 citrea-batch-prover = { path = "../../crates/batch-prover" }
 citrea-common = { path = "../../crates/common" }
+citrea-config = { path = "../../crates/config" }
 citrea-fullnode = { path = "../../crates/fullnode" }
 citrea-light-client-prover = { path = "../../crates/light-client-prover", features = ["native"] }
 citrea-primitives = { path = "../../crates/primitives" }

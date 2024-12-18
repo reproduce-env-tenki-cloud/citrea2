@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use citrea_common::tasks::manager::TaskManager;
-use citrea_common::{LightClientProverConfig, RollupPublicKeys, RpcConfig, RunnerConfig};
+use citrea_config::{LightClientProverConfig, RollupPublicKeys, RpcConfig, RunnerConfig};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::server::{BatchRequestConfig, ServerBuilder};
 use jsonrpsee::RpcModule;

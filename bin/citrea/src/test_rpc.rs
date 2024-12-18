@@ -1,5 +1,5 @@
 #[cfg(test)]
-use citrea_common::RpcConfig;
+use citrea_config::RpcConfig;
 use hex::ToHex;
 use reqwest::header::CONTENT_TYPE;
 use sha2::Digest;

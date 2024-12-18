@@ -4,12 +4,12 @@ use std::time::{Duration, Instant};
 
 use anyhow::bail;
 use async_trait::async_trait;
-use bitcoin_da::service::{BitcoinService, BitcoinServiceConfig, FINALITY_DEPTH};
+use bitcoin_da::service::{BitcoinService, FINALITY_DEPTH};
 use bitcoin_da::spec::RollupParams;
 use citrea_common::tasks::manager::TaskManager;
 use citrea_e2e::config::{
-    BatchProverConfig, ProverGuestRunConfig, SequencerConfig, SequencerMempoolConfig,
-    TestCaseConfig, TestCaseEnv,
+    BatchProverConfig, BitcoinServiceConfig, ProverGuestRunConfig, SequencerConfig,
+    SequencerMempoolConfig, TestCaseConfig, TestCaseEnv,
 };
 use citrea_e2e::framework::TestFramework;
 use citrea_e2e::full_node::FullNode;

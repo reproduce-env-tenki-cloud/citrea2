@@ -11,7 +11,7 @@ use citrea_common::cache::L1BlockCache;
 use citrea_common::da::{get_da_block_at_height, get_initial_slot_height};
 use citrea_common::tasks::manager::TaskManager;
 use citrea_common::utils::{create_shutdown_signal, soft_confirmation_to_receipt};
-use citrea_common::{BatchProverConfig, RollupPublicKeys, RpcConfig, RunnerConfig};
+use citrea_config::{BatchProverConfig, RollupPublicKeys, RpcConfig, RunnerConfig};
 use citrea_primitives::types::SoftConfirmationHash;
 use jsonrpsee::core::client::Error as JsonrpseeError;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};

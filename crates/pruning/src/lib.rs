@@ -1,6 +1,6 @@
+use citrea_config::PruningConfig;
 use criteria::DistanceCriteria;
 use futures::future;
-use serde::{Deserialize, Serialize};
 use sov_db::ledger_db::SharedLedgerOps;
 use tokio::select;
 use tokio::sync::broadcast;
@@ -14,19 +14,6 @@ mod criteria;
 mod pruners;
 #[cfg(test)]
 mod tests;
-
-/// A configuration type to define the behaviour of the pruner.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct PruningConfig {
-    /// Defines the number of blocks from the tip of the chain to remove.
-    pub distance: u64,
-}
-
-impl Default for PruningConfig {
-    fn default() -> Self {
-        Self { distance: 256 }
-    }
-}
 
 pub struct Pruner<DB>
 where

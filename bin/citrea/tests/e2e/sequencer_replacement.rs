@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use alloy::consensus::{Signed, TxEip1559, TxEnvelope};
 use alloy_rlp::Decodable;
-use citrea_common::{SequencerConfig, SequencerMempoolConfig};
+use citrea_config::{SequencerConfig, SequencerMempoolConfig};
 use citrea_stf::genesis_config::GenesisPaths;
 use reth_primitives::{Address, BlockNumberOrTag};
 use sov_db::ledger_db::migrations::copy_db_dir_recursive;

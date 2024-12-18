@@ -20,9 +20,9 @@ use bitcoin::{Amount, BlockHash, CompactTarget, Transaction, Txid, Wtxid};
 use bitcoincore_rpc::json::{SignRawTransactionInput, TestMempoolAcceptResult};
 use bitcoincore_rpc::{Auth, Client, Error, RpcApi, RpcError};
 use borsh::BorshDeserialize;
+use citrea_config::BitcoinServiceConfig;
 use citrea_primitives::compression::{compress_blob, decompress_blob};
 use citrea_primitives::MAX_TXBODY_SIZE;
-use serde::{Deserialize, Serialize};
 use sov_rollup_interface::da::{
     DaData, DaDataBatchProof, DaDataLightClient, DaNamespace, DaSpec, SequencerCommitment,
 };
@@ -48,7 +48,7 @@ use crate::helpers::parsers::{
     parse_batch_proof_transaction, parse_light_client_transaction, ParsedBatchProofTransaction,
     ParsedLightClientTransaction, VerifyParsed,
 };
-use crate::monitoring::{MonitoredTxKind, MonitoringConfig, MonitoringService, TxStatus};
+use crate::monitoring::{MonitoredTxKind, MonitoringService, TxStatus};
 use crate::spec::blob::BlobWithSender;
 use crate::spec::block::BitcoinBlock;
 use crate::spec::header::HeaderWrapper;
@@ -62,44 +62,6 @@ use crate::REVEAL_OUTPUT_AMOUNT;
 
 pub const FINALITY_DEPTH: u64 = 30; // blocks
 const POLLING_INTERVAL: u64 = 10; // seconds
-
-/// Runtime configuration for the DA service
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct BitcoinServiceConfig {
-    /// The URL of the Bitcoin node to connect to
-    pub node_url: String,
-    pub node_username: String,
-    pub node_password: String,
-
-    // network of the bitcoin node
-    pub network: bitcoin::Network,
-
-    // da private key of the sequencer
-    pub da_private_key: Option<String>,
-
-    // absolute path to the directory where the txs will be written to
-    pub tx_backup_dir: String,
-
-    pub monitoring: Option<MonitoringConfig>,
-}
-
-impl citrea_common::FromEnv for BitcoinServiceConfig {
-    fn from_env() -> Result<Self> {
-        Ok(Self {
-            node_url: std::env::var("NODE_URL")?,
-            node_username: std::env::var("NODE_USERNAME")?,
-            node_password: std::env::var("NODE_PASSWORD")?,
-            network: serde_json::from_str(&format!("\"{}\"", std::env::var("NETWORK")?))?,
-            da_private_key: std::env::var("DA_PRIVATE_KEY").ok(),
-            tx_backup_dir: std::env::var("TX_BACKUP_DIR")?,
-            monitoring: Some(MonitoringConfig {
-                check_interval: std::env::var("DA_MONITORING_CHECK_INTERVAL")?.parse()?,
-                history_limit: std::env::var("DA_MONITORING_HISTORY_LIMIT")?.parse()?,
-                max_history_size: std::env::var("DA_MONITORING_MAX_HISTORY_SIZE")?.parse()?,
-            }),
-        })
-    }
-}
 
 /// A service that provides data and data availability proofs for Bitcoin
 #[derive(Debug)]

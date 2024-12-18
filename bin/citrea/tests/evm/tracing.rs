@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use citrea_common::SequencerConfig;
+use citrea_config::SequencerConfig;
 // use citrea::initialize_logging;
 use citrea_evm::smart_contracts::{CallerContract, SimpleStorageContract};
 use citrea_stf::genesis_config::GenesisPaths;

@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use citrea_common::cache::L1BlockCache;
 use citrea_common::da::get_da_block_at_height;
 use citrea_common::utils::merge_state_diffs;
-use citrea_common::BatchProverConfig;
+use citrea_config::BatchProverConfig;
 use citrea_primitives::compression::compress_blob;
 use citrea_primitives::forks::FORKS;
 use citrea_primitives::MAX_TXBODY_SIZE;

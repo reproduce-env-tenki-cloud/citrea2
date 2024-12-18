@@ -11,6 +11,7 @@ repository.workspace = true
 [dependencies]
 # Citrea Deps
 citrea-common = { path = "../common", optional = true }
+citrea-config = { path = "../config", optional = true }
 citrea-primitives = { path = "../primitives", optional = true }
 
 # Sov SDK deps
@@ -46,6 +47,7 @@ default = []
 native = [
   "dep:citrea-primitives",
   "dep:citrea-common",
+  "dep:citrea-config",
   "dep:sov-db",
   "dep:sov-stf-runner",
   "dep:sov-ledger-rpc",

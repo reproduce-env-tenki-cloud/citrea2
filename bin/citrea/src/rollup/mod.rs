@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use citrea_batch_prover::CitreaBatchProver;
 use citrea_common::tasks::manager::TaskManager;
-use citrea_common::{BatchProverConfig, FullNodeConfig, LightClientProverConfig, SequencerConfig};
+use citrea_config::{BatchProverConfig, FullNodeConfig, LightClientProverConfig, SequencerConfig};
 use citrea_fullnode::CitreaFullnode;
 use citrea_light_client_prover::runner::CitreaLightClientProver;
 use citrea_primitives::forks::FORKS;

@@ -9,7 +9,7 @@ use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
 use citrea_common::tasks::manager::TaskManager;
 use citrea_common::utils::soft_confirmation_to_receipt;
-use citrea_common::{RollupPublicKeys, RpcConfig, SequencerConfig};
+use citrea_config::{RollupPublicKeys, RpcConfig, SequencerConfig};
 use citrea_evm::{CallMessage, RlpEvmTransaction, MIN_TRANSACTION_GAS};
 use citrea_primitives::basefee::calculate_next_block_base_fee;
 use citrea_primitives::types::SoftConfirmationHash;
