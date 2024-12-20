@@ -441,13 +441,13 @@ pub trait LedgerRpcProvider {
     ) -> Result<Option<SoftConfirmationResponse>, anyhow::Error>;
 
     /// Get a single soft confirmation by hash.
-    fn get_soft_confirmation_by_hash<T: DeserializeOwned>(
+    fn get_soft_confirmation_by_hash(
         &self,
         hash: &[u8; 32],
     ) -> Result<Option<SoftConfirmationResponse>, anyhow::Error>;
 
     /// Get a single soft confirmation by number.
-    fn get_soft_confirmation_by_number<T: DeserializeOwned>(
+    fn get_soft_confirmation_by_number(
         &self,
         number: u64,
     ) -> Result<Option<SoftConfirmationResponse>, anyhow::Error>;

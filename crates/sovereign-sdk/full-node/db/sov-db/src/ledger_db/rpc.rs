@@ -36,14 +36,14 @@ impl LedgerRpcProvider for LedgerDB {
         })
     }
 
-    fn get_soft_confirmation_by_hash<T: DeserializeOwned>(
+    fn get_soft_confirmation_by_hash(
         &self,
         hash: &[u8; 32],
     ) -> Result<Option<SoftConfirmationResponse>, anyhow::Error> {
         self.get_soft_confirmation(&SoftConfirmationIdentifier::Hash(*hash))
     }
 
-    fn get_soft_confirmation_by_number<T: DeserializeOwned>(
+    fn get_soft_confirmation_by_number(
         &self,
         number: u64,
     ) -> Result<Option<SoftConfirmationResponse>, anyhow::Error> {
