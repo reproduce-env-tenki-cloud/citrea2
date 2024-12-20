@@ -21,14 +21,15 @@ sov-modules-core = { path = "../sovereign-sdk/module-system/sov-modules-core" }
 sov-modules-rollup-blueprint = { path = "../sovereign-sdk/module-system/sov-modules-rollup-blueprint" }
 sov-modules-stf-blueprint = { path = "../sovereign-sdk/module-system/sov-modules-stf-blueprint", features = ["native"] }
 sov-rollup-interface = { path = "../sovereign-sdk/rollup-interface" }
-sov-stf-runner = { path = "../sovereign-sdk/full-node/sov-stf-runner" }
 sov-state = { path = "../sovereign-sdk/module-system/sov-state" }
+sov-stf-runner = { path = "../sovereign-sdk/full-node/sov-stf-runner" }
 
 # 3rd-party deps
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 backoff = { workspace = true }
 borsh = { workspace = true }
+citrea-stf = { path = "../citrea-stf", features = ["native"] }
 futures = { workspace = true }
 hex = { workspace = true }
 jsonrpsee = { workspace = true, features = ["http-client", "server", "client"] }
@@ -43,7 +44,6 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tower = { workspace = true }
 tracing = { workspace = true }
-citrea-stf = { path = "../citrea-stf", features = ["native"] }
 
 [dev-dependencies]
 sha2 = { workspace = true }
@@ -52,5 +52,3 @@ tempfile = { workspace = true }
 sov-mock-da = { path = "../sovereign-sdk/adapters/mock-da", features = ["native"] }
 sov-mock-zkvm = { path = "../sovereign-sdk/adapters/mock-zkvm" }
 sov-stf-runner = { path = "../sovereign-sdk/full-node/sov-stf-runner", features = ["mock"] }
-
-
