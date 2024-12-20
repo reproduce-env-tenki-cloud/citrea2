@@ -14,6 +14,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::da::SequencerCommitment;
+use crate::soft_confirmation::SignedSoftConfirmation;
 #[cfg(feature = "native")]
 use crate::stf::EventKey;
 use crate::zk::CumulativeStateDiff;
@@ -83,6 +84,31 @@ pub enum BatchIdentifier {
     /// contains 0 batches, slot 1 contains 2 txs, and slot 3 contains 3 txs,
     /// the last batch in block 3 would have number 5. The counter never resets.
     Number(u64),
+}
+
+impl TryFrom<SoftConfirmationResponse> for SignedSoftConfirmation {
+    type Error = borsh::io::Error;
+    fn try_from(val: SoftConfirmationResponse) -> Result<Self, Self::Error> {
+        let res = SignedSoftConfirmation::new(
+            val.l2_height,
+            val.hash,
+            val.prev_hash,
+            val.da_slot_height,
+            val.da_slot_hash,
+            val.da_slot_txs_commitment,
+            val.l1_fee_rate,
+            val.txs
+                .unwrap_or_default()
+                .into_iter()
+                .map(|tx| tx.tx)
+                .collect(),
+            val.deposit_data.into_iter().map(|tx| tx.tx).collect(),
+            val.soft_confirmation_signature,
+            val.pub_key,
+            val.timestamp,
+        );
+        Ok(res)
+    }
 }
 
 /// An identifier that specifies a single transaction.
