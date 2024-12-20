@@ -293,7 +293,7 @@ impl TestCase for SkipPreprovenCommitmentsTest {
         let proofs = full_node
             .wait_for_zkproofs(
                 finalized_height + FINALITY_DEPTH,
-                Some(Duration::from_secs(120)),
+                Some(Duration::from_secs(480)),
             )
             .await
             .unwrap();

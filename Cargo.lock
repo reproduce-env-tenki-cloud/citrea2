@@ -1772,7 +1772,7 @@ dependencies = [
 [[package]]
 name = "citrea-e2e"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=a4407ce0c611ed581db7e467bea3a699f43f5ce1#a4407ce0c611ed581db7e467bea3a699f43f5ce1"
+source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=e4d54ce012bda35e6407417cc915195ea3b41ab2#e4d54ce012bda35e6407417cc915195ea3b41ab2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1787,8 +1787,8 @@ dependencies = [
  "reth-primitives",
  "serde",
  "serde_json",
- "sov-ledger-rpc 0.5.0-rc.1 (git+https://github.com/chainwayxyz/citrea?rev=879a075590250cd26e721f31c4cedf3b28832cb0)",
- "sov-rollup-interface 0.5.0-rc.1 (git+https://github.com/chainwayxyz/citrea?rev=879a075590250cd26e721f31c4cedf3b28832cb0)",
+ "sov-ledger-rpc 0.5.0-rc.1 (git+https://github.com/chainwayxyz/citrea?rev=6dbcc54de4df455b23675dd1ee51e05835d877b9)",
+ "sov-rollup-interface 0.5.0-rc.1 (git+https://github.com/chainwayxyz/citrea?rev=6dbcc54de4df455b23675dd1ee51e05835d877b9)",
  "tempfile",
  "tokio",
  "toml",
@@ -7485,12 +7485,12 @@ dependencies = [
 [[package]]
 name = "sov-ledger-rpc"
 version = "0.5.0-rc.1"
-source = "git+https://github.com/chainwayxyz/citrea?rev=879a075590250cd26e721f31c4cedf3b28832cb0#879a075590250cd26e721f31c4cedf3b28832cb0"
+source = "git+https://github.com/chainwayxyz/citrea?rev=6dbcc54de4df455b23675dd1ee51e05835d877b9#6dbcc54de4df455b23675dd1ee51e05835d877b9"
 dependencies = [
  "jsonrpsee",
  "reth-primitives",
  "serde",
- "sov-rollup-interface 0.5.0-rc.1 (git+https://github.com/chainwayxyz/citrea?rev=879a075590250cd26e721f31c4cedf3b28832cb0)",
+ "sov-rollup-interface 0.5.0-rc.1 (git+https://github.com/chainwayxyz/citrea?rev=6dbcc54de4df455b23675dd1ee51e05835d877b9)",
 ]
 
 [[package]]
@@ -7769,7 +7769,7 @@ dependencies = [
 [[package]]
 name = "sov-rollup-interface"
 version = "0.5.0-rc.1"
-source = "git+https://github.com/chainwayxyz/citrea?rev=879a075590250cd26e721f31c4cedf3b28832cb0#879a075590250cd26e721f31c4cedf3b28832cb0"
+source = "git+https://github.com/chainwayxyz/citrea?rev=6dbcc54de4df455b23675dd1ee51e05835d877b9#6dbcc54de4df455b23675dd1ee51e05835d877b9"
 dependencies = [
  "anyhow",
  "async-trait",

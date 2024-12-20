@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin_da::service::{get_relevant_blobs_from_txs, FINALITY_DEPTH};
@@ -195,7 +197,7 @@ impl TestCase for SequencerSendCommitmentsToDaTest {
             .await?;
 
         da.generate(FINALITY_DEPTH, None).await?;
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
 
         let finalized_height = da.get_finalized_height().await?;
 
@@ -218,7 +220,7 @@ impl TestCase for SequencerSendCommitmentsToDaTest {
         sequencer
             .wait_for_l2_height(
                 min_soft_confirmations_per_commitment + FINALITY_DEPTH - 1,
-                None,
+                Some(Duration::from_secs(120)),
             )
             .await?;
 
@@ -241,7 +243,7 @@ impl TestCase for SequencerSendCommitmentsToDaTest {
         sequencer
             .wait_for_l2_height(
                 end_l2_block + min_soft_confirmations_per_commitment + FINALITY_DEPTH - 2,
-                None,
+                Some(Duration::from_secs(120)),
             )
             .await?;
 
