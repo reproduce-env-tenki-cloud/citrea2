@@ -1,4 +1,3 @@
-use serde::de::DeserializeOwned;
 use sov_rollup_interface::rpc::{
     sequencer_commitment_to_response, LastVerifiedProofResponse, LedgerRpcProvider, ProofResponse,
     SequencerCommitmentResponse, SoftConfirmationIdentifier, SoftConfirmationResponse,
@@ -115,6 +114,7 @@ impl LedgerRpcProvider for LedgerDB {
             None => Ok(sov_rollup_interface::rpc::SoftConfirmationStatus::Trusted),
         }
     }
+
     fn get_slot_number_by_hash(&self, hash: [u8; 32]) -> Result<Option<u64>, anyhow::Error> {
         self.db.get::<SlotByHash>(&hash).map(|v| v.map(|a| a.0))
     }
@@ -200,6 +200,10 @@ impl LedgerRpcProvider for LedgerDB {
     fn get_head_soft_confirmation_height(&self) -> Result<u64, anyhow::Error> {
         let next_ids = self.get_next_items_numbers();
         Ok(next_ids.soft_confirmation_number.saturating_sub(1))
+    }
+
+    fn get_l2_genesis_state_root(&self) -> Result<Option<Vec<u8>>, anyhow::Error> {
+        self.get_l2_state_root(0)
     }
 }
 

@@ -18,7 +18,7 @@ use jsonrpsee::RpcModule;
 use reth_primitives::U64;
 use sov_db::ledger_db::NodeLedgerOps;
 use sov_db::schema::types::{BatchNumber, SlotNumber};
-use sov_ledger_rpc::client::RpcClient;
+use sov_ledger_rpc::LedgerRpcClient;
 use sov_modules_api::Context;
 use sov_modules_stf_blueprint::StfBlueprintTrait;
 use sov_rollup_interface::da::{BlockHeaderTrait, DaSpec};
@@ -451,10 +451,10 @@ async fn sync_l2(
         let inner_client = &sequencer_client;
         let soft_confirmations = match retry_backoff(exponential_backoff.clone(), || async move {
             match inner_client
-                .get_soft_confirmation_range((
+                .get_soft_confirmation_range(
                     U64::from(l2_height),
                     U64::from(l2_height + sync_blocks_count - 1),
-                ))
+                )
                 .await
             {
                 Ok(soft_confirmations) => {

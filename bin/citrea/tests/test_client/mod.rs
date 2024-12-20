@@ -18,8 +18,8 @@ use reth_primitives::{Address, BlockId, BlockNumberOrTag, Bytes, TxHash, TxKind,
 // use reth_rpc_types::TransactionReceipt;
 use reth_rpc_types::trace::geth::{GethDebugTracingOptions, GethTrace};
 use reth_rpc_types::RichBlock;
-use sov_ledger_rpc::client::RpcClient;
 use sov_ledger_rpc::HexHash;
+use sov_ledger_rpc::LedgerRpcClient;
 use sov_rollup_interface::rpc::{
     LastVerifiedProofResponse, ProofResponse, SequencerCommitmentResponse,
     SoftConfirmationResponse, SoftConfirmationStatus, VerifiedProofResponse,
@@ -519,7 +519,7 @@ impl TestClient {
 
     pub(crate) async fn ledger_get_last_scanned_l1_height(&self) -> u64 {
         self.http_client
-            .request("ledger_getLastScannedL1Hieght", rpc_params![])
+            .request("ledger_getLastScannedL1Height", rpc_params![])
             .await
             .unwrap()
     }
