@@ -10,6 +10,7 @@ use citrea_e2e::sequencer::Sequencer;
 use citrea_e2e::test_case::{TestCase, TestCaseRunner};
 use citrea_e2e::Result;
 use citrea_primitives::REVEAL_BATCH_PROOF_PREFIX;
+use reth_primitives::U64;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::MerkleTree;
 use sov_rollup_interface::da::{BlobReaderTrait, DaData};
@@ -58,7 +59,7 @@ impl TestCase for LedgerGetCommitmentsProverTest {
 
         let commitments = prover
             .client
-            .ledger_get_sequencer_commitments_on_slot_by_number(finalized_height)
+            .ledger_get_sequencer_commitments_on_slot_by_number(U64::from(finalized_height))
             .await
             .unwrap()
             .unwrap();
@@ -74,7 +75,9 @@ impl TestCase for LedgerGetCommitmentsProverTest {
 
         let commitments_hash = prover
             .client
-            .ledger_get_sequencer_commitments_on_slot_by_hash(hash.as_raw_hash().to_byte_array())
+            .ledger_get_sequencer_commitments_on_slot_by_hash(
+                hash.as_raw_hash().to_byte_array().into(),
+            )
             .await
             .unwrap()
             .unwrap();
@@ -145,7 +148,9 @@ impl TestCase for LedgerGetCommitmentsTest {
 
         let commitments_node = full_node
             .client
-            .ledger_get_sequencer_commitments_on_slot_by_hash(hash.as_raw_hash().to_byte_array())
+            .ledger_get_sequencer_commitments_on_slot_by_hash(
+                hash.as_raw_hash().to_byte_array().into(),
+            )
             .await
             .unwrap()
             .unwrap();
@@ -291,7 +296,7 @@ impl SequencerSendCommitmentsToDaTest {
             soft_confirmations.push(
                 sequencer
                     .client
-                    .ledger_get_soft_confirmation_by_number(i)
+                    .ledger_get_soft_confirmation_by_number(U64::from(i))
                     .await?
                     .unwrap(),
             );

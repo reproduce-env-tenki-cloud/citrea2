@@ -6,6 +6,7 @@ use citrea_e2e::framework::TestFramework;
 use citrea_e2e::test_case::{TestCase, TestCaseRunner};
 use citrea_e2e::traits::Restart;
 use citrea_e2e::Result;
+use reth_primitives::U64;
 
 use super::get_citrea_path;
 
@@ -110,7 +111,7 @@ impl TestCase for SequencerMissedDaBlocksTest {
         for i in 1..=head_soft_confirmation_height {
             let soft_confirmation = sequencer
                 .client
-                .ledger_get_soft_confirmation_by_number(i)
+                .ledger_get_soft_confirmation_by_number(U64::from(i))
                 .await?
                 .unwrap();
 

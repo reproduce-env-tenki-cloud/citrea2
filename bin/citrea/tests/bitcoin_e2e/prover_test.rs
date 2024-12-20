@@ -14,6 +14,7 @@ use citrea_e2e::node::NodeKind;
 use citrea_e2e::test_case::{TestCase, TestCaseRunner};
 use citrea_e2e::Result;
 use citrea_primitives::{REVEAL_BATCH_PROOF_PREFIX, REVEAL_LIGHT_CLIENT_PREFIX};
+use reth_primitives::U64;
 use sov_rollup_interface::da::{DaData, SequencerCommitment};
 use sov_rollup_interface::services::da::SenderWithNotifier;
 use tokio::sync::mpsc::UnboundedSender;
@@ -240,7 +241,7 @@ impl TestCase for SkipPreprovenCommitmentsTest {
         // Fetch the commitment created from the previous L1 range
         let commitments: Vec<SequencerCommitment> = full_node
             .client
-            .ledger_get_sequencer_commitments_on_slot_by_number(finalized_height)
+            .ledger_get_sequencer_commitments_on_slot_by_number(U64::from(finalized_height))
             .await
             .unwrap_or_else(|_| {
                 panic!(

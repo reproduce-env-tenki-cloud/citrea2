@@ -1773,7 +1773,7 @@ dependencies = [
 [[package]]
 name = "citrea-e2e"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=c1fd14e9f0cd13f44270e4c0fdcd16002a648d56#c1fd14e9f0cd13f44270e4c0fdcd16002a648d56"
+source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=a4407ce0c611ed581db7e467bea3a699f43f5ce1#a4407ce0c611ed581db7e467bea3a699f43f5ce1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1785,10 +1785,11 @@ dependencies = [
  "jsonrpsee",
  "log-panics",
  "rand 0.8.5",
+ "reth-primitives",
  "serde",
  "serde_json",
- "sov-ledger-rpc 0.5.0-rc.1 (git+https://github.com/chainwayxyz/citrea?rev=82bf52d)",
- "sov-rollup-interface 0.5.0-rc.1 (git+https://github.com/chainwayxyz/citrea?rev=82bf52d)",
+ "sov-ledger-rpc 0.5.0-rc.1 (git+https://github.com/chainwayxyz/citrea?rev=879a075590250cd26e721f31c4cedf3b28832cb0)",
+ "sov-rollup-interface 0.5.0-rc.1 (git+https://github.com/chainwayxyz/citrea?rev=879a075590250cd26e721f31c4cedf3b28832cb0)",
  "tempfile",
  "tokio",
  "toml",
@@ -7498,11 +7499,12 @@ dependencies = [
 [[package]]
 name = "sov-ledger-rpc"
 version = "0.5.0-rc.1"
-source = "git+https://github.com/chainwayxyz/citrea?rev=82bf52d#82bf52d067c1886d92c55c141c8fc062b1931164"
+source = "git+https://github.com/chainwayxyz/citrea?rev=879a075590250cd26e721f31c4cedf3b28832cb0#879a075590250cd26e721f31c4cedf3b28832cb0"
 dependencies = [
  "jsonrpsee",
+ "reth-primitives",
  "serde",
- "sov-rollup-interface 0.5.0-rc.1 (git+https://github.com/chainwayxyz/citrea?rev=82bf52d)",
+ "sov-rollup-interface 0.5.0-rc.1 (git+https://github.com/chainwayxyz/citrea?rev=879a075590250cd26e721f31c4cedf3b28832cb0)",
 ]
 
 [[package]]
@@ -7781,7 +7783,7 @@ dependencies = [
 [[package]]
 name = "sov-rollup-interface"
 version = "0.5.0-rc.1"
-source = "git+https://github.com/chainwayxyz/citrea?rev=82bf52d#82bf52d067c1886d92c55c141c8fc062b1931164"
+source = "git+https://github.com/chainwayxyz/citrea?rev=879a075590250cd26e721f31c4cedf3b28832cb0#879a075590250cd26e721f31c4cedf3b28832cb0"
 dependencies = [
  "anyhow",
  "async-trait",
