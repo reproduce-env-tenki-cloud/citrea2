@@ -5,8 +5,7 @@ use reth_primitives::U64;
 use sov_db::ledger_db::LedgerDB;
 use sov_db::rocks_db_config::RocksdbConfig;
 use sov_ledger_rpc::server::create_rpc_module;
-use sov_ledger_rpc::HexHash;
-use sov_ledger_rpc::LedgerRpcClient;
+use sov_ledger_rpc::{HexHash, LedgerRpcClient};
 use tempfile::tempdir;
 
 async fn rpc_server() -> (jsonrpsee::server::ServerHandle, SocketAddr) {

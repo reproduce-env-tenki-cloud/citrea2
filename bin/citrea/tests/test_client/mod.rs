@@ -18,8 +18,7 @@ use reth_primitives::{Address, BlockId, BlockNumberOrTag, Bytes, TxHash, TxKind,
 // use reth_rpc_types::TransactionReceipt;
 use reth_rpc_types::trace::geth::{GethDebugTracingOptions, GethTrace};
 use reth_rpc_types::RichBlock;
-use sov_ledger_rpc::HexHash;
-use sov_ledger_rpc::LedgerRpcClient;
+use sov_ledger_rpc::{HexHash, LedgerRpcClient};
 use sov_rollup_interface::rpc::{
     LastVerifiedProofResponse, ProofResponse, SequencerCommitmentResponse,
     SoftConfirmationResponse, SoftConfirmationStatus, VerifiedProofResponse,
