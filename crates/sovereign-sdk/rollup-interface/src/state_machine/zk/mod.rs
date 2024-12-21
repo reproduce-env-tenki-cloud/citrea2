@@ -173,8 +173,10 @@ pub struct BatchProofCircuitInput<'txs, StateRoot, Witness, Da: DaSpec, Tx: Clon
     /// DA block headers the soft confirmations was constructed on.
     pub da_block_headers_of_soft_confirmations: VecDeque<Vec<Da::BlockHeader>>,
     /// Sequencer soft confirmation public key.
+    /// **DO NOT USE THIS FIELD IN POST FORK1 GUEST**
     pub sequencer_public_key: Vec<u8>,
     /// Sequencer DA public_key: Vec<u8>,
+    /// **DO NOT USE THIS FIELD IN POST FORK1 GUEST**
     pub sequencer_da_public_key: Vec<u8>,
     /// The range of sequencer commitments that are being processed.
     /// The range is inclusive.
@@ -234,8 +236,6 @@ pub struct LightClientCircuitOutput<Da: DaSpec> {
     pub unchained_batch_proofs_info: Vec<BatchProofInfo>,
     /// Last l2 height the light client proof verifies
     pub last_l2_height: u64,
-    /// Genesis state root of Citrea
-    pub l2_genesis_state_root: [u8; 32],
 }
 
 /// The input of light client proof
@@ -250,15 +250,9 @@ pub struct LightClientCircuitInput<Da: DaSpec> {
     /// DA block header that the batch proofs were found in.
     pub da_block_header: Da::BlockHeader,
 
-    /// Public key of the batch prover
-    pub batch_prover_da_pub_key: Vec<u8>,
-    /// Batch proof method id
-    pub batch_proof_method_id: [u32; 8],
     /// Light client proof method id
     pub light_client_proof_method_id: [u32; 8],
     /// Light client proof output
     /// Optional because the first light client proof doesn't have a previous proof
     pub previous_light_client_proof_journal: Option<Vec<u8>>,
-    /// L2 Genesis state root
-    pub l2_genesis_state_root: Option<[u8; 32]>,
 }

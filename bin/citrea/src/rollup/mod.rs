@@ -7,7 +7,7 @@ use citrea_common::tasks::manager::TaskManager;
 use citrea_common::{BatchProverConfig, FullNodeConfig, LightClientProverConfig, SequencerConfig};
 use citrea_fullnode::CitreaFullnode;
 use citrea_light_client_prover::runner::CitreaLightClientProver;
-use citrea_primitives::forks::FORKS;
+use citrea_primitives::forks::get_forks;
 use citrea_sequencer::CitreaSequencer;
 use jsonrpsee::RpcModule;
 use sov_db::ledger_db::migrations::LedgerDBMigrator;
@@ -125,7 +125,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
             .map(|(l2_height, _)| l2_height)
             .unwrap_or(SoftConfirmationNumber(0));
 
-        let mut fork_manager = ForkManager::new(FORKS, current_l2_height.0);
+        let mut fork_manager = ForkManager::new(get_forks(), current_l2_height.0);
         fork_manager.register_handler(Box::new(ledger_db.clone()));
 
         let seq = CitreaSequencer::new(
@@ -256,7 +256,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
             .map(|(l2_height, _)| l2_height)
             .unwrap_or(SoftConfirmationNumber(0));
 
-        let mut fork_manager = ForkManager::new(FORKS, current_l2_height.0);
+        let mut fork_manager = ForkManager::new(get_forks(), current_l2_height.0);
         fork_manager.register_handler(Box::new(ledger_db.clone()));
 
         let runner = CitreaFullnode::new(
@@ -309,8 +309,6 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
             .create_da_service(&rollup_config, true, &mut task_manager)
             .await?;
 
-        let da_verifier = self.create_da_verifier();
-
         // Migrate before constructing ledger_db instance so that no lock is present.
         let migrator = LedgerDBMigrator::new(
             rollup_config.storage.path.as_path(),
@@ -329,7 +327,6 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
             .create_prover_service(
                 prover_config.proving_mode,
                 &da_service,
-                da_verifier,
                 ledger_db.clone(),
                 prover_config.proof_sampling_number,
             )
@@ -394,7 +391,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
             .map_err(|e| anyhow!("Failed to get head soft confirmation: {}", e))?
             .unwrap_or(0);
 
-        let mut fork_manager = ForkManager::new(FORKS, current_l2_height);
+        let mut fork_manager = ForkManager::new(get_forks(), current_l2_height);
         fork_manager.register_handler(Box::new(ledger_db.clone()));
 
         let runner = CitreaBatchProver::new(
@@ -445,7 +442,6 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         let da_service = self
             .create_da_service(&rollup_config, true, &mut task_manager)
             .await?;
-        let da_verifier = self.create_da_verifier();
 
         let rocksdb_config = RocksdbConfig::new(
             rollup_config.storage.path.as_path(),
@@ -458,7 +454,6 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
             .create_prover_service(
                 prover_config.proving_mode,
                 &da_service,
-                da_verifier,
                 ledger_db.clone(),
                 prover_config.proof_sampling_number,
             )
@@ -491,7 +486,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
             .map(|(l2_height, _)| l2_height)
             .unwrap_or(SoftConfirmationNumber(0));
 
-        let mut fork_manager = ForkManager::new(FORKS, current_l2_height.0);
+        let mut fork_manager = ForkManager::new(get_forks(), current_l2_height.0);
         fork_manager.register_handler(Box::new(ledger_db.clone()));
 
         let runner = CitreaLightClientProver::new(

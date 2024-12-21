@@ -1809,6 +1809,8 @@ dependencies = [
  "citrea-light-client-prover",
  "citrea-primitives",
  "citrea-risc0-adapter",
+ "citrea-risc0-batch-proof",
+ "citrea-risc0-light-client",
  "citrea-sequencer",
  "citrea-stf",
  "clap",
@@ -1827,7 +1829,6 @@ dependencies = [
  "reth-primitives",
  "reth-transaction-pool",
  "revm",
- "risc0",
  "risc0-binfmt",
  "rs_merkle",
  "rustc_version_runtime",
@@ -1865,7 +1866,6 @@ dependencies = [
  "borsh",
  "citrea-common",
  "citrea-primitives",
- "citrea-stf",
  "futures",
  "hex",
  "jsonrpsee",
@@ -1931,7 +1931,7 @@ dependencies = [
 [[package]]
 name = "citrea-e2e"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=51a4d19#51a4d1958ead4021115bd81ac9aa1b1fcf6f7e0c"
+source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=6a87ce3#6a87ce3f3576392451a10fa1a52d678befc1eba6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2117,6 +2117,20 @@ dependencies = [
  "sov-db",
  "sov-rollup-interface",
  "tracing",
+]
+
+[[package]]
+name = "citrea-risc0-batch-proof"
+version = "0.5.0-rc.1"
+dependencies = [
+ "risc0-build",
+]
+
+[[package]]
+name = "citrea-risc0-light-client"
+version = "0.5.0-rc.1"
+dependencies = [
+ "risc0-build",
 ]
 
 [[package]]
@@ -5469,8 +5483,6 @@ dependencies = [
  "async-trait",
  "bincode",
  "borsh",
- "citrea-primitives",
- "citrea-stf",
  "futures",
  "hex",
  "jsonrpsee",
@@ -5478,7 +5490,6 @@ dependencies = [
  "parking_lot",
  "rand",
  "rayon",
- "rs_merkle",
  "serde",
  "sha2",
  "sov-db",
@@ -7134,13 +7145,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "risc0"
-version = "0.5.0-rc.1"
-dependencies = [
- "risc0-build",
-]
-
-[[package]]
 name = "risc0-binfmt"
 version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8335,7 +8339,6 @@ version = "0.5.0-rc.1"
 dependencies = [
  "anyhow",
  "borsh",
- "citrea-primitives",
  "hex",
  "itertools 0.13.0",
  "jmt",
