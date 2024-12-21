@@ -20,7 +20,7 @@ use sov_modules_stf_blueprint::StfBlueprint;
 use sov_prover_storage_manager::ProverStorageManager;
 use sov_state::ZkStorage;
 use sov_stf_runner::ProverGuestRunConfig;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex};
 
 use crate::guests::{BATCH_PROOF_LATEST_MOCK_GUESTS, LIGHT_CLIENT_LATEST_MOCK_GUESTS};
 use crate::{CitreaRollupBlueprint, Network};
@@ -138,6 +138,7 @@ impl RollupBlueprint for MockDemoRollup {
         da_service: &Arc<Self::DaService>,
         da_verifier: Self::DaVerifier,
         ledger_db: LedgerDB,
+        proof_sampling_number: usize,
     ) -> Self::ProverService {
         let vm = Risc0BonsaiHost::new(ledger_db.clone());
 
@@ -148,10 +149,13 @@ impl RollupBlueprint for MockDemoRollup {
             ProverGuestRunConfig::Skip => ProofGenMode::Skip,
             ProverGuestRunConfig::Simulate => {
                 let stf_verifier = StateTransitionVerifier::new(zk_stf, da_verifier);
-                ProofGenMode::Simulate(stf_verifier)
+                ProofGenMode::Simulate(Arc::new(Mutex::new(stf_verifier)))
             }
             ProverGuestRunConfig::Execute => ProofGenMode::Execute,
-            ProverGuestRunConfig::Prove => ProofGenMode::Prove,
+            ProverGuestRunConfig::Prove => ProofGenMode::ProveWithSampling,
+            ProverGuestRunConfig::ProveWithFakeProofs => {
+                ProofGenMode::ProveWithSamplingWithFakeProofs(proof_sampling_number)
+            }
         };
 
         ParallelProverService::new(da_service.clone(), vm, proof_mode, zk_storage, 1, ledger_db)

@@ -26,8 +26,8 @@ use sov_rollup_interface::da::DaVerifier;
 use sov_rollup_interface::services::da::SenderWithNotifier;
 use sov_state::{ProverStorage, ZkStorage};
 use sov_stf_runner::ProverGuestRunConfig;
-use tokio::sync::broadcast;
 use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::{broadcast, Mutex};
 use tracing::instrument;
 
 use crate::guests::{
@@ -261,6 +261,7 @@ impl RollupBlueprint for BitcoinRollup {
         da_service: &Arc<Self::DaService>,
         da_verifier: Self::DaVerifier,
         ledger_db: LedgerDB,
+        proof_sampling_number: usize,
     ) -> Self::ProverService {
         let vm = Risc0BonsaiHost::new(ledger_db.clone());
         // let vm = SP1Host::new(
@@ -275,10 +276,13 @@ impl RollupBlueprint for BitcoinRollup {
             ProverGuestRunConfig::Skip => ProofGenMode::Skip,
             ProverGuestRunConfig::Simulate => {
                 let stf_verifier = StateTransitionVerifier::new(zk_stf, da_verifier);
-                ProofGenMode::Simulate(stf_verifier)
+                ProofGenMode::Simulate(Arc::new(Mutex::new(stf_verifier)))
             }
             ProverGuestRunConfig::Execute => ProofGenMode::Execute,
-            ProverGuestRunConfig::Prove => ProofGenMode::Prove,
+            ProverGuestRunConfig::Prove => ProofGenMode::ProveWithSampling,
+            ProverGuestRunConfig::ProveWithFakeProofs => {
+                ProofGenMode::ProveWithSamplingWithFakeProofs(proof_sampling_number)
+            }
         };
 
         ParallelProverService::new_from_env(

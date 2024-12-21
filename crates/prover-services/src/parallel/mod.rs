@@ -1,8 +1,8 @@
-use std::ops::DerefMut;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future;
+use rand::Rng;
 use sov_db::ledger_db::LedgerDB;
 use sov_rollup_interface::da::DaData;
 use sov_rollup_interface::services::da::DaService;
@@ -28,7 +28,7 @@ where
 {
     thread_pool: rayon::ThreadPool,
 
-    proof_mode: Arc<Mutex<ProofGenMode<Da, Vm, Stf>>>,
+    proof_mode: ProofGenMode<Da, Vm, Stf>,
 
     da_service: Arc<Da>,
     vm: Vm,
@@ -69,8 +69,17 @@ where
             ProofGenMode::Execute => {
                 tracing::info!("Prover is configured to execute proving");
             }
-            ProofGenMode::Prove => {
+            ProofGenMode::ProveWithSampling => {
                 tracing::info!("Prover is configured to prove");
+            }
+            ProofGenMode::ProveWithSamplingWithFakeProofs(proof_sampling_number) => {
+                if proof_sampling_number == 0 {
+                    tracing::info!("Prover is configured to always prove");
+                } else {
+                    tracing::info!(
+                        "Prover is configured to prove with fake proofs with 1/{proof_sampling_number} sampling"
+                    );
+                }
             }
         };
 
@@ -81,7 +90,7 @@ where
 
         Ok(Self {
             thread_pool,
-            proof_mode: Arc::new(Mutex::new(proof_mode)),
+            proof_mode,
             da_service,
             vm,
             zk_storage,
@@ -203,7 +212,7 @@ where
 
     async fn prove(&self, elf: Vec<u8>) -> anyhow::Result<Vec<Proof>> {
         let mut proof_queue = self.proof_queue.lock().await;
-        if let ProofGenMode::Skip = *self.proof_mode.lock().await {
+        if let ProofGenMode::Skip = self.proof_mode {
             tracing::debug!("Skipped proving {} proofs", proof_queue.len());
             proof_queue.clear();
             return Ok(vec![]);
@@ -247,7 +256,7 @@ fn make_proof<Da, Vm, Stf>(
     mut vm: Vm,
     elf: Vec<u8>,
     zk_storage: Stf::PreState,
-    proof_mode: Arc<Mutex<ProofGenMode<Da, Vm, Stf>>>,
+    proof_mode: ProofGenMode<Da, Vm, Stf>,
 ) -> Result<Proof, anyhow::Error>
 where
     Da: DaService,
@@ -255,21 +264,35 @@ where
     Stf: StateTransitionFunction<Da::Spec> + Send + Sync,
     Stf::PreState: Send + Sync,
 {
-    let mut proof_mode = proof_mode.blocking_lock();
-    match proof_mode.deref_mut() {
+    match proof_mode {
         ProofGenMode::Skip => Ok(Vec::default()),
-        ProofGenMode::Simulate(ref mut verifier) => verifier
-            .run_sequencer_commitments_in_da_slot(vm.simulate_with_hints(), zk_storage)
-            .map(|_| Vec::default())
-            .map_err(|e| anyhow::anyhow!("Guest execution must succeed but failed with {:?}", e)),
-        // If not skip or simulate, we have to drop the lock manually to allow parallel proving
+        ProofGenMode::Simulate(verifier) => {
+            let mut verifier = verifier.blocking_lock();
+            verifier
+                .run_sequencer_commitments_in_da_slot(vm.simulate_with_hints(), zk_storage)
+                .map(|_| Vec::default())
+                .map_err(|e| {
+                    anyhow::anyhow!("Guest execution must succeed but failed with {:?}", e)
+                })
+        }
         ProofGenMode::Execute => {
             drop(proof_mode);
             vm.run(elf, false)
         }
-        ProofGenMode::Prove => {
+        ProofGenMode::ProveWithSampling => {
             drop(proof_mode);
+            // `make_proof` is called with a probability in this case.
+            // When it's called, we have to produce a real proof.
             vm.run(elf, true)
+        }
+        ProofGenMode::ProveWithSamplingWithFakeProofs(proof_sampling_number) => {
+            drop(proof_mode);
+            // `make_proof` is called unconditionally in this case.
+            // When it's called, we have to calculate the probabiliry for a proof
+            //  and produce a real proof if we are lucky. If unlucky - produce a fake proof.
+            let with_prove = proof_sampling_number == 0
+                || rand::thread_rng().gen_range(0..proof_sampling_number) == 0;
+            vm.run(elf, with_prove)
         }
     }
 }

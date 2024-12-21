@@ -331,6 +331,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
                 &da_service,
                 da_verifier,
                 ledger_db.clone(),
+                prover_config.proof_sampling_number,
             )
             .await;
 
@@ -459,6 +460,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
                 &da_service,
                 da_verifier,
                 ledger_db.clone(),
+                prover_config.proof_sampling_number,
             )
             .await;
 
