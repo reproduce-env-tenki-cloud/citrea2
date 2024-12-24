@@ -54,6 +54,7 @@ where
 
         parent_block.header.state_root = B256::from_slice(&soft_confirmation_info.pre_state_root);
 
+        println!("current_spec: {:?}", current_spec);
         if current_spec >= CitreaSpecId::Fork1 {
             self.head_rlp.set(&parent_block.clone().into(), working_set);
         } else {
@@ -268,7 +269,7 @@ where
             l1_hash: l1_hash.into(),
             transactions: start_tx_index..start_tx_index + pending_transactions.len() as u64,
         };
-
+        println!("current_spec: {:?}", current_spec);
         if current_spec >= CitreaSpecId::Fork1 {
             self.head_rlp.set(&block, working_set);
         } else {

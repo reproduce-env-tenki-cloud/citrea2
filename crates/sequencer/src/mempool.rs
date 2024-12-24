@@ -1,7 +1,8 @@
+use std::str::FromStr;
 use std::sync::Arc;
 
 use alloy_genesis::Genesis;
-use alloy_primitives::TxHash;
+use alloy_primitives::{Address, Bytes, TxHash, B256, U256};
 use anyhow::{anyhow, bail};
 use citrea_common::SequencerMempoolConfig;
 use citrea_evm::SYSTEM_SIGNER;
@@ -34,30 +35,24 @@ impl<C: sov_modules_api::Context> CitreaMempool<C> {
         mempool_conf: SequencerMempoolConfig,
     ) -> anyhow::Result<Self> {
         let blob_store = NoopBlobStore::default();
-        let genesis_block = client
-            .genesis_block()
-            .map(|b| b.ok_or(anyhow!("Genesis block does not exist")))
-            .map_err(|e| anyhow!("{e}"))??;
+
         let evm_config = client.cfg();
-        let Some(nonce) = genesis_block.header.nonce else {
-            bail!("Genesis nonce is not set");
-        };
-        let Some(genesis_mix_hash) = genesis_block.header.mix_hash else {
-            bail!("Genesis mix_hash is not set");
-        };
+
         let chain_spec = ChainSpecBuilder::default()
             .chain(Chain::from_id(evm_config.chain_id))
             .shanghai_activated()
             .genesis(
                 Genesis::default()
-                    .with_nonce(nonce.into())
-                    .with_timestamp(genesis_block.header.timestamp)
-                    .with_extra_data(genesis_block.header.extra_data.clone())
-                    .with_gas_limit(genesis_block.header.gas_limit)
-                    .with_difficulty(genesis_block.header.difficulty)
-                    .with_mix_hash(genesis_mix_hash)
-                    .with_coinbase(genesis_block.header.miner)
-                    .with_base_fee(genesis_block.header.base_fee_per_gas.map(Into::into)),
+                    .with_nonce(0)
+                    .with_timestamp(0)
+                    .with_extra_data(Bytes::default())
+                    .with_gas_limit(8_000_000)
+                    .with_difficulty(U256::ZERO)
+                    .with_mix_hash(B256::default())
+                    .with_coinbase(
+                        Address::from_str("3100000000000000000000000000000000000005").unwrap(),
+                    )
+                    .with_base_fee(Some(1_000_000_000)),
             )
             .build();
 
