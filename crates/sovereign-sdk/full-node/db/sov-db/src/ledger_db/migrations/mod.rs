@@ -6,7 +6,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use tracing::{debug, error};
 
-use super::migrations::utils::{drop_column_family, list_column_families};
+use super::migrations::utils::{drop_column_families, list_column_families};
 use super::LedgerDB;
 use crate::ledger_db::{SharedLedgerOps, LEDGER_DB_PATH_SUFFIX};
 use crate::rocks_db_config::RocksdbConfig;
@@ -112,6 +112,7 @@ impl<'a> LedgerDBMigrator<'a> {
 
         for migration in self.migrations {
             if !executed_migrations.contains(&migration.identifier()) {
+                println!("Running migration: {}", migration.identifier().0);
                 debug!("Running migration: {}", migration.identifier().0);
                 if let Err(e) = migration.execute(new_ledger_db.clone(), &mut tables_to_drop) {
                     error!(
@@ -125,6 +126,10 @@ impl<'a> LedgerDBMigrator<'a> {
                     return Err(e);
                 }
             } else {
+                println!(
+                    "Skip previously executed migration: {}",
+                    migration.identifier().0
+                );
                 debug!(
                     "Skip previously executed migration: {}",
                     migration.identifier().0
@@ -143,18 +148,18 @@ impl<'a> LedgerDBMigrator<'a> {
         }
         // Stop using the original ledger DB path, i.e drop locks
         drop(new_ledger_db);
+        println!("tables_to_drop: {:?}", tables_to_drop);
 
         // Now that the lock is gone drop the tables that were migrated
-        for table in tables_to_drop {
-            drop_column_family(
-                &RocksdbConfig::new(
-                    temp_db_path.path(),
-                    max_open_files,
-                    Some(all_column_families.clone()),
-                ),
-                &table,
-            )?;
-        }
+
+        drop_column_families(
+            &RocksdbConfig::new(
+                temp_db_path.path(),
+                max_open_files,
+                Some(all_column_families.clone()),
+            ),
+            tables_to_drop,
+        )?;
 
         // Construct a backup path adjacent to original path
         let ledger_path = dbs_path.join(LEDGER_DB_PATH_SUFFIX);
