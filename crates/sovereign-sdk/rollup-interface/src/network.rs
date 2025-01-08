@@ -1,7 +1,7 @@
 use core::fmt::Display;
 
 /// The network currently running.
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
 pub enum Network {
     /// Mainnet
     #[default]
@@ -12,6 +12,8 @@ pub enum Network {
     Devnet,
     /// Nightly
     Nightly,
+    /// Regtest
+    Regtest,
 }
 
 impl Display for Network {

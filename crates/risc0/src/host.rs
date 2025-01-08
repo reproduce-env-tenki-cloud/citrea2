@@ -122,6 +122,16 @@ impl ZkvmHost for Risc0BonsaiHost {
 
         tracing::debug!("{:?} assumptions added to the env", self.assumptions.len());
 
+        #[cfg(feature = "testing")]
+        {
+            env.env_var(
+                "CITREA_NETWORK",
+                std::env::var("CITREA_NETWORK")
+                    .as_deref()
+                    .unwrap_or("nightly"),
+            );
+        }
+
         let env = env.write_slice(&self.env).build().unwrap();
 
         // The `RISC0_PROVER` environment variable, if specified, will select the
@@ -134,6 +144,7 @@ impl ZkvmHost for Risc0BonsaiHost {
         let prover = default_prover();
 
         tracing::info!("Starting risc0 proving");
+
         let ProveInfo { receipt, stats } =
             prover.prove_with_opts(env, &elf, &ProverOpts::groth16())?;
 

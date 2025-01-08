@@ -25,6 +25,7 @@ tracing = { workspace = true }
 
 [features]
 default = []
+testing = []
 native = [
   "dep:sov-db",
   "dep:metrics",

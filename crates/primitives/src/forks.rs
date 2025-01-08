@@ -17,6 +17,7 @@ pub fn use_network_forks(network: Network) {
         Network::Testnet => &TESTNET_FORKS,
         Network::Devnet => &DEVNET_FORKS,
         Network::Nightly => &NIGHTLY_FORKS,
+        Network::Regtest => &REGTEST_FORKS,
     };
 
     #[cfg(not(feature = "testing"))]
@@ -37,7 +38,11 @@ pub fn get_forks() -> &'static [Fork] {
 
             #[cfg(feature = "testing")]
             {
-                use_network_forks(Network::Nightly);
+                if std::env::var("CITREA_NETWORK") == Ok(String::from("regtest")) {
+                    use_network_forks(Network::Regtest);
+                } else {
+                    use_network_forks(Network::Nightly);
+                }
                 FORKS.get().expect("Just set it")
             }
         }
@@ -56,18 +61,17 @@ pub const MAINNET_FORKS: [Fork; 1] = [Fork::new(SpecId::Fork1, 0)];
 
 pub const TESTNET_FORKS: [Fork; 2] = [
     Fork::new(SpecId::Genesis, 0),
-    Fork::new(SpecId::Fork1, 999_999_999),
+    Fork::new(SpecId::Fork1, u64::MAX),
 ];
 
 pub const DEVNET_FORKS: [Fork; 2] = [
     Fork::new(SpecId::Genesis, 0),
-    Fork::new(SpecId::Fork1, 999_999_999),
+    Fork::new(SpecId::Fork1, u64::MAX),
 ];
 
-#[cfg(feature = "testing")]
-pub const NIGHTLY_FORKS: [Fork; 2] = [Fork::new(SpecId::Genesis, 0), Fork::new(SpecId::Fork1, 100)];
-#[cfg(not(feature = "testing"))]
 pub const NIGHTLY_FORKS: [Fork; 1] = [Fork::new(SpecId::Fork1, 0)];
+
+pub const REGTEST_FORKS: [Fork; 2] = [Fork::new(SpecId::Genesis, 0), Fork::new(SpecId::Fork1, 100)];
 
 const _CHECK_FORKS: () = {
     if !verify_forks(&MAINNET_FORKS)
