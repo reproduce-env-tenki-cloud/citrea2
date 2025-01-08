@@ -2,6 +2,7 @@ use core::result::Result::Ok;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use bitcoin::blockdata::opcodes::all::{OP_ENDIF, OP_IF};
 use bitcoin::blockdata::opcodes::OP_FALSE;
@@ -11,8 +12,10 @@ use bitcoin::hashes::Hash;
 use bitcoin::key::{TapTweak, TweakedPublicKey, UntweakedKeypair};
 use bitcoin::opcodes::all::{OP_CHECKSIGVERIFY, OP_NIP};
 use bitcoin::script::PushBytesBuf;
-use bitcoin::secp256k1::{Secp256k1, SecretKey, XOnlyPublicKey};
+use bitcoin::secp256k1::{SecretKey, XOnlyPublicKey};
 use bitcoin::{Address, Amount, Network, Transaction};
+use metrics::histogram;
+use secp256k1::SECP256K1;
 use serde::Serialize;
 use tracing::{instrument, trace, warn};
 
@@ -47,8 +50,6 @@ impl TxListWithReveal for BatchProvingTxs {
     }
 }
 
-// TODO: parametrize hardness
-// so tests are easier
 // Creates the batch proof transactions (commit and reveal)
 #[allow(clippy::too_many_arguments)]
 #[instrument(level = "trace", skip_all, err)]
@@ -95,8 +96,7 @@ pub fn create_batchproof_type_0(
         "The body of a serialized sequencer commitment exceeds 520 bytes"
     );
     // Create reveal key
-    let secp256k1 = Secp256k1::new();
-    let key_pair = UntweakedKeypair::new(&secp256k1, &mut rand::thread_rng());
+    let key_pair = UntweakedKeypair::new(SECP256K1, &mut rand::thread_rng());
     let (public_key, _parity) = XOnlyPublicKey::from_keypair(&key_pair);
 
     let kind = TransactionKindBatchProof::SequencerCommitment;
@@ -119,7 +119,7 @@ pub fn create_batchproof_type_0(
         .push_slice(PushBytesBuf::try_from(body).expect("Cannot push sequencer commitment"))
         .push_opcode(OP_ENDIF);
 
-    println!("reveal_script_builder: {:?}", reveal_script_builder);
+    let start = Instant::now();
     // Start loop to find a 'nonce' i.e. random number that makes the reveal tx hash starting with zeros given length
     let mut nonce: i64 = 16; // skip the first digits to avoid OP_PUSHNUM_X
     loop {
@@ -144,10 +144,10 @@ pub fn create_batchproof_type_0(
         let reveal_script = reveal_script_builder.into_script();
 
         let (control_block, merkle_root, tapscript_hash) =
-            build_taproot(&reveal_script, public_key, &secp256k1);
+            build_taproot(&reveal_script, public_key, SECP256K1);
 
         // create commit tx address
-        let commit_tx_address = Address::p2tr(&secp256k1, public_key, merkle_root, network);
+        let commit_tx_address = Address::p2tr(SECP256K1, public_key, merkle_root, network);
 
         let reveal_value = REVEAL_OUTPUT_AMOUNT;
         let fee = get_size_reveal(
@@ -190,7 +190,7 @@ pub fn create_batchproof_type_0(
             reveal_script,
             control_block,
             &key_pair,
-            &secp256k1,
+            SECP256K1,
         );
 
         let min_commit_value = Amount::from_sat(fee + reveal_value);
@@ -201,7 +201,7 @@ pub fn create_batchproof_type_0(
             // check if first N bytes equal to the given prefix
             if reveal_hash.starts_with(reveal_tx_prefix) {
                 // check if inscription locked to the correct address
-                let recovery_key_pair = key_pair.tap_tweak(&secp256k1, merkle_root);
+                let recovery_key_pair = key_pair.tap_tweak(SECP256K1, merkle_root);
                 let (x_only_pub_key, _parity) = recovery_key_pair.to_inner().x_only_public_key();
                 assert_eq!(
                     Address::p2tr_tweaked(
@@ -209,6 +209,12 @@ pub fn create_batchproof_type_0(
                         network,
                     ),
                     commit_tx_address
+                );
+
+                histogram!("mine_da_transaction").record(
+                    Instant::now()
+                        .saturating_duration_since(start)
+                        .as_secs_f64(),
                 );
 
                 return Ok(BatchProvingTxs {
@@ -228,7 +234,7 @@ pub fn create_batchproof_type_0(
                     &mut reveal_tx,
                     tapscript_hash,
                     &key_pair,
-                    &secp256k1,
+                    SECP256K1,
                 );
             }
         }

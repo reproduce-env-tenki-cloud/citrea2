@@ -1,15 +1,16 @@
 use std::str::FromStr;
 
-use citrea_common::SequencerConfig;
 // use citrea::initialize_logging;
+use alloy_primitives::Address;
+use alloy_rpc_types_trace::geth::GethTrace::{self, CallTracer, FourByteTracer};
+use alloy_rpc_types_trace::geth::{
+    CallConfig, CallFrame, FourByteFrame, GethDebugBuiltInTracerType, GethDebugTracerType,
+    GethDebugTracingOptions, TraceResult,
+};
+use citrea_common::SequencerConfig;
 use citrea_evm::smart_contracts::{CallerContract, SimpleStorageContract};
 use citrea_stf::genesis_config::GenesisPaths;
-use reth_primitives::{Address, BlockNumberOrTag};
-use reth_rpc_types::trace::geth::GethTrace::{self, CallTracer, FourByteTracer};
-use reth_rpc_types::trace::geth::{
-    CallConfig, CallFrame, FourByteFrame, GethDebugBuiltInTracerType, GethDebugTracerType,
-    GethDebugTracingOptions,
-};
+use reth_primitives::BlockNumberOrTag;
 use serde_json::{self, json};
 
 use crate::evm::make_test_client;
@@ -89,10 +90,8 @@ async fn tracing_tests() -> Result<(), Box<dyn std::error::Error>> {
         let call_set_value_req = test_client
             .contract_transaction(
                 caller_contract_address,
-                caller_contract.call_set_call_data(
-                    reth_primitives::Address::from_slice(ss_contract_address.as_ref()),
-                    3,
-                ),
+                caller_contract
+                    .call_set_call_data(Address::from_slice(ss_contract_address.as_ref()), 3),
                 None,
             )
             .await;
@@ -145,9 +144,7 @@ async fn tracing_tests() -> Result<(), Box<dyn std::error::Error>> {
     let call_get_value_req = test_client
         .contract_transaction(
             caller_contract_address,
-            caller_contract.call_get_call_data(reth_primitives::Address::from_slice(
-                ss_contract_address.as_ref(),
-            )),
+            caller_contract.call_get_call_data(Address::from_slice(ss_contract_address.as_ref())),
             None,
         )
         .await;
@@ -225,7 +222,14 @@ async fn tracing_tests() -> Result<(), Box<dyn std::error::Error>> {
                 GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::CallTracer),
             )),
         )
-        .await;
+        .await
+        .into_iter()
+        .map(|trace| match trace {
+            TraceResult::Success { result, .. } => Ok(result),
+            _ => anyhow::bail!("Unexpected trace result"),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     assert_eq!(traces.len(), 2);
     assert_eq!(traces[1], CallTracer(expected_send_eth_trace.clone()));
     assert_eq!(traces[0], CallTracer(expected_call_get_trace.clone()));
@@ -234,8 +238,7 @@ async fn tracing_tests() -> Result<(), Box<dyn std::error::Error>> {
         .eth_get_block_by_number(Some(BlockNumberOrTag::Number(3)))
         .await
         .header
-        .hash
-        .unwrap();
+        .hash;
 
     let traces = test_client
         .debug_trace_block_by_hash(
@@ -244,7 +247,13 @@ async fn tracing_tests() -> Result<(), Box<dyn std::error::Error>> {
                 GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::CallTracer),
             )),
         )
-        .await;
+        .await
+        .into_iter()
+        .map(|trace| match trace {
+            TraceResult::Success { result, .. } => Ok(result),
+            _ => anyhow::bail!("Unexpected trace result"),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     assert_eq!(traces.len(), 2);
     assert_eq!(traces[1], CallTracer(expected_send_eth_trace.clone()));
@@ -257,7 +266,13 @@ async fn tracing_tests() -> Result<(), Box<dyn std::error::Error>> {
                 GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::FourByteTracer),
             )),
         )
-        .await;
+        .await
+        .into_iter()
+        .map(|trace| match trace {
+            TraceResult::Success { result, .. } => Ok(result),
+            _ => anyhow::bail!("Unexpected trace result"),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     let expected_call_get_4byte_trace =
         serde_json::from_value::<FourByteFrame>(json![{"35c152bd-32": 1, "6d4ce63c-0": 1}])
@@ -289,7 +304,13 @@ async fn tracing_tests() -> Result<(), Box<dyn std::error::Error>> {
                     }),
             ),
         )
-        .await;
+        .await
+        .into_iter()
+        .map(|trace| match trace {
+            TraceResult::Success { result, .. } => Ok(result),
+            _ => anyhow::bail!("Unexpected trace result"),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     let expected_top_call_only_call_get_trace = serde_json::from_value::<CallFrame>(
         json![{"from":"0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266","gas":"0x1886","gasUsed":"0x6b64","to":"0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
@@ -317,7 +338,14 @@ async fn tracing_tests() -> Result<(), Box<dyn std::error::Error>> {
                 GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::CallTracer),
             )),
         )
-        .await;
+        .await
+        .into_iter()
+        .map(|trace| match trace {
+            TraceResult::Success { result, .. } => Ok(result),
+            _ => anyhow::bail!("Unexpected trace result"),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     assert_eq!(traces.len(), 8);
     assert_eq!(traces[5], CallTracer(reth_json));
     assert_eq!(traces[6], CallTracer(expected_call_get_trace));

@@ -1,13 +1,11 @@
 use std::sync::{Arc, Mutex};
 
-#[cfg(feature = "local")]
-use citrea_evm::DevSigner;
+use alloy_primitives::U256;
+use alloy_rpc_types_trace::geth::TraceResult;
 use citrea_evm::Evm;
-use reth_primitives::U256;
-use reth_rpc_types::trace::geth::GethTrace;
+use jsonrpsee::http_client::HttpClient;
 use rustc_version_runtime::version;
 use schnellru::{ByLength, LruMap};
-use sequencer_client::SequencerClient;
 use sov_db::ledger_db::LedgerDB;
 use sov_modules_api::WorkingSet;
 use sov_rollup_interface::services::da::DaService;
@@ -20,26 +18,23 @@ use crate::gas_price::gas_oracle::{GasPriceOracle, GasPriceOracleConfig};
 use crate::subscription::SubscriptionManager;
 
 const MAX_TRACE_BLOCK: u32 = 1000;
+const DEFAULT_PRIORITY_FEE: U256 = U256::from_limbs([100, 0, 0, 0]);
 
 #[derive(Clone)]
 pub struct EthRpcConfig {
     pub gas_price_oracle_config: GasPriceOracleConfig,
     pub fee_history_cache_config: FeeHistoryCacheConfig,
-    #[cfg(feature = "local")]
-    pub eth_signer: DevSigner,
 }
 
 pub struct Ethereum<C: sov_modules_api::Context, Da: DaService> {
     #[allow(dead_code)]
     pub(crate) da_service: Arc<Da>,
     pub(crate) gas_price_oracle: GasPriceOracle<C>,
-    #[cfg(feature = "local")]
-    pub(crate) eth_signer: DevSigner,
     pub(crate) storage: C::Storage,
     pub(crate) ledger_db: LedgerDB,
-    pub(crate) sequencer_client: Option<SequencerClient>,
+    pub(crate) sequencer_client: Option<HttpClient>,
     pub(crate) web3_client_version: String,
-    pub(crate) trace_cache: Mutex<LruMap<u64, Vec<GethTrace>, ByLength>>,
+    pub(crate) trace_cache: Mutex<LruMap<u64, Vec<TraceResult>, ByLength>>,
     pub(crate) subscription_manager: Option<SubscriptionManager>,
 }
 
@@ -49,10 +44,9 @@ impl<C: sov_modules_api::Context, Da: DaService> Ethereum<C, Da> {
         da_service: Arc<Da>,
         gas_price_oracle_config: GasPriceOracleConfig,
         fee_history_cache_config: FeeHistoryCacheConfig,
-        #[cfg(feature = "local")] eth_signer: DevSigner,
         storage: C::Storage,
         ledger_db: LedgerDB,
-        sequencer_client: Option<SequencerClient>,
+        sequencer_client: Option<HttpClient>,
         soft_confirmation_rx: Option<broadcast::Receiver<u64>>,
     ) -> Self {
         let evm = Evm::<C>::default();
@@ -73,8 +67,6 @@ impl<C: sov_modules_api::Context, Da: DaService> Ethereum<C, Da> {
         Self {
             da_service,
             gas_price_oracle,
-            #[cfg(feature = "local")]
-            eth_signer,
             storage,
             ledger_db,
             sequencer_client,
@@ -85,9 +77,7 @@ impl<C: sov_modules_api::Context, Da: DaService> Ethereum<C, Da> {
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub(crate) fn max_fee_per_gas(&self, working_set: &mut WorkingSet<C>) -> (U256, U256) {
-        let suggested_tip = self.gas_price_oracle.suggest_tip_cap(working_set).unwrap();
-
+    pub(crate) fn max_fee_per_gas(&self, working_set: &mut WorkingSet<C::Storage>) -> (U256, U256) {
         let evm = Evm::<C>::default();
         let base_fee = evm
             .get_block_by_number(None, None, working_set)
@@ -97,7 +87,10 @@ impl<C: sov_modules_api::Context, Da: DaService> Ethereum<C, Da> {
             .base_fee_per_gas
             .unwrap_or_default();
 
-        (U256::from(base_fee), U256::from(suggested_tip))
+        // We return a default priority of 100 wei. Small enough to
+        // not make a difference to price, but also allows bumping tip
+        // of EIP-1559 transactions in times of congestion.
+        (U256::from(base_fee), DEFAULT_PRIORITY_FEE)
     }
 
     //     fn make_raw_tx(

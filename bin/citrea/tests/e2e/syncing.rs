@@ -2,10 +2,11 @@
 use std::str::FromStr;
 use std::time::Duration;
 
+use alloy_primitives::Address;
 use citrea_common::{BatchProverConfig, SequencerConfig};
 use citrea_stf::genesis_config::GenesisPaths;
 use ethereum_rpc::LayerStatus;
-use reth_primitives::{Address, BlockNumberOrTag};
+use reth_primitives::BlockNumberOrTag;
 use sov_mock_da::{MockAddress, MockDaService, MockDaSpec, MockHash};
 use sov_rollup_interface::da::{DaDataLightClient, DaSpec};
 use sov_rollup_interface::services::da::DaService;
@@ -298,6 +299,7 @@ async fn test_prover_sync_with_commitments() -> Result<(), anyhow::Error> {
                 proving_mode: sov_stf_runner::ProverGuestRunConfig::Execute,
                 proof_sampling_number: 0,
                 enable_recovery: true,
+                use_latest_elf: true,
             }),
             None,
             rollup_config,

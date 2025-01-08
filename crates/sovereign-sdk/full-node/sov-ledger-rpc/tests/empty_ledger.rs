@@ -1,17 +1,17 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use alloy_primitives::U64;
 use sov_db::ledger_db::LedgerDB;
 use sov_db::rocks_db_config::RocksdbConfig;
-use sov_ledger_rpc::client::RpcClient;
-use sov_ledger_rpc::server::rpc_module;
-use sov_ledger_rpc::HexHash;
+use sov_ledger_rpc::server::create_rpc_module;
+use sov_ledger_rpc::{HexHash, LedgerRpcClient};
 use tempfile::tempdir;
 
 async fn rpc_server() -> (jsonrpsee::server::ServerHandle, SocketAddr) {
     let dir = tempdir().unwrap();
-    let db = LedgerDB::with_config(&RocksdbConfig::new(dir.path(), None)).unwrap();
-    let rpc_module = rpc_module::<LedgerDB, u32, u32>(db).unwrap();
+    let db = LedgerDB::with_config(&RocksdbConfig::new(dir.path(), None, None)).unwrap();
+    let rpc_module = create_rpc_module::<LedgerDB>(db);
 
     let server = jsonrpsee::server::ServerBuilder::default()
         .build("127.0.0.1:0")
@@ -21,7 +21,7 @@ async fn rpc_server() -> (jsonrpsee::server::ServerHandle, SocketAddr) {
     (server.start(rpc_module), addr)
 }
 
-async fn rpc_client(addr: SocketAddr) -> Arc<impl RpcClient> {
+async fn rpc_client(addr: SocketAddr) -> Arc<impl LedgerRpcClient> {
     Arc::new(
         jsonrpsee::ws_client::WsClientBuilder::new()
             .build(format!("ws://{}", addr))
@@ -40,22 +40,28 @@ async fn getters_succeed() {
         .await
         .unwrap();
 
-    rpc_client.get_soft_confirmation_by_number(0).await.unwrap();
-
     rpc_client
-        .get_sequencer_commitments_on_slot_by_number(0)
+        .get_soft_confirmation_by_number(U64::from(0))
         .await
         .unwrap();
 
     rpc_client
-        .get_sequencer_commitments_on_slot_by_hash([0; 32])
+        .get_sequencer_commitments_on_slot_by_number(U64::from(0))
         .await
         .unwrap();
 
-    rpc_client.get_batch_proofs_by_slot_height(0).await.unwrap();
+    rpc_client
+        .get_sequencer_commitments_on_slot_by_hash(hash)
+        .await
+        .unwrap();
 
     rpc_client
-        .get_batch_proofs_by_slot_hash([0; 32])
+        .get_batch_proofs_by_slot_height(U64::from(0))
+        .await
+        .unwrap();
+
+    rpc_client
+        .get_batch_proofs_by_slot_hash(hash)
         .await
         .unwrap();
 
@@ -67,7 +73,7 @@ async fn getters_succeed() {
     rpc_client.get_head_soft_confirmation().await.unwrap();
 
     rpc_client
-        .get_verified_batch_proofs_by_slot_height(0)
+        .get_verified_batch_proofs_by_slot_height(U64::from(0))
         .await
         .unwrap();
 

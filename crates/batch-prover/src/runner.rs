@@ -2,88 +2,90 @@ use core::panic;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use alloy_primitives::U64;
 use anyhow::{anyhow, bail, Context as _};
 use backoff::exponential::ExponentialBackoffBuilder;
 use backoff::future::retry as retry_backoff;
 use citrea_common::cache::L1BlockCache;
-use citrea_common::da::get_da_block_at_height;
+use citrea_common::da::{get_da_block_at_height, get_initial_slot_height};
 use citrea_common::tasks::manager::TaskManager;
+use citrea_common::utils::{create_shutdown_signal, soft_confirmation_to_receipt};
 use citrea_common::{BatchProverConfig, RollupPublicKeys, RpcConfig, RunnerConfig};
 use citrea_primitives::types::SoftConfirmationHash;
 use jsonrpsee::core::client::Error as JsonrpseeError;
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::server::{BatchRequestConfig, ServerBuilder};
 use jsonrpsee::RpcModule;
-use sequencer_client::{GetSoftConfirmationResponse, SequencerClient};
 use sov_db::ledger_db::BatchProverLedgerOps;
-use sov_db::schema::types::{BatchNumber, SlotNumber};
-use sov_modules_api::storage::HierarchicalStorageManager;
-use sov_modules_api::{Context, SignedSoftConfirmation, SlotData};
-use sov_modules_stf_blueprint::StfBlueprintTrait;
-use sov_rollup_interface::da::{BlockHeaderTrait, DaSpec};
+use sov_db::schema::types::{SlotNumber, SoftConfirmationNumber};
+use sov_ledger_rpc::LedgerRpcClient;
+use sov_modules_api::{Context, SignedSoftConfirmation, SlotData, Spec};
+use sov_modules_stf_blueprint::{Runtime, StfBlueprint};
+use sov_prover_storage_manager::{ProverStorage, ProverStorageManager, SnapshotManager};
+use sov_rollup_interface::da::BlockHeaderTrait;
 use sov_rollup_interface::fork::ForkManager;
+use sov_rollup_interface::rpc::SoftConfirmationResponse;
 use sov_rollup_interface::services::da::DaService;
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::stf::StateTransitionFunction;
 use sov_rollup_interface::zk::ZkvmHost;
 use sov_stf_runner::{InitVariant, ProverService};
+use tokio::select;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
 use tokio::time::sleep;
-use tokio::{select, signal};
 use tracing::{debug, error, info, instrument};
 
 use crate::da_block_handler::L1BlockHandler;
+use crate::metrics::BATCH_PROVER_METRICS;
 use crate::rpc::{create_rpc_module, RpcContext};
 
-type StateRoot<ST, Da> = <ST as StateTransitionFunction<Da>>::StateRoot;
+type StfStateRoot<C, Da, RT> = <StfBlueprint<C, Da, RT> as StateTransitionFunction<Da>>::StateRoot;
+type StfTransaction<C, Da, RT> =
+    <StfBlueprint<C, Da, RT> as StateTransitionFunction<Da>>::Transaction;
+type StfWitness<C, Da, RT> = <StfBlueprint<C, Da, RT> as StateTransitionFunction<Da>>::Witness;
 
-pub struct CitreaBatchProver<C, Da, Sm, Vm, Stf, Ps, DB>
+pub struct CitreaBatchProver<C, Da, Vm, Ps, DB, RT>
 where
-    C: Context,
+    C: Context + Spec<Storage = ProverStorage<SnapshotManager>>,
     Da: DaService,
-    Sm: HierarchicalStorageManager<Da::Spec>,
     Vm: ZkvmHost,
-    Stf: StateTransitionFunction<Da::Spec> + StfBlueprintTrait<C, Da::Spec>,
-
     Ps: ProverService,
     DB: BatchProverLedgerOps + Clone,
+    RT: Runtime<C, Da::Spec>,
 {
     start_l2_height: u64,
     da_service: Arc<Da>,
-    stf: Stf,
-    storage_manager: Sm,
+    stf: StfBlueprint<C, Da::Spec, RT>,
+    storage_manager: ProverStorageManager<Da::Spec>,
     ledger_db: DB,
-    state_root: StateRoot<Stf, Da::Spec>,
+    state_root: StfStateRoot<C, Da::Spec, RT>,
     batch_hash: SoftConfirmationHash,
     rpc_config: RpcConfig,
     prover_service: Arc<Ps>,
-    sequencer_client: SequencerClient,
+    sequencer_client: HttpClient,
     sequencer_pub_key: Vec<u8>,
     sequencer_da_pub_key: Vec<u8>,
     phantom: std::marker::PhantomData<C>,
     prover_config: BatchProverConfig,
     code_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
+    elfs_by_spec: HashMap<SpecId, Vec<u8>>,
     l1_block_cache: Arc<Mutex<L1BlockCache<Da>>>,
     sync_blocks_count: u64,
-    fork_manager: ForkManager,
+    fork_manager: ForkManager<'static>,
     soft_confirmation_tx: broadcast::Sender<u64>,
     task_manager: TaskManager<()>,
 }
 
-impl<C, Da, Sm, Vm, Stf, Ps, DB> CitreaBatchProver<C, Da, Sm, Vm, Stf, Ps, DB>
+impl<C, Da, Vm, Ps, DB, RT> CitreaBatchProver<C, Da, Vm, Ps, DB, RT>
 where
-    C: Context,
+    C: Context + Spec<Storage = ProverStorage<SnapshotManager>>,
     Da: DaService<Error = anyhow::Error> + Send + 'static,
-    Sm: HierarchicalStorageManager<Da::Spec>,
     Vm: ZkvmHost + 'static,
-    Stf: StateTransitionFunction<
-            Da::Spec,
-            PreState = Sm::NativeStorage,
-            ChangeSet = Sm::NativeChangeSet,
-        > + StfBlueprintTrait<C, Da::Spec>,
     Ps: ProverService<DaService = Da> + Send + Sync + 'static,
     DB: BatchProverLedgerOps + Clone + 'static,
+    RT: Runtime<C, Da::Spec>,
 {
     /// Creates a new `StateTransitionRunner`.
     ///
@@ -97,13 +99,14 @@ where
         rpc_config: RpcConfig,
         da_service: Arc<Da>,
         ledger_db: DB,
-        stf: Stf,
-        mut storage_manager: Sm,
-        init_variant: InitVariant<Stf, Da::Spec>,
+        stf: StfBlueprint<C, Da::Spec, RT>,
+        mut storage_manager: ProverStorageManager<Da::Spec>,
+        init_variant: InitVariant<StfBlueprint<C, Da::Spec, RT>, Da::Spec>,
         prover_service: Arc<Ps>,
         prover_config: BatchProverConfig,
         code_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
-        fork_manager: ForkManager,
+        elfs_by_spec: HashMap<SpecId, Vec<u8>>,
+        fork_manager: ForkManager<'static>,
         soft_confirmation_tx: broadcast::Sender<u64>,
         task_manager: TaskManager<()>,
     ) -> Result<Self, anyhow::Error> {
@@ -127,12 +130,8 @@ where
             }
         };
 
-        // Start the main rollup loop
-        let item_numbers = ledger_db.get_next_items_numbers();
-        let last_soft_confirmation_processed_before_shutdown =
-            item_numbers.soft_confirmation_number;
         // Last L1/L2 height before shutdown.
-        let start_l2_height = last_soft_confirmation_processed_before_shutdown;
+        let start_l2_height = ledger_db.get_head_soft_confirmation_height()?.unwrap_or(0) + 1;
 
         Ok(Self {
             start_l2_height,
@@ -144,12 +143,14 @@ where
             batch_hash: prev_batch_hash,
             rpc_config,
             prover_service,
-            sequencer_client: SequencerClient::new(runner_config.sequencer_client_url),
+            sequencer_client: HttpClientBuilder::default()
+                .build(runner_config.sequencer_client_url)?,
             sequencer_pub_key: public_keys.sequencer_public_key,
             sequencer_da_pub_key: public_keys.sequencer_da_pub_key,
             phantom: std::marker::PhantomData,
             prover_config,
             code_commitments_by_spec,
+            elfs_by_spec,
             l1_block_cache: Arc::new(Mutex::new(L1BlockCache::new())),
             sync_blocks_count: runner_config.sync_blocks_count,
             fork_manager,
@@ -162,7 +163,16 @@ where
     #[allow(clippy::type_complexity)]
     fn create_rpc_context(
         &self,
-    ) -> RpcContext<C, Da, Ps, Vm, DB, Stf::StateRoot, Stf::Witness, Stf::Transaction> {
+    ) -> RpcContext<
+        C,
+        Da,
+        Ps,
+        Vm,
+        DB,
+        StfStateRoot<C, Da::Spec, RT>,
+        StfWitness<C, Da::Spec, RT>,
+        StfTransaction<C, Da::Spec, RT>,
+    > {
         RpcContext {
             ledger: self.ledger_db.clone(),
             da_service: self.da_service.clone(),
@@ -171,6 +181,7 @@ where
             l1_block_cache: self.l1_block_cache.clone(),
             prover_service: self.prover_service.clone(),
             code_commitments_by_spec: self.code_commitments_by_spec.clone(),
+            elfs_by_spec: self.elfs_by_spec.clone(),
             phantom_c: std::marker::PhantomData,
             phantom_vm: std::marker::PhantomData,
             phantom_sr: std::marker::PhantomData,
@@ -269,7 +280,7 @@ where
 
         let start_l1_height = match last_scanned_l1_height {
             Some(height) => height.0,
-            None => get_initial_slot_height::<Da::Spec>(&self.sequencer_client).await,
+            None => get_initial_slot_height(&self.sequencer_client).await,
         };
 
         let ledger_db = self.ledger_db.clone();
@@ -279,6 +290,7 @@ where
         let sequencer_pub_key = self.sequencer_pub_key.clone();
         let sequencer_da_pub_key = self.sequencer_da_pub_key.clone();
         let code_commitments_by_spec = self.code_commitments_by_spec.clone();
+        let elfs_by_spec = self.elfs_by_spec.clone();
         let l1_block_cache = self.l1_block_cache.clone();
 
         self.task_manager.spawn(|cancellation_token| async move {
@@ -287,9 +299,9 @@ where
                 Da,
                 Ps,
                 DB,
-                Stf::StateRoot,
-                Stf::Witness,
-                Stf::Transaction,
+                StfStateRoot<C, Da::Spec, RT>,
+                StfWitness<C, Da::Spec, RT>,
+                StfTransaction<C, Da::Spec, RT>,
             >::new(
                 prover_config,
                 prover_service,
@@ -298,6 +310,7 @@ where
                 sequencer_pub_key,
                 sequencer_da_pub_key,
                 code_commitments_by_spec,
+                elfs_by_spec,
                 skip_submission_until_l1,
                 l1_block_cache.clone(),
             );
@@ -313,15 +326,16 @@ where
         let sequencer_client = self.sequencer_client.clone();
         let sync_blocks_count = self.sync_blocks_count;
 
-        let l2_sync_worker =
-            sync_l2::<Da>(start_l2_height, sequencer_client, l2_tx, sync_blocks_count);
+        let l2_sync_worker = sync_l2(start_l2_height, sequencer_client, l2_tx, sync_blocks_count);
         tokio::pin!(l2_sync_worker);
 
         // Store L2 blocks and make sure they are processed in order.
         // Otherwise, processing N+1 L2 block before N would emit prev_hash mismatch.
-        let mut pending_l2_blocks: VecDeque<(u64, GetSoftConfirmationResponse)> = VecDeque::new();
+        let mut pending_l2_blocks = VecDeque::new();
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         interval.tick().await;
+
+        let mut shutdown_signal = create_shutdown_signal().await;
 
         loop {
             select! {
@@ -335,8 +349,9 @@ where
                             if let Err(e) = self.process_l2_block(*l2_height, l2_block).await {
                                 error!("Could not process L2 block: {}", e);
                                 // This block failed to process, add remaining L2 blocks to queue including this one.
-                                let remaining_l2s: Vec<(u64, GetSoftConfirmationResponse)> = l2_blocks[index..].to_vec();
+                                let remaining_l2s = l2_blocks[index..].to_vec();
                                 pending_l2_blocks.extend(remaining_l2s);
+                                break;
                             }
                         }
                         continue;
@@ -361,20 +376,24 @@ where
                         }
                     }
                 },
-                _ = signal::ctrl_c() => {
-                    info!("Shutting down");
-                    self.task_manager.abort().await;
-                    return Ok(());
-                }
+                Some(_) = shutdown_signal.recv() => return self.shutdown().await,
             }
         }
+    }
+
+    async fn shutdown(&self) -> anyhow::Result<()> {
+        info!("Shutting down");
+        self.task_manager.abort().await;
+        Ok(())
     }
 
     async fn process_l2_block(
         &mut self,
         l2_height: u64,
-        soft_confirmation: &GetSoftConfirmationResponse,
+        soft_confirmation: &SoftConfirmationResponse,
     ) -> anyhow::Result<()> {
+        let start = Instant::now();
+
         let current_l1_block = get_da_block_at_height(
             &self.da_service,
             soft_confirmation.da_slot_height,
@@ -397,15 +416,19 @@ where
             .storage_manager
             .create_storage_on_l2_height(l2_height)?;
 
-        let mut signed_soft_confirmation: SignedSoftConfirmation<Stf::Transaction> =
+        let mut signed_soft_confirmation: SignedSoftConfirmation<StfTransaction<C, Da::Spec, RT>> =
             soft_confirmation
                 .clone()
                 .try_into()
                 .context("Failed to parse transactions")?;
+        // Register this new block with the fork manager to active
+        // the new fork on the next block
+        self.fork_manager.register_block(l2_height)?;
+
+        let current_spec = self.fork_manager.active_fork().spec_id;
         let soft_confirmation_result = self.stf.apply_soft_confirmation(
-            self.fork_manager.active_fork().spec_id,
+            current_spec,
             self.sequencer_pub_key.as_slice(),
-            // TODO(https://github.com/Sovereign-Labs/sovereign-sdk/issues/1247): incorrect pre-state root in case of re-org
             &self.state_root,
             pre_state,
             Default::default(),
@@ -415,8 +438,6 @@ where
         )?;
         let txs_bodies = signed_soft_confirmation.blobs().to_owned();
 
-        let receipt = soft_confirmation_result.soft_confirmation_receipt;
-
         let next_state_root = soft_confirmation_result.state_root_transition.final_root;
         // Check if post state root is the same as the one in the soft confirmation
         if next_state_root.as_ref().to_vec() != soft_confirmation.state_root {
@@ -424,8 +445,10 @@ where
         }
 
         // Save state diff to ledger DB
-        self.ledger_db
-            .set_l2_state_diff(BatchNumber(l2_height), soft_confirmation_result.state_diff)?;
+        self.ledger_db.set_l2_state_diff(
+            SoftConfirmationNumber(l2_height),
+            soft_confirmation_result.state_diff,
+        )?;
 
         // Save witnesses data to ledger db
         self.ledger_db.set_l2_witness(
@@ -439,6 +462,9 @@ where
 
         self.storage_manager.finalize_l2(l2_height)?;
 
+        let receipt =
+            soft_confirmation_to_receipt::<C, _, Da::Spec>(signed_soft_confirmation, current_spec);
+
         self.ledger_db.commit_soft_confirmation(
             next_state_root.as_ref(),
             receipt,
@@ -447,12 +473,8 @@ where
 
         self.ledger_db.extend_l2_range_of_l1_slot(
             SlotNumber(current_l1_block.header().height()),
-            BatchNumber(l2_height),
+            SoftConfirmationNumber(l2_height),
         )?;
-
-        // Register this new block with the fork manager to active
-        // the new fork on the next block
-        self.fork_manager.register_block(l2_height)?;
 
         // Only errors when there are no receivers
         let _ = self.soft_confirmation_tx.send(l2_height);
@@ -465,23 +487,28 @@ where
             l2_height, self.state_root
         );
 
+        BATCH_PROVER_METRICS.current_l2_block.set(l2_height as f64);
+        BATCH_PROVER_METRICS.process_soft_confirmation.record(
+            Instant::now()
+                .saturating_duration_since(start)
+                .as_secs_f64(),
+        );
+
         Ok(())
     }
 
     /// Allows to read current state root
-    pub fn get_state_root(&self) -> &Stf::StateRoot {
+    pub fn get_state_root(&self) -> &StfStateRoot<C, Da::Spec, RT> {
         &self.state_root
     }
 }
 
-async fn sync_l2<Da>(
+async fn sync_l2(
     start_l2_height: u64,
-    sequencer_client: SequencerClient,
-    sender: mpsc::Sender<Vec<(u64, GetSoftConfirmationResponse)>>,
+    sequencer_client: HttpClient,
+    sender: mpsc::Sender<Vec<(u64, SoftConfirmationResponse)>>,
     sync_blocks_count: u64,
-) where
-    Da: DaService,
-{
+) {
     let mut l2_height = start_l2_height;
     info!("Starting to sync from L2 height {}", l2_height);
     loop {
@@ -492,44 +519,44 @@ async fn sync_l2<Da>(
             .build();
 
         let inner_client = &sequencer_client;
-        let soft_confirmations: Vec<GetSoftConfirmationResponse> =
-            match retry_backoff(exponential_backoff.clone(), || async move {
-                let soft_confirmations = inner_client
-                    .get_soft_confirmation_range::<Da::Spec>(
-                        l2_height..=l2_height + sync_blocks_count - 1,
-                    )
-                    .await;
+        let soft_confirmations = match retry_backoff(exponential_backoff.clone(), || async move {
+            let soft_confirmations = inner_client
+                .get_soft_confirmation_range(
+                    U64::from(l2_height),
+                    U64::from(l2_height + sync_blocks_count - 1),
+                )
+                .await;
 
-                match soft_confirmations {
-                    Ok(soft_confirmations) => {
-                        Ok(soft_confirmations.into_iter().flatten().collect::<Vec<_>>())
-                    }
-                    Err(e) => match e.downcast_ref::<JsonrpseeError>() {
-                        Some(JsonrpseeError::Transport(e)) => {
-                            let error_msg = format!(
-                                "Soft Confirmation: connection error during RPC call: {:?}",
-                                e
-                            );
-                            debug!(error_msg);
-                            Err(backoff::Error::Transient {
-                                err: error_msg,
-                                retry_after: None,
-                            })
-                        }
-                        _ => Err(backoff::Error::Transient {
-                            err: format!("Soft Confirmation: unknown error from RPC call: {:?}", e),
+            match soft_confirmations {
+                Ok(soft_confirmations) => {
+                    Ok(soft_confirmations.into_iter().flatten().collect::<Vec<_>>())
+                }
+                Err(e) => match e {
+                    JsonrpseeError::Transport(e) => {
+                        let error_msg = format!(
+                            "Soft Confirmation: connection error during RPC call: {:?}",
+                            e
+                        );
+                        debug!(error_msg);
+                        Err(backoff::Error::Transient {
+                            err: error_msg,
                             retry_after: None,
-                        }),
-                    },
-                }
-            })
-            .await
-            {
-                Ok(soft_confirmations) => soft_confirmations,
-                Err(_) => {
-                    continue;
-                }
-            };
+                        })
+                    }
+                    _ => Err(backoff::Error::Transient {
+                        err: format!("Soft Confirmation: unknown error from RPC call: {:?}", e),
+                        retry_after: None,
+                    }),
+                },
+            }
+        })
+        .await
+        {
+            Ok(soft_confirmations) => soft_confirmations,
+            Err(_) => {
+                continue;
+            }
+        };
 
         if soft_confirmations.is_empty() {
             debug!(
@@ -541,7 +568,7 @@ async fn sync_l2<Da>(
             continue;
         }
 
-        let soft_confirmations: Vec<(u64, GetSoftConfirmationResponse)> = (l2_height
+        let soft_confirmations: Vec<(u64, SoftConfirmationResponse)> = (l2_height
             ..l2_height + soft_confirmations.len() as u64)
             .zip(soft_confirmations)
             .collect();
@@ -550,19 +577,6 @@ async fn sync_l2<Da>(
 
         if let Err(e) = sender.send(soft_confirmations).await {
             error!("Could not notify about L2 block: {}", e);
-        }
-    }
-}
-
-async fn get_initial_slot_height<Da: DaSpec>(client: &SequencerClient) -> u64 {
-    loop {
-        match client.get_soft_confirmation::<Da>(1).await {
-            Ok(Some(batch)) => return batch.da_slot_height,
-            _ => {
-                // sleep 1
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                continue;
-            }
         }
     }
 }

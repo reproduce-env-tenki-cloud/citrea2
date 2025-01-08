@@ -52,6 +52,7 @@ where
     pub sequencer_pub_key: Vec<u8>,
     pub l1_block_cache: Arc<Mutex<L1BlockCache<Da>>>,
     pub code_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
+    pub elfs_by_spec: HashMap<SpecId, Vec<u8>>,
     pub(crate) phantom_c: PhantomData<fn() -> C>,
     pub(crate) phantom_vm: PhantomData<fn() -> Vm>,
     pub(crate) phantom_sr: PhantomData<fn() -> StateRoot>,
@@ -74,6 +75,7 @@ pub trait BatchProverRpc {
     async fn prove(
         &self,
         l1_height: u64,
+        use_latest_elf: bool,
         group_commitments: Option<GroupCommitments>,
     ) -> RpcResult<()>;
 }
@@ -167,7 +169,7 @@ where
             self.context.sequencer_pub_key.clone(),
             self.context.sequencer_da_pub_key.clone(),
             self.context.l1_block_cache.clone(),
-            l1_block,
+            &l1_block,
             group_commitments,
         )
         .await
@@ -201,6 +203,7 @@ where
     async fn prove(
         &self,
         l1_height: u64,
+        use_latest_elf: bool,
         group_commitments: Option<GroupCommitments>,
     ) -> RpcResult<()> {
         let l1_block: <Da as DaService>::FilteredBlock = self
@@ -222,7 +225,7 @@ where
             self.context.sequencer_pub_key.clone(),
             self.context.sequencer_da_pub_key.clone(),
             self.context.l1_block_cache.clone(),
-            l1_block.clone(),
+            &l1_block,
             group_commitments,
         )
         .await
@@ -238,9 +241,11 @@ where
             self.context.prover_service.clone(),
             self.context.ledger.clone(),
             self.context.code_commitments_by_spec.clone(),
-            l1_block,
+            self.context.elfs_by_spec.clone(),
+            &l1_block,
             sequencer_commitments,
             inputs,
+            use_latest_elf,
         )
         .await
         .map_err(|e| {

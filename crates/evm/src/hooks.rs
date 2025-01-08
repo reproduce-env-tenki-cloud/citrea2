@@ -1,11 +1,12 @@
-use alloy_primitives::B256;
+use alloy_consensus::Header as AlloyHeader;
+use alloy_primitives::{Bloom, Bytes, B256, B64, U256};
 use citrea_primitives::basefee::calculate_next_block_base_fee;
-use reth_primitives::{Bloom, Bytes, U256};
 use revm::primitives::{BlobExcessGasAndPrice, BlockEnv, SpecId};
 use sov_modules_api::hooks::HookSoftConfirmationInfo;
 use sov_modules_api::prelude::*;
-use sov_modules_api::{AccessoryWorkingSet, Spec, WorkingSet};
-use sov_state::Storage;
+use sov_modules_api::{AccessoryWorkingSet, WorkingSet};
+use sov_rollup_interface::spec::SpecId as CitreaSpecId;
+use sov_rollup_interface::zk::StorageRootHash;
 #[cfg(feature = "native")]
 use tracing::instrument;
 
@@ -13,10 +14,7 @@ use crate::evm::primitive_types::Block;
 use crate::evm::system_events::SystemEvent;
 use crate::{citrea_spec_id_to_evm_spec_id, Evm};
 
-impl<C: sov_modules_api::Context> Evm<C>
-where
-    <C::Storage as Storage>::Root: Into<[u8; 32]>,
-{
+impl<C: sov_modules_api::Context> Evm<C> {
     /// Logic executed at the beginning of the slot. Here we set the state root of the previous head.
     #[cfg_attr(
         feature = "native",
@@ -25,23 +23,39 @@ where
     pub fn begin_soft_confirmation_hook(
         &mut self,
         soft_confirmation_info: &HookSoftConfirmationInfo,
-        working_set: &mut WorkingSet<C>,
+        working_set: &mut WorkingSet<C::Storage>,
     ) {
         // just to be sure, we clear the pending transactions
         // do not ever think about removing this line
         // it has implications way beyond our understanding
         // a holy line
         self.pending_transactions.clear();
-        // we have to set blob gas used to zero at the beginning of the block
-        self.blob_gas_used = 0;
 
-        let mut parent_block = self
-            .head
-            .get(working_set)
-            .expect("Head block should always be set");
+        let current_spec = soft_confirmation_info.current_spec;
+
+        let mut parent_block = if current_spec >= CitreaSpecId::Fork1 {
+            match self.head_rlp.get(working_set) {
+                Some(block) => block.clone().into(),
+                None => self
+                    .head
+                    .get(working_set)
+                    .expect("Head block should always be set")
+                    .clone(),
+            }
+        } else {
+            self.head
+                .get(working_set)
+                .expect("Head block should always be set")
+                .clone()
+        };
 
         parent_block.header.state_root = B256::from_slice(&soft_confirmation_info.pre_state_root);
-        self.head.set(&parent_block, working_set);
+
+        if current_spec >= CitreaSpecId::Fork1 {
+            self.head_rlp.set(&parent_block.clone().into(), working_set);
+        } else {
+            self.head.set(&parent_block, working_set);
+        }
 
         let sealed_parent_block = parent_block.clone().seal();
         let last_block_hash = sealed_parent_block.header.hash();
@@ -87,25 +101,19 @@ where
             .get(working_set)
             .expect("EVM chain config should be set");
         let basefee = calculate_next_block_base_fee(
-            parent_block.header.gas_used as u128,
-            parent_block.header.gas_limit as u128,
+            parent_block.header.gas_used,
+            parent_block.header.gas_limit,
             parent_block.header.base_fee_per_gas.unwrap_or_default(),
             cfg.base_fee_params,
         );
 
         let active_evm_spec = citrea_spec_id_to_evm_spec_id(soft_confirmation_info.current_spec);
 
-        let blob_excess_gas_and_price = sealed_parent_block
-            .header
-            .next_block_excess_blob_gas()
-            .or_else(|| {
-                if active_evm_spec >= SpecId::CANCUN {
-                    Some(0)
-                } else {
-                    None
-                }
-            })
-            .map(BlobExcessGasAndPrice::new);
+        let blob_excess_gas_and_price = if active_evm_spec >= SpecId::CANCUN {
+            Some(BlobExcessGasAndPrice::new(0))
+        } else {
+            None
+        };
 
         let new_pending_env = BlockEnv {
             number: U256::from(parent_block.header.number + 1),
@@ -154,15 +162,30 @@ where
     pub fn end_soft_confirmation_hook(
         &mut self,
         soft_confirmation_info: &HookSoftConfirmationInfo,
-        working_set: &mut WorkingSet<C>,
+        working_set: &mut WorkingSet<C::Storage>,
     ) {
         let l1_hash = soft_confirmation_info.da_slot_hash;
 
-        let parent_block = self
-            .head
-            .get(working_set)
-            .expect("Head block should always be set")
-            .seal();
+        let current_spec = soft_confirmation_info.current_spec;
+
+        let parent_block = if current_spec >= CitreaSpecId::Fork1 {
+            match self.head_rlp.get(working_set) {
+                Some(block) => block.seal(),
+                None => {
+                    let block: Block<AlloyHeader> = self
+                        .head
+                        .get(working_set)
+                        .expect("Head block should always be set")
+                        .into();
+                    block.seal()
+                }
+            }
+        } else {
+            self.head
+                .get(working_set)
+                .expect("Head block should always be set")
+                .seal()
+        };
 
         let expected_block_number = parent_block.header.number + 1;
         assert_eq!(
@@ -191,7 +214,7 @@ where
             .map(|tx| tx.receipt.receipt.clone().with_bloom())
             .collect();
 
-        let header = reth_primitives::Header {
+        let header = AlloyHeader {
             parent_hash: parent_block.header.hash(),
             timestamp: self.block_env.timestamp.saturating_to(),
             number: self.block_env.number.saturating_to(),
@@ -211,7 +234,7 @@ where
             gas_limit: self.block_env.gas_limit.saturating_to(),
             gas_used,
             mix_hash: self.block_env.prevrandao.unwrap_or_default(),
-            nonce: 0,
+            nonce: B64::ZERO,
             base_fee_per_gas: Some(self.block_env.basefee.saturating_to()),
             extra_data: Bytes::default(),
             // EIP-4844 related fields
@@ -219,15 +242,17 @@ where
             blob_gas_used: if citrea_spec_id_to_evm_spec_id(soft_confirmation_info.current_spec)
                 >= SpecId::CANCUN
             {
-                Some(self.blob_gas_used)
+                Some(0)
             } else {
                 None
             },
-            excess_blob_gas: self
-                .block_env
-                .blob_excess_gas_and_price
-                .as_ref()
-                .map(|x| x.excess_blob_gas),
+            excess_blob_gas: if citrea_spec_id_to_evm_spec_id(soft_confirmation_info.current_spec)
+                >= SpecId::CANCUN
+            {
+                Some(0)
+            } else {
+                None
+            },
             // EIP-4788 related field
             // unrelated for rollups
             parent_beacon_block_root: None,
@@ -241,7 +266,11 @@ where
             transactions: start_tx_index..start_tx_index + pending_transactions.len() as u64,
         };
 
-        self.head.set(&block, working_set);
+        if current_spec >= CitreaSpecId::Fork1 {
+            self.head_rlp.set(&block, working_set);
+        } else {
+            self.head.set(&block.clone().into(), working_set);
+        }
 
         #[cfg(not(feature = "native"))]
         pending_transactions.clear();
@@ -249,7 +278,9 @@ where
         #[cfg(feature = "native")]
         {
             use crate::PendingTransaction;
+
             let mut accessory_state = working_set.accessory_state();
+
             self.pending_head.set(&block, &mut accessory_state);
 
             let mut tx_index = start_tx_index;
@@ -270,9 +301,6 @@ where
                 tx_index += 1
             }
             self.pending_transactions.clear();
-
-            self.native_pending_transactions
-                .clear(&mut working_set.accessory_state());
         }
     }
 
@@ -288,8 +316,8 @@ where
     #[cfg_attr(not(feature = "native"), allow(unused_variables))]
     pub fn finalize_hook(
         &self,
-        root_hash: &<<C as Spec>::Storage as Storage>::Root,
-        accessory_working_set: &mut AccessoryWorkingSet<C>,
+        root_hash: &StorageRootHash,
+        accessory_working_set: &mut AccessoryWorkingSet<C::Storage>,
     ) {
         #[cfg(feature = "native")]
         {
@@ -311,8 +339,7 @@ where
                 expected_block_number, block.header.number
             );
 
-            let root_hash_bytes: [u8; 32] = root_hash.clone().into();
-            block.header.state_root = root_hash_bytes.into();
+            block.header.state_root = root_hash.0.into();
 
             let sealed_block = block.seal();
 
@@ -323,8 +350,6 @@ where
                 accessory_working_set,
             );
             self.pending_head.delete(accessory_working_set);
-
-            self.l1_fee_failed_txs.clear(accessory_working_set);
         }
     }
 }

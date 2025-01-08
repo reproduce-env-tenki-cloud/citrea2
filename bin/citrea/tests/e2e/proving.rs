@@ -4,7 +4,7 @@ use std::time::Duration;
 use citrea_batch_prover::GroupCommitments;
 use citrea_common::{BatchProverConfig, SequencerConfig};
 use citrea_stf::genesis_config::GenesisPaths;
-use sov_mock_da::{MockAddress, MockDaService};
+use sov_mock_da::{MockAddress, MockDaService, MockDaSpec};
 use sov_rollup_interface::rpc::SoftConfirmationStatus;
 use sov_rollup_interface::services::da::DaService;
 
@@ -64,6 +64,7 @@ async fn full_node_verify_proof_and_store() {
                 proving_mode: sov_stf_runner::ProverGuestRunConfig::Execute,
                 proof_sampling_number: 0,
                 enable_recovery: true,
+                use_latest_elf: true,
             }),
             None,
             rollup_config,
@@ -143,7 +144,8 @@ async fn full_node_verify_proof_and_store() {
 
     let prover_proof = prover_node_test_client
         .ledger_get_batch_proofs_by_slot_height(3)
-        .await[0]
+        .await
+        .unwrap()[0]
         .clone();
 
     // The proof will be in l1 block #4 because prover publishes it after the commitment and
@@ -168,17 +170,26 @@ async fn full_node_verify_proof_and_store() {
 
     assert_eq!(prover_proof.proof_output, full_node_proof[0].proof_output);
 
+    let proof_height = full_node_proof[0].proof_output.last_l2_height;
+    let soft_confirmation = full_node_test_client
+        .ledger_get_soft_confirmation_by_number::<MockDaSpec>(proof_height)
+        .await
+        .expect("should get soft confirmation");
+
+    assert_eq!(
+        full_node_proof[0].proof_output.final_state_root,
+        soft_confirmation.state_root
+    );
+
     full_node_test_client
         .ledger_get_soft_confirmation_status(5)
         .await
-        .unwrap()
         .unwrap();
 
     for i in 1..=4 {
         let status = full_node_test_client
             .ledger_get_soft_confirmation_status(i)
             .await
-            .unwrap()
             .unwrap();
 
         assert_eq!(status, SoftConfirmationStatus::Proven);
@@ -236,6 +247,7 @@ async fn test_batch_prover_prove_rpc() {
                 // Make it impossible for proving to happen
                 proof_sampling_number: 1_000_000,
                 enable_recovery: true,
+                use_latest_elf: true,
             }),
             None,
             rollup_config,
@@ -289,7 +301,7 @@ async fn test_batch_prover_prove_rpc() {
 
     // Trigger proving via the RPC endpoint
     prover_node_test_client
-        .batch_prover_prove(3, Some(GroupCommitments::Normal))
+        .batch_prover_prove(3, true, Some(GroupCommitments::Normal))
         .await;
 
     // wait here until we see from prover's rpc that it finished proving
@@ -320,7 +332,8 @@ async fn test_batch_prover_prove_rpc() {
 
     let prover_proof = prover_node_test_client
         .ledger_get_batch_proofs_by_slot_height(3)
-        .await[0]
+        .await
+        .unwrap()[0]
         .clone();
 
     // The proof will be in l1 block #4 because prover publishes it after the commitment and
@@ -348,14 +361,12 @@ async fn test_batch_prover_prove_rpc() {
     full_node_test_client
         .ledger_get_soft_confirmation_status(5)
         .await
-        .unwrap()
         .unwrap();
 
     for i in 1..=4 {
         let status = full_node_test_client
             .ledger_get_soft_confirmation_status(i)
             .await
-            .unwrap()
             .unwrap();
 
         assert_eq!(status, SoftConfirmationStatus::Proven);

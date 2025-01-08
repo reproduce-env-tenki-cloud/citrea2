@@ -1,7 +1,8 @@
 use std::str::FromStr;
 
+use alloy_primitives::b256;
 use reth_primitives::constants::ETHEREUM_BLOCK_GAS_LIMIT;
-use reth_primitives::{b256, BlockNumberOrTag};
+use reth_primitives::BlockNumberOrTag;
 use reth_rpc_eth_types::EthApiError;
 use revm::primitives::{B256, U256};
 use sov_modules_api::default_context::DefaultContext;
@@ -37,12 +38,15 @@ fn logs_for_filter_test() {
         },
         &mut working_set,
     );
-    assert_eq!(result, Err(EthApiError::UnknownBlockNumber.into()));
+    assert_eq!(
+        result,
+        Err(EthApiError::HeaderNotFound(B256::from([1u8; 32]).into()).into())
+    );
 
     let available_res = evm.eth_get_logs(
         Filter {
             block_option: FilterBlockOption::AtBlockHash(b256!(
-                "c8f53d2fb3a04b566938033716492ea98b203139a52bc9286bea45e7613e3bd3"
+                "27e01fc6e3aad6bde81589b349a9ecd036c60621625ed9e837cf1bb9f72c0d1d"
             )),
             address: FilterSet::default(),
             topics: [
@@ -75,7 +79,7 @@ fn log_filter_test_at_block_hash() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32].to_vec(),
-        current_spec: SpecId::Genesis,
+        current_spec: SpecId::Fork1,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -84,14 +88,8 @@ fn log_filter_test_at_block_hash() {
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
         let sender_address = generate_address::<C>("sender");
-        let sequencer_address = generate_address::<C>("sequencer");
-        let context = C::new(
-            sender_address,
-            sequencer_address,
-            l2_height,
-            SpecId::Genesis,
-            l1_fee_rate,
-        );
+
+        let context = C::new(sender_address, l2_height, SpecId::Fork1, l1_fee_rate);
 
         // deploy logs contract
         // call the contract function
@@ -290,7 +288,7 @@ fn log_filter_test_with_range() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32].to_vec(),
-        current_spec: SpecId::Genesis,
+        current_spec: SpecId::Fork1,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -299,14 +297,8 @@ fn log_filter_test_with_range() {
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
         let sender_address = generate_address::<C>("sender");
-        let sequencer_address = generate_address::<C>("sequencer");
-        let context = C::new(
-            sender_address,
-            sequencer_address,
-            l2_height,
-            SpecId::Genesis,
-            l1_fee_rate,
-        );
+
+        let context = C::new(sender_address, l2_height, SpecId::Fork1, l1_fee_rate);
 
         // deploy selfdestruct contract
         // call the contract function
@@ -358,7 +350,7 @@ fn log_filter_test_with_range() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [99u8; 32].to_vec(),
-        current_spec: SpecId::Genesis,
+        current_spec: SpecId::Fork1,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -367,14 +359,8 @@ fn log_filter_test_with_range() {
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
         let sender_address = generate_address::<C>("sender");
-        let sequencer_address = generate_address::<C>("sequencer");
-        let context = C::new(
-            sender_address,
-            sequencer_address,
-            l2_height,
-            SpecId::Genesis,
-            l1_fee_rate,
-        );
+
+        let context = C::new(sender_address, l2_height, SpecId::Fork1, l1_fee_rate);
         // call the contract function
         evm.call(
             CallMessage {
@@ -428,7 +414,7 @@ fn test_log_limits() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32].to_vec(),
-        current_spec: SpecId::Genesis,
+        current_spec: SpecId::Fork1,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -437,14 +423,8 @@ fn test_log_limits() {
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
         let sender_address = generate_address::<C>("sender");
-        let sequencer_address = generate_address::<C>("sequencer");
-        let context = C::new(
-            sender_address,
-            sequencer_address,
-            l2_height,
-            SpecId::Genesis,
-            l1_fee_rate,
-        );
+
+        let context = C::new(sender_address, l2_height, SpecId::Fork1, l1_fee_rate);
 
         // deploy logs contract
         let mut rlp_transactions = vec![create_contract_message(
@@ -535,7 +515,7 @@ fn test_log_limits() {
             da_slot_height: 1,
             da_slot_txs_commitment: [42u8; 32],
             pre_state_root: [99u8; 32].to_vec(),
-            current_spec: SpecId::Genesis,
+            current_spec: SpecId::Fork1,
             pub_key: vec![],
             deposit_data: vec![],
             l1_fee_rate,

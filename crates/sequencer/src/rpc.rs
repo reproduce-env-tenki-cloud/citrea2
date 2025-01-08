@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+use alloy_eips::eip2718::Encodable2718;
+use alloy_network::AnyNetwork;
+use alloy_primitives::{Bytes, B256};
 use citrea_evm::Evm;
 use futures::channel::mpsc::UnboundedSender;
 use jsonrpsee::core::RpcResult;
@@ -7,7 +10,8 @@ use jsonrpsee::proc_macros::rpc;
 use jsonrpsee::types::error::{INTERNAL_ERROR_CODE, INTERNAL_ERROR_MSG};
 use jsonrpsee::types::{ErrorCode, ErrorObject, ErrorObjectOwned};
 use parking_lot::Mutex;
-use reth_primitives::{Bytes, IntoRecoveredTransaction, B256};
+use reth_rpc::eth::EthTxBuilder;
+use reth_rpc_eth_api::RpcTransaction;
 use reth_rpc_eth_types::error::EthApiError;
 use reth_rpc_types_compat::transaction::from_recovered;
 use reth_transaction_pool::{EthPooledTransaction, PoolTransaction};
@@ -17,6 +21,7 @@ use tracing::{debug, error};
 
 use crate::deposit_data_mempool::DepositDataMempool;
 use crate::mempool::CitreaMempool;
+use crate::metrics::SEQUENCER_METRICS;
 use crate::utils::recover_raw_transaction;
 
 pub(crate) struct RpcContext<C: sov_modules_api::Context, DB: SequencerLedgerOps> {
@@ -39,7 +44,7 @@ pub trait SequencerRpc {
         &self,
         hash: B256,
         mempool_only: Option<bool>,
-    ) -> RpcResult<Option<reth_rpc_types::Transaction>>;
+    ) -> RpcResult<Option<RpcTransaction<AnyNetwork>>>;
 
     #[method(name = "citrea_sendRawDepositTransaction")]
     #[blocking]
@@ -88,7 +93,7 @@ impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static
             .transaction()
             .clone()
             .into_signed()
-            .encode_enveloped(&mut rlp_encoded_tx);
+            .encode_2718(&mut rlp_encoded_tx);
 
         // Do not return error here just log
         if let Err(e) = self
@@ -97,6 +102,8 @@ impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static
             .insert_mempool_tx(hash.to_vec(), rlp_encoded_tx)
         {
             tracing::warn!("Failed to insert mempool tx into db: {:?}", e);
+        } else {
+            SEQUENCER_METRICS.mempool_txs.increment(1);
         }
 
         Ok(hash)
@@ -106,7 +113,7 @@ impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static
         &self,
         hash: B256,
         mempool_only: Option<bool>,
-    ) -> RpcResult<Option<reth_rpc_types::Transaction>> {
+    ) -> RpcResult<Option<RpcTransaction<AnyNetwork>>> {
         debug!(
             "Sequencer: eth_getTransactionByHash({}, {:?})",
             hash, mempool_only
@@ -115,17 +122,18 @@ impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static
         match self.context.mempool.get(&hash) {
             Some(tx) => {
                 let tx_signed_ec_recovered = tx.to_recovered_transaction(); // tx signed ec recovered
-                let tx: reth_rpc_types::Transaction = from_recovered(tx_signed_ec_recovered);
-                Ok::<Option<reth_rpc_types::Transaction>, ErrorObjectOwned>(Some(tx))
+                let tx: RpcTransaction<AnyNetwork> =
+                    from_recovered::<EthTxBuilder>(tx_signed_ec_recovered);
+                Ok::<Option<RpcTransaction<AnyNetwork>>, ErrorObjectOwned>(Some(tx))
             }
             None => match mempool_only {
-                Some(true) => Ok::<Option<reth_rpc_types::Transaction>, ErrorObjectOwned>(None),
+                Some(true) => Ok::<Option<RpcTransaction<AnyNetwork>>, ErrorObjectOwned>(None),
                 _ => {
                     let evm = Evm::<C>::default();
-                    let mut working_set = WorkingSet::<C>::new(self.context.storage.clone());
+                    let mut working_set = WorkingSet::new(self.context.storage.clone());
 
                     match evm.get_transaction_by_hash(hash, &mut working_set) {
-                        Ok(tx) => Ok::<Option<reth_rpc_types::Transaction>, ErrorObjectOwned>(tx),
+                        Ok(tx) => Ok::<Option<RpcTransaction<AnyNetwork>>, ErrorObjectOwned>(tx),
                         Err(e) => Err(e),
                     }
                 }
@@ -137,7 +145,7 @@ impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static
         debug!("Sequencer: citrea_sendRawDepositTransaction");
 
         let evm = Evm::<C>::default();
-        let mut working_set = WorkingSet::<C>::new(self.context.storage.clone());
+        let mut working_set = WorkingSet::new(self.context.storage.clone());
 
         let dep_tx = self
             .context

@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
+use alloy_rpc_types::AnyNetworkBlock;
 use citrea_evm::{log_matches_filter, Evm, Filter, LogResponse};
 use futures::future;
 use jsonrpsee::{SubscriptionMessage, SubscriptionSink};
-use reth_rpc_types::{BlockNumberOrTag, RichBlock};
+use reth_primitives::BlockNumberOrTag;
 use sov_modules_api::WorkingSet;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::task::JoinHandle;
@@ -76,7 +77,7 @@ impl Drop for SubscriptionManager {
 }
 
 pub async fn new_heads_notifier(
-    mut rx: mpsc::Receiver<RichBlock>,
+    mut rx: mpsc::Receiver<AnyNetworkBlock>,
     head_subscriptions: Arc<RwLock<Vec<SubscriptionSink>>>,
 ) {
     while let Some(block) = rx.recv().await {
@@ -133,12 +134,12 @@ pub async fn logs_notifier(
 pub async fn soft_confirmation_event_handler<C: sov_modules_api::Context>(
     storage: C::Storage,
     mut soft_confirmation_rx: broadcast::Receiver<u64>,
-    new_heads_tx: mpsc::Sender<RichBlock>,
+    new_heads_tx: mpsc::Sender<AnyNetworkBlock>,
     logs_tx: mpsc::Sender<Vec<LogResponse>>,
 ) {
     let evm = Evm::<C>::default();
     while let Ok(height) = soft_confirmation_rx.recv().await {
-        let mut working_set = WorkingSet::<C>::new(storage.clone());
+        let mut working_set = WorkingSet::new(storage.clone());
         let block = evm
             .get_block_by_number(
                 Some(BlockNumberOrTag::Number(height)),
@@ -151,7 +152,7 @@ pub async fn soft_confirmation_event_handler<C: sov_modules_api::Context>(
         // Only possible error is no receiver
         let _ = new_heads_tx.send(block.clone()).await;
 
-        let mut working_set = WorkingSet::<C>::new(storage.clone());
+        let mut working_set = WorkingSet::new(storage.clone());
         let logs = evm
             .get_logs_in_block_range(&mut working_set, &Filter::default(), height, height)
             .expect("Error getting logs in block range");

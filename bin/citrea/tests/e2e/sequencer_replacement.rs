@@ -5,10 +5,11 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use alloy::consensus::{Signed, TxEip1559, TxEnvelope};
+use alloy_primitives::Address;
 use alloy_rlp::Decodable;
 use citrea_common::{SequencerConfig, SequencerMempoolConfig};
 use citrea_stf::genesis_config::GenesisPaths;
-use reth_primitives::{Address, BlockNumberOrTag};
+use reth_primitives::BlockNumberOrTag;
 use sov_db::ledger_db::migrations::copy_db_dir_recursive;
 use sov_db::ledger_db::{LedgerDB, SequencerLedgerOps};
 use sov_db::rocks_db_config::RocksdbConfig;
@@ -247,7 +248,7 @@ async fn test_sequencer_crash_restore_mempool() -> Result<(), anyhow::Error> {
     );
     let sequencer_db_dir = storage_dir.path().join("sequencer_unlocked").to_path_buf();
     let ledger_db =
-        LedgerDB::with_config(&RocksdbConfig::new(sequencer_db_dir.as_path(), None)).unwrap();
+        LedgerDB::with_config(&RocksdbConfig::new(sequencer_db_dir.as_path(), None, None)).unwrap();
     let txs = ledger_db.get_mempool_txs().unwrap();
     assert_eq!(txs.len(), 2);
     assert_eq!(txs[1].0, tx_hash.to_vec());
@@ -333,7 +334,7 @@ async fn test_sequencer_crash_restore_mempool() -> Result<(), anyhow::Error> {
     );
     let sequencer_db_dir = storage_dir.path().join("sequencer_unlocked").to_path_buf();
     let ledger_db =
-        LedgerDB::with_config(&RocksdbConfig::new(sequencer_db_dir.as_path(), None)).unwrap();
+        LedgerDB::with_config(&RocksdbConfig::new(sequencer_db_dir.as_path(), None, None)).unwrap();
     let txs = ledger_db.get_mempool_txs().unwrap();
     // should be removed from db
     assert_eq!(txs.len(), 0);

@@ -16,7 +16,7 @@ use crate::default_signature::DefaultPublicKey;
     Display,
 )]
 #[serde(try_from = "String", into = "String")]
-#[display(fmt = "{}", "hex")]
+#[display("{}", hex)]
 pub struct PublicKeyHex {
     hex: String,
 }
@@ -78,17 +78,6 @@ impl TryFrom<&PublicKeyHex> for DefaultPublicKey {
             .map_err(|_| anyhow::anyhow!("Invalid public key"))?;
 
         Ok(DefaultPublicKey { pub_key })
-    }
-}
-
-// TODO: Check this and it's relevance with gas_oracle_test
-#[cfg(feature = "arbitrary")]
-impl<'a> arbitrary::Arbitrary<'a> for PublicKeyHex {
-    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        use sov_modules_core::PrivateKey;
-        let public_key =
-            crate::default_signature::private_key::DefaultPrivateKey::arbitrary(u)?.pub_key();
-        Ok(PublicKeyHex::from(&public_key))
     }
 }
 

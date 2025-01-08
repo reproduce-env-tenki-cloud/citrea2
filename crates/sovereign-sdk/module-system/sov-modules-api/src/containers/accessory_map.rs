@@ -1,9 +1,8 @@
 use std::marker::PhantomData;
 
-use sov_modules_core::{
-    AccessoryWorkingSet, Context, Prefix, StateCodec, StateKeyCodec, StateValueCodec,
-};
+use sov_modules_core::{AccessoryWorkingSet, Prefix, StateCodec, StateKeyCodec, StateValueCodec};
 use sov_state::codec::BorshCodec;
+use sov_state::Storage;
 
 use super::traits::StateMapAccessor;
 
@@ -54,13 +53,13 @@ impl<K, V, Codec> AccessoryStateMap<K, V, Codec> {
     }
 }
 
-impl<'a, K, V, Codec, C> StateMapAccessor<K, V, Codec, AccessoryWorkingSet<'a, C>>
+impl<'a, K, V, Codec, S> StateMapAccessor<K, V, Codec, AccessoryWorkingSet<'a, S>>
     for AccessoryStateMap<K, V, Codec>
 where
     Codec: StateCodec,
     Codec::KeyCodec: StateKeyCodec<K>,
     Codec::ValueCodec: StateValueCodec<V>,
-    C: Context,
+    S: Storage,
 {
     /// Returns the prefix used when this [`AccessoryStateMap`] was created.
     fn prefix(&self) -> &Prefix {
@@ -69,42 +68,5 @@ where
 
     fn codec(&self) -> &Codec {
         &self.codec
-    }
-}
-
-#[cfg(feature = "arbitrary")]
-impl<'a, K, V, Codec> AccessoryStateMap<K, V, Codec>
-where
-    K: arbitrary::Arbitrary<'a>,
-    V: arbitrary::Arbitrary<'a>,
-    Codec: StateCodec + Default,
-    Codec::KeyCodec: StateKeyCodec<K>,
-    Codec::ValueCodec: StateValueCodec<V>,
-{
-    /// Generates an arbitrary [`AccessoryStateMap`] instance.
-    ///
-    /// See the [`arbitrary`] crate for more information.
-    pub fn arbitrary_working_set<C>(
-        u: &mut arbitrary::Unstructured<'a>,
-        working_set: &mut AccessoryWorkingSet<C>,
-    ) -> arbitrary::Result<Self>
-    where
-        C: Context,
-    {
-        use arbitrary::Arbitrary;
-
-        let prefix = Prefix::arbitrary(u)?;
-        let len = u.arbitrary_len::<(K, V)>()?;
-        let codec = Codec::default();
-        let map = Self::with_codec(prefix, codec);
-
-        (0..len).try_fold(map, |map, _| {
-            let key = K::arbitrary(u)?;
-            let value = V::arbitrary(u)?;
-
-            map.set(&key, &value, working_set);
-
-            Ok(map)
-        })
     }
 }

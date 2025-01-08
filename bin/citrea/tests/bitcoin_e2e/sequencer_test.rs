@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::time::{Duration, SystemTime};
 
+use alloy_primitives::U64;
 use anyhow::bail;
 use async_trait::async_trait;
 use bitcoin_da::rpc::DaRpcClient;
@@ -12,6 +13,7 @@ use citrea_e2e::traits::{NodeT, Restart};
 use citrea_e2e::Result;
 use reth_primitives::BlockNumberOrTag;
 use sov_ledger_rpc::client::RpcClient;
+use sov_ledger_rpc::LedgerRpcClient;
 
 use super::get_citrea_path;
 use crate::evm::make_test_client;
@@ -121,7 +123,7 @@ impl TestCase for SequencerMissedDaBlocksTest {
             let soft_confirmation = sequencer
                 .client
                 .http_client()
-                .get_soft_confirmation_by_number(i)
+                .get_soft_confirmation_by_number(U64::from(i))
                 .await?
                 .unwrap();
 

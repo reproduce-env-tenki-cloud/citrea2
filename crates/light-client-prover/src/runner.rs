@@ -6,11 +6,8 @@ use citrea_common::tasks::manager::TaskManager;
 use citrea_common::{LightClientProverConfig, RollupPublicKeys, RpcConfig, RunnerConfig};
 use jsonrpsee::server::{BatchRequestConfig, ServerBuilder};
 use jsonrpsee::RpcModule;
-use sequencer_client::SequencerClient;
-use sov_db::ledger_db::{LedgerDB, LightClientProverLedgerOps, SharedLedgerOps};
+use sov_db::ledger_db::{LightClientProverLedgerOps, SharedLedgerOps};
 use sov_db::schema::types::SlotNumber;
-use sov_modules_api::DaSpec;
-use sov_modules_rollup_blueprint::RollupBlueprint;
 use sov_rollup_interface::services::da::DaService;
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::zk::ZkvmHost;
@@ -21,41 +18,6 @@ use tracing::{error, info, instrument};
 
 use crate::da_block_handler::L1BlockHandler;
 use crate::rpc::{create_rpc_module, RpcContext};
-
-/// Dependencies needed to run the rollup.
-pub struct LightClientProver<S: RollupBlueprint> {
-    /// The State Transition Runner.
-    #[allow(clippy::type_complexity)]
-    pub runner: CitreaLightClientProver<S::DaService, S::Vm, S::ProverService, LedgerDB>,
-    /// Rpc methods for the rollup.
-    pub rpc_methods: jsonrpsee::RpcModule<()>,
-}
-
-impl<S: RollupBlueprint> LightClientProver<S> {
-    /// Runs the rollup.
-    #[instrument(level = "trace", skip_all, err, ret(level = "error"))]
-    pub async fn run(self) -> Result<(), anyhow::Error> {
-        self.run_and_report_rpc_port(None).await
-    }
-
-    /// Only run the rpc.
-    pub async fn run_rpc(mut self) -> Result<(), anyhow::Error> {
-        self.runner.start_rpc_server(self.rpc_methods, None).await?;
-        Ok(())
-    }
-
-    /// Runs the rollup. Reports rpc port to the caller using the provided channel.
-    pub async fn run_and_report_rpc_port(
-        self,
-        channel: Option<oneshot::Sender<SocketAddr>>,
-    ) -> Result<(), anyhow::Error> {
-        let mut runner = self.runner;
-        runner.start_rpc_server(self.rpc_methods, channel).await?;
-
-        runner.run().await?;
-        Ok(())
-    }
-}
 
 pub struct CitreaLightClientProver<Da, Vm, Ps, DB>
 where
@@ -69,12 +31,12 @@ where
     rpc_config: RpcConfig,
     da_service: Arc<Da>,
     ledger_db: DB,
-    sequencer_client: SequencerClient,
     prover_service: Arc<Ps>,
     prover_config: LightClientProverConfig,
     task_manager: TaskManager<()>,
     batch_proof_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
-    light_client_proof_commitment: Vm::CodeCommitment,
+    light_client_proof_commitment: HashMap<SpecId, Vm::CodeCommitment>,
+    light_client_proof_elfs: HashMap<SpecId, Vec<u8>>,
 }
 
 impl<Da, Vm, Ps, DB> CitreaLightClientProver<Da, Vm, Ps, DB>
@@ -94,22 +56,22 @@ where
         prover_service: Arc<Ps>,
         prover_config: LightClientProverConfig,
         batch_proof_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
-        light_client_proof_commitment: Vm::CodeCommitment,
+        light_client_proof_commitment: HashMap<SpecId, Vm::CodeCommitment>,
+        light_client_proof_elfs: HashMap<SpecId, Vec<u8>>,
         task_manager: TaskManager<()>,
     ) -> Result<Self, anyhow::Error> {
-        let sequencer_client_url = runner_config.sequencer_client_url.clone();
         Ok(Self {
             _runner_config: runner_config,
             public_keys,
             rpc_config,
             da_service,
             ledger_db,
-            sequencer_client: SequencerClient::new(sequencer_client_url),
             prover_service,
             prover_config,
             task_manager,
             batch_proof_commitments_by_spec,
             light_client_proof_commitment,
+            light_client_proof_elfs,
         })
     }
 
@@ -182,7 +144,7 @@ where
         let last_l1_height_scanned = match self.ledger_db.get_last_scanned_l1_height()? {
             Some(l1_height) => l1_height,
             // If not found, start from the first L2 block's L1 height
-            None => SlotNumber(get_initial_da_height::<Da::Spec>(&self.sequencer_client).await),
+            None => SlotNumber(self.prover_config.initial_da_height),
         };
 
         let prover_config = self.prover_config.clone();
@@ -192,7 +154,7 @@ where
         let batch_prover_da_pub_key = self.public_keys.prover_da_pub_key.clone();
         let batch_proof_commitments_by_spec = self.batch_proof_commitments_by_spec.clone();
         let light_client_proof_commitment = self.light_client_proof_commitment.clone();
-        let sequencer_client = self.sequencer_client.clone();
+        let light_client_proof_elfs = self.light_client_proof_elfs.clone();
 
         self.task_manager.spawn(|cancellation_token| async move {
             let l1_block_handler = L1BlockHandler::<Vm, Da, Ps, DB>::new(
@@ -203,27 +165,17 @@ where
                 batch_prover_da_pub_key,
                 batch_proof_commitments_by_spec,
                 light_client_proof_commitment,
-                Arc::new(sequencer_client),
+                light_client_proof_elfs,
             );
             l1_block_handler
                 .run(last_l1_height_scanned.0, cancellation_token)
                 .await
         });
 
-        // Temporary fix
         signal::ctrl_c().await.expect("Failed to listen ctrl+c");
-        Ok(())
+        self.task_manager.abort().await;
 
-        // TODO: update this once l2 sync is implemented
-        // loop {
-        //     select! {
-        //         _ = signal::ctrl_c() => {
-        //             info!("Shutting down");
-        //             self.task_manager.abort().await;
-        //             return Ok(());
-        //         }
-        //     }
-        // }
+        Ok(())
     }
 
     /// Creates a shared RpcContext with all required data.
@@ -242,18 +194,5 @@ where
         let rpc = create_rpc_module(rpc_context);
         rpc_methods.merge(rpc)?;
         Ok(rpc_methods)
-    }
-}
-
-async fn get_initial_da_height<Da: DaSpec>(client: &SequencerClient) -> u64 {
-    loop {
-        match client.get_soft_confirmation::<Da>(1).await {
-            Ok(Some(batch)) => return batch.da_slot_height,
-            _ => {
-                // sleep 1
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                continue;
-            }
-        }
     }
 }

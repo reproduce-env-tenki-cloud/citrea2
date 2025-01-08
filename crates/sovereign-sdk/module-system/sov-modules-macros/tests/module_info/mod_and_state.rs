@@ -1,5 +1,5 @@
 use sov_modules_api::default_context::ZkDefaultContext;
-use sov_modules_api::{Context, Module, ModuleInfo, StateMap, WorkingSet};
+use sov_modules_api::{Context, Module, ModuleInfo, Spec, StateMap, WorkingSet};
 
 pub mod first_test_module {
     use super::*;
@@ -26,14 +26,13 @@ pub mod first_test_module {
 
         type CallMessage = ();
 
-        type Event = ();
-
         fn call(
             &mut self,
             _message: Self::CallMessage,
             _context: &Self::Context,
-            _working_set: &mut WorkingSet<Self::Context>,
-        ) -> Result<sov_modules_api::CallResponse, sov_modules_api::Error> {
+            _working_set: &mut WorkingSet<C::Storage>,
+        ) -> Result<sov_modules_api::CallResponse, sov_modules_api::SoftConfirmationModuleCallError>
+        {
             todo!()
         }
     }
@@ -63,14 +62,13 @@ mod second_test_module {
 
         type CallMessage = ();
 
-        type Event = ();
-
         fn call(
             &mut self,
             _message: Self::CallMessage,
             _context: &Self::Context,
-            _working_set: &mut WorkingSet<Self::Context>,
-        ) -> Result<sov_modules_api::CallResponse, sov_modules_api::Error> {
+            _working_set: &mut WorkingSet<<Self::Context as Spec>::Storage>,
+        ) -> Result<sov_modules_api::CallResponse, sov_modules_api::SoftConfirmationModuleCallError>
+        {
             todo!()
         }
     }

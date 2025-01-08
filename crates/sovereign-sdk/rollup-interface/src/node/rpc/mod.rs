@@ -6,60 +6,15 @@ extern crate alloc;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::marker::PhantomData;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "native")]
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::da::SequencerCommitment;
-#[cfg(feature = "native")]
-use crate::stf::EventKey;
+use crate::soft_confirmation::SignedSoftConfirmation;
 use crate::zk::{BatchProofInfo, CumulativeStateDiff};
 
 /// A struct containing enough information to uniquely specify single batch.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SlotIdAndOffset {
-    /// The [`SlotIdentifier`] of the slot containing this batch.
-    pub slot_id: SlotIdentifier,
-    /// The offset into the slot at which this tx is located.
-    /// Index 0 is the first batch in the slot.
-    pub offset: u64,
-}
-
-/// A struct containing enough information to uniquely specify single transaction.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BatchIdAndOffset {
-    /// The [`BatchIdentifier`] of the batch containing this transaction.
-    pub batch_id: BatchIdentifier,
-    /// The offset into the batch at which this tx is located.
-    /// Index 0 is the first transaction in the batch.
-    pub offset: u64,
-}
-
-/// A struct containing enough information to uniquely specify single event.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TxIdAndOffset {
-    /// The [`TxIdentifier`] of the transaction containing this event.
-    pub tx_id: TxIdentifier,
-    /// The offset into the tx's events at which this event is located.
-    /// Index 0 is the first event from this tx.
-    pub offset: u64,
-}
-
-/// A struct containing enough information to uniquely specify single event.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TxIdAndKey {
-    /// The [`TxIdentifier`] of the transaction containing this event.
-    pub tx_id: TxIdentifier,
-    /// The key of the event.
-    pub key: EventKey,
-}
 
 /// An identifier that specifies a single soft confirmation
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -69,69 +24,6 @@ pub enum SoftConfirmationIdentifier {
     Number(u64),
     /// The hex-encoded hash of the soft confirmation
     Hash(#[serde(with = "utils::rpc_hex")] [u8; 32]),
-}
-
-/// An identifier that specifies a single batch
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged, rename_all = "camelCase")]
-pub enum BatchIdentifier {
-    /// The hex-encoded hash of the batch, as computed by the DA layer.
-    Hash(#[serde(with = "utils::rpc_hex")] [u8; 32]),
-    /// An offset into a particular slot (i.e. the 3rd batch in slot 5).
-    SlotIdAndOffset(SlotIdAndOffset),
-    /// The monotonically increasing number of the batch, ordered by the DA layer For example, if the genesis slot
-    /// contains 0 batches, slot 1 contains 2 txs, and slot 3 contains 3 txs,
-    /// the last batch in block 3 would have number 5. The counter never resets.
-    Number(u64),
-}
-
-/// An identifier that specifies a single transaction.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged, rename_all = "camelCase")]
-pub enum TxIdentifier {
-    /// The hex encoded hash of the transaction.
-    Hash(#[serde(with = "utils::rpc_hex")] [u8; 32]),
-    /// An offset into a particular batch (i.e. the 3rd transaction in batch 5).
-    BatchIdAndOffset(BatchIdAndOffset),
-    /// The monotonically increasing number of the tx, ordered by the DA layer For example, if genesis
-    /// contains 0 txs, batch 1 contains 8 txs, and batch 3 contains 7 txs,
-    /// the last tx in batch 3 would have number 15. The counter never resets.
-    Number(u64),
-}
-
-/// An identifier that specifies a single event.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged, rename_all = "camelCase")]
-pub enum EventIdentifier {
-    /// An offset into a particular transaction (i.e. the 3rd event in transaction number 5).
-    TxIdAndOffset(TxIdAndOffset),
-    /// A particular event key from a particular transaction.
-    TxIdAndKey(TxIdAndKey),
-    /// The monotonically increasing number of the event, ordered by the DA layer For example, if the first tx
-    /// contains 7 events, tx 2 contains 11 events, and tx 3 contains 7 txs,
-    /// the last event in tx 3 would have number 25. The counter never resets.
-    Number(u64),
-}
-
-/// An identifier for a group of related events
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged, rename_all = "camelCase")]
-pub enum EventGroupIdentifier {
-    /// Fetch all events from a particular transaction.
-    TxId(TxIdentifier),
-    /// Fetch all events (i.e. from all transactions) with a particular key.
-    Key(Vec<u8>),
-}
-
-/// An identifier that specifies a single slot.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged, rename_all = "camelCase")]
-pub enum SlotIdentifier {
-    /// The hex encoded hash of the slot (i.e. the da layer's block hash).
-    Hash(#[serde(with = "utils::rpc_hex")] [u8; 32]),
-    /// The monotonically increasing number of the slot, ordered by the DA layer but starting from 0
-    /// at the *rollup's* genesis.
-    Number(u64),
 }
 
 /// A type that represents a transaction hash bytes.
@@ -191,6 +83,44 @@ pub struct SoftConfirmationResponse {
     pub timestamp: u64,
 }
 
+impl<'txs, Tx> TryFrom<SoftConfirmationResponse> for SignedSoftConfirmation<'txs, Tx>
+where
+    Tx: Clone + BorshDeserialize,
+{
+    type Error = borsh::io::Error;
+    fn try_from(val: SoftConfirmationResponse) -> Result<Self, Self::Error> {
+        let parsed_txs = val
+            .txs
+            .iter()
+            .flatten()
+            .map(|tx| {
+                let body = &tx.tx;
+                borsh::from_slice::<Tx>(body)
+            })
+            .collect::<Result<Vec<_>, Self::Error>>()?;
+        let res = SignedSoftConfirmation::new(
+            val.l2_height,
+            val.hash,
+            val.prev_hash,
+            val.da_slot_height,
+            val.da_slot_hash,
+            val.da_slot_txs_commitment,
+            val.l1_fee_rate,
+            val.txs
+                .unwrap_or_default()
+                .into_iter()
+                .map(|tx| tx.tx)
+                .collect(),
+            parsed_txs.into(),
+            val.deposit_data.into_iter().map(|tx| tx.tx).collect(),
+            val.soft_confirmation_signature,
+            val.pub_key,
+            val.timestamp,
+        );
+        Ok(res)
+    }
+}
+
 /// The response to a JSON-RPC request for sequencer commitments on a DA Slot.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -206,6 +136,27 @@ pub struct SequencerCommitmentResponse {
     pub l2_end_block_number: u64,
 }
 
+/// Latest da state to verify and apply da block changes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LatestDaStateRpcResponse {
+    /// Proved DA block's header hash
+    /// This is used to compare the previous DA block hash with first batch proof's DA block hash
+    #[serde(with = "hex::serde")]
+    pub block_hash: [u8; 32],
+    /// Height of the blockchain
+    pub block_height: u64,
+    /// Total work done in the DA blockchain
+    #[serde(with = "hex::serde")]
+    pub total_work: [u8; 32],
+    /// Current target bits of DA
+    pub current_target_bits: u32,
+    /// The time of the first block in the current epoch (the difficulty adjustment timestamp)
+    pub epoch_start_time: u32,
+    /// The UNIX timestamps in seconds of the previous 11 blocks
+    pub prev_11_timestamps: [u32; 11],
+}
+
 /// The output of a light client proof
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -216,28 +167,14 @@ pub struct LightClientProofOutputRpcResponse {
     /// The method id of the light client proof
     /// This is used to compare the previous light client proof method id with the input (current) method id
     pub light_client_proof_method_id: [u32; 8],
-    /// Proved DA block's header hash
-    /// This is used to compare the previous DA block hash with first batch proof's DA block hash
-    #[serde(with = "hex::serde")]
-    pub da_block_hash: [u8; 32],
-    /// Height of the blockchain
-    pub da_block_height: u64,
-    /// Total work done in the DA blockchain
-    #[serde(with = "hex::serde")]
-    pub da_total_work: [u8; 32],
-    /// Current target bits of DA
-    pub da_current_target_bits: u32,
-    /// The time of the first block in the current epoch (the difficulty adjustment timestamp)
-    pub da_epoch_start_time: u32,
-    /// The UNIX timestamps in seconds of the previous 11 blocks
-    pub da_prev_11_timestamps: [u32; 11],
+    /// Latest DA state after proof
+    pub latest_da_state: LatestDaStateRpcResponse,
     /// Batch proof info from current or previous light client proofs that were not changed and unable to update the state root yet
     pub unchained_batch_proofs_info: Vec<BatchProofInfo>,
     /// Last l2 height the light client proof verifies
     pub last_l2_height: u64,
-    /// Genesis state root of Citrea
-    #[serde(with = "hex::serde")]
-    pub l2_genesis_state_root: [u8; 32],
+    /// L2 activation height of the fork and the Method ids of the batch proofs that were verified in the light client proof
+    pub batch_proof_method_ids: Vec<(u64, [u32; 8])>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -296,6 +233,12 @@ pub struct BatchProofOutputRpcResponse {
     /// The state of the rollup after the transition
     #[serde(with = "hex::serde")]
     pub final_state_root: Vec<u8>,
+    /// The hash of the last soft confirmation before the state transition
+    #[serde(with = "hex::serde")]
+    pub prev_soft_confirmation_hash: [u8; 32],
+    /// The hash of the last soft confirmation in the state transition
+    #[serde(with = "hex::serde")]
+    pub final_soft_confirmation_hash: [u8; 32],
     /// State diff of L2 blocks in the processed sequencer commitments.
     #[serde(
         serialize_with = "custom_serialize_btreemap",
@@ -316,6 +259,8 @@ pub struct BatchProofOutputRpcResponse {
     pub sequencer_da_public_key: Vec<u8>,
     /// Pre-proven commitments L2 ranges which also exist in the current L1 `da_data`.
     pub preproven_commitments: Vec<usize>,
+    /// The last processed l2 height in the processed sequencer commitments.
+    pub last_l2_height: u64,
 }
 
 /// Custom serialization for BTreeMap
@@ -391,22 +336,6 @@ pub fn sequencer_commitment_to_response(
     }
 }
 
-/// The response to a JSON-RPC request for a particular transaction.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TxResponse<Tx> {
-    /// The hex encoded transaction hash.
-    #[serde(with = "utils::rpc_hex")]
-    pub hash: [u8; 32],
-    /// The transaction body, if stored by the rollup.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body: Option<HexTx>,
-    /// The custom receipt specified by the rollup. This typically contains
-    /// information about the outcome of the transaction.
-    #[serde(skip_serializing)]
-    pub phantom_data: PhantomData<Tx>,
-}
-
 /// An RPC response which might contain a full item or just its hash.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(untagged, rename_all = "camelCase")]
@@ -445,13 +374,13 @@ pub trait LedgerRpcProvider {
     ) -> Result<Option<SoftConfirmationResponse>, anyhow::Error>;
 
     /// Get a single soft confirmation by hash.
-    fn get_soft_confirmation_by_hash<T: DeserializeOwned>(
+    fn get_soft_confirmation_by_hash(
         &self,
         hash: &[u8; 32],
     ) -> Result<Option<SoftConfirmationResponse>, anyhow::Error>;
 
     /// Get a single soft confirmation by number.
-    fn get_soft_confirmation_by_number<T: DeserializeOwned>(
+    fn get_soft_confirmation_by_number(
         &self,
         number: u64,
     ) -> Result<Option<SoftConfirmationResponse>, anyhow::Error>;

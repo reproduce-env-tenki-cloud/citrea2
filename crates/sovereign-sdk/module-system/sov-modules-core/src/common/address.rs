@@ -25,19 +25,14 @@ use crate::common::Bech32ParseError;
     Into,
     Display,
 )]
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary, proptest_derive::Arbitrary)
-)]
 #[serde(try_from = "String", into = "String")]
-#[display(fmt = "{}", "value")]
+#[display("{}", value)]
 pub struct AddressBech32 {
     value: String,
 }
 
 /// Module address representation
 #[cfg_attr(all(feature = "native", feature = "std"), derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Clone, Copy, Eq, BorshDeserialize, BorshSerialize, Hash)]
 pub struct Address {
     addr: [u8; 32],

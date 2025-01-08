@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::anyhow;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -9,27 +10,30 @@ use citrea_common::cache::L1BlockCache;
 use citrea_common::da::{extract_sequencer_commitments, extract_zk_proofs, get_da_block_at_height};
 use citrea_common::error::SyncError;
 use citrea_common::utils::check_l2_range_exists;
-use citrea_primitives::forks::FORKS;
+use citrea_primitives::forks::fork_from_block_number;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::MerkleTree;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sov_db::ledger_db::NodeLedgerOps;
 use sov_db::schema::types::{
-    BatchNumber, SlotNumber, StoredBatchProofOutput, StoredSoftConfirmation,
+    SlotNumber, SoftConfirmationNumber, StoredBatchProofOutput, StoredSoftConfirmation,
 };
 use sov_modules_api::{Context, Zkvm};
 use sov_rollup_interface::da::{BlockHeaderTrait, SequencerCommitment};
-use sov_rollup_interface::fork::fork_from_block_number;
 use sov_rollup_interface::rpc::SoftConfirmationStatus;
 use sov_rollup_interface::services::da::{DaService, SlotData};
 use sov_rollup_interface::spec::SpecId;
-use sov_rollup_interface::zk::{BatchProofCircuitOutputV2, Proof, ZkvmHost};
+use sov_rollup_interface::zk::{
+    BatchProofCircuitOutput, OldBatchProofCircuitOutput, Proof, ZkvmHost,
+};
 use tokio::select;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
+
+use crate::metrics::FULLNODE_METRICS;
 
 pub(crate) struct L1BlockHandler<C, Vm, Da, StateRoot, DB>
 where
@@ -134,6 +138,7 @@ where
             .front()
             .expect("Just checked pending L1 blocks is not empty");
         let l1_height = l1_block.header().height();
+        info!("Processing L1 block at height: {}", l1_height);
 
         // Set the l1 height of the l1 hash
         self.ledger_db
@@ -142,22 +147,19 @@ where
 
         let sequencer_commitments = extract_sequencer_commitments(
             self.da_service.clone(),
-            l1_block.clone(),
+            l1_block,
             &self.sequencer_da_pub_key,
         );
-        let zk_proofs = match extract_zk_proofs(
-            self.da_service.clone(),
-            l1_block.clone(),
-            &self.prover_da_pub_key,
-        )
-        .await
-        {
-            Ok(proofs) => proofs,
-            Err(e) => {
-                error!("Could not process L1 block: {}...skipping", e);
-                return;
-            }
-        };
+        let zk_proofs =
+            match extract_zk_proofs(self.da_service.clone(), l1_block, &self.prover_da_pub_key)
+                .await
+            {
+                Ok(proofs) => proofs,
+                Err(e) => {
+                    error!("Could not process L1 block: {}...skipping", e);
+                    return;
+                }
+            };
 
         if !sequencer_commitments.is_empty() {
             // If the L2 range does not exist, we break off the current process call
@@ -167,15 +169,13 @@ where
                 sequencer_commitments[0].l2_start_block_number,
                 sequencer_commitments[sequencer_commitments.len() - 1].l2_end_block_number,
             ) {
+                warn!("L1 commitment received, but L2 range is not synced yet...");
                 return;
             }
         }
 
         for zk_proof in zk_proofs.clone().iter() {
-            if let Err(e) = self
-                .process_zk_proof(l1_block.clone(), zk_proof.clone())
-                .await
-            {
+            if let Err(e) = self.process_zk_proof(l1_block, zk_proof.clone()).await {
                 match e {
                     SyncError::MissingL2(msg, start_l2_height, end_l2_height) => {
                         warn!("Could not completely process ZK proofs. Missing L2 blocks {:?} - {:?}. msg = {}", start_l2_height, end_l2_height, msg);
@@ -215,6 +215,8 @@ where
                 error!("Could not set last scanned l1 height: {}", e);
             });
 
+        FULLNODE_METRICS.current_l1_block.set(l1_height as f64);
+
         self.pending_l1_blocks.pop_front();
     }
 
@@ -237,7 +239,7 @@ where
         // and compare the root with the one from the ledger
         let stored_soft_confirmations: Vec<StoredSoftConfirmation> =
             self.ledger_db.get_soft_confirmation_range(
-                &(BatchNumber(start_l2_height)..=BatchNumber(end_l2_height)),
+                &(SoftConfirmationNumber(start_l2_height)..=SoftConfirmationNumber(end_l2_height)),
             )?;
 
         // Make sure that the number of stored soft confirmations is equal to the range's length.
@@ -278,32 +280,62 @@ where
         )?;
 
         for i in start_l2_height..=end_l2_height {
-            self.ledger_db
-                .put_soft_confirmation_status(BatchNumber(i), SoftConfirmationStatus::Finalized)?;
+            self.ledger_db.put_soft_confirmation_status(
+                SoftConfirmationNumber(i),
+                SoftConfirmationStatus::Finalized,
+            )?;
         }
         self.ledger_db
-            .set_last_commitment_l2_height(BatchNumber(end_l2_height))?;
+            .set_last_commitment_l2_height(SoftConfirmationNumber(end_l2_height))?;
 
         Ok(())
     }
 
     async fn process_zk_proof(
         &self,
-        l1_block: Da::FilteredBlock,
+        l1_block: &Da::FilteredBlock,
         proof: Proof,
     ) -> Result<(), SyncError> {
         tracing::info!(
             "Processing zk proof at height: {}",
             l1_block.header().height()
         );
-        tracing::debug!("ZK proof: {:?}", proof);
+        tracing::trace!("ZK proof: {:?}", proof);
 
-        // TODO: select output version based on spec
-        let batch_proof_output = Vm::extract_output::<
-            <Da as DaService>::Spec,
-            BatchProofCircuitOutputV2<<Da as DaService>::Spec, StateRoot>,
+        let (last_active_spec_id, batch_proof_output) = match Vm::extract_output::<
+            BatchProofCircuitOutput<<Da as DaService>::Spec, StateRoot>,
         >(&proof)
-        .expect("Proof should be deserializable");
+        {
+            Ok(output) => (
+                fork_from_block_number(output.last_l2_height).spec_id,
+                output,
+            ),
+            Err(e) => {
+                info!("Failed to extract post fork 1 output from proof: {:?}. Trying to extract pre fork 1 output", e);
+                let output = Vm::extract_output::<
+                    OldBatchProofCircuitOutput<<Da as DaService>::Spec, StateRoot>,
+                >(&proof)
+                .expect("Should be able to extract either pre or post fork 1 output");
+                let batch_proof_output = BatchProofCircuitOutput::<Da::Spec, StateRoot> {
+                    initial_state_root: output.initial_state_root,
+                    final_state_root: output.final_state_root,
+                    state_diff: output.state_diff,
+                    da_slot_hash: output.da_slot_hash,
+                    sequencer_commitments_range: output.sequencer_commitments_range,
+                    sequencer_public_key: output.sequencer_public_key,
+                    sequencer_da_public_key: output.sequencer_da_public_key,
+                    preproven_commitments: output.preproven_commitments,
+                    // We don't have these fields in pre fork 1
+                    // That's why we serve them as 0
+                    prev_soft_confirmation_hash: [0; 32],
+                    final_soft_confirmation_hash: [0; 32],
+                    last_l2_height: 0,
+                };
+                // If we got output of pre fork 1 that means we are in genesis
+                (SpecId::Genesis, batch_proof_output)
+            }
+        };
+
         if batch_proof_output.sequencer_da_public_key != self.sequencer_da_pub_key
             || batch_proof_output.sequencer_public_key != self.sequencer_pub_key
         {
@@ -312,8 +344,6 @@ where
             ).into());
         }
 
-        let last_active_spec_id =
-            fork_from_block_number(FORKS, batch_proof_output.last_l2_height).spec_id;
         let code_commitment = self
             .code_commitments_by_spec
             .get(&last_active_spec_id)
@@ -330,6 +360,9 @@ where
             sequencer_public_key: batch_proof_output.sequencer_public_key,
             sequencer_da_public_key: batch_proof_output.sequencer_da_public_key,
             preproven_commitments: batch_proof_output.preproven_commitments.clone(),
+            prev_soft_confirmation_hash: batch_proof_output.prev_soft_confirmation_hash,
+            final_soft_confirmation_hash: batch_proof_output.final_soft_confirmation_hash,
+            last_l2_height: batch_proof_output.last_l2_height,
         };
 
         let l1_hash = batch_proof_output.da_slot_hash.into();
@@ -406,8 +439,10 @@ where
             let l2_start_height = commitment.l2_start_block_number;
             let l2_end_height = commitment.l2_end_block_number;
             for i in l2_start_height..=l2_end_height {
-                self.ledger_db
-                    .put_soft_confirmation_status(BatchNumber(i), SoftConfirmationStatus::Proven)?;
+                self.ledger_db.put_soft_confirmation_status(
+                    SoftConfirmationNumber(i),
+                    SoftConfirmationStatus::Proven,
+                )?;
             }
         }
         // store in ledger db
@@ -431,9 +466,9 @@ async fn sync_l1<Da>(
     let mut l1_height = start_l1_height;
     info!("Starting to sync from L1 height {}", l1_height);
 
+    let start = Instant::now();
+
     'block_sync: loop {
-        // TODO: for a node, the da block at slot_height might not have been finalized yet
-        // should wait for it to be finalized
         let last_finalized_l1_block_header =
             match da_service.get_last_finalized_block_header().await {
                 Ok(header) => header,
@@ -461,6 +496,11 @@ async fn sync_l1<Da>(
 
             if block_number > l1_height {
                 l1_height = block_number;
+                FULLNODE_METRICS.scan_l1_block.record(
+                    Instant::now()
+                        .saturating_duration_since(start)
+                        .as_secs_f64(),
+                );
                 if let Err(e) = sender.send(l1_block).await {
                     error!("Could not notify about L1 block: {}", e);
                     continue 'block_sync;

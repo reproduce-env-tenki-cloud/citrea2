@@ -1,7 +1,7 @@
 #[cfg(feature = "native")]
 use std::collections::HashMap;
 
-use reth_primitives::{keccak256, Address, B256};
+use alloy_primitives::{keccak256, Address, B256};
 use revm::primitives::{AccountInfo as ReVmAccountInfo, Bytecode, SpecId, U256};
 use revm::Database;
 use sov_modules_api::{StateMapAccessor, WorkingSet};
@@ -37,7 +37,7 @@ pub(crate) struct EvmDb<'a, C: sov_modules_api::Context> {
     pub(crate) code: sov_modules_api::StateMap<B256, Bytecode, BcsCodec>,
     pub(crate) offchain_code: sov_modules_api::OffchainStateMap<B256, Bytecode, BcsCodec>,
     pub(crate) last_block_hashes: sov_modules_api::StateMap<U256, B256, BcsCodec>,
-    pub(crate) working_set: &'a mut WorkingSet<C>,
+    pub(crate) working_set: &'a mut WorkingSet<C::Storage>,
     pub(crate) current_spec: SpecId,
 }
 
@@ -47,7 +47,7 @@ impl<'a, C: sov_modules_api::Context> EvmDb<'a, C> {
         code: sov_modules_api::StateMap<B256, Bytecode, BcsCodec>,
         offchain_code: sov_modules_api::OffchainStateMap<B256, Bytecode, BcsCodec>,
         last_block_hashes: sov_modules_api::StateMap<U256, B256, BcsCodec>,
-        working_set: &'a mut WorkingSet<C>,
+        working_set: &'a mut WorkingSet<C::Storage>,
         current_spec: SpecId,
     ) -> Self {
         Self {
@@ -75,7 +75,7 @@ impl<'a, C: sov_modules_api::Context> EvmDb<'a, C> {
     pub(crate) fn override_set_account_storage(
         &mut self,
         account: &Address,
-        state_diff: HashMap<B256, B256>,
+        state_diff: HashMap<B256, B256, alloy_primitives::map::FbBuildHasher<32>>,
     ) {
         let db_account = DbAccount::new(*account);
         for (slot, value) in state_diff {

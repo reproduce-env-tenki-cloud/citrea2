@@ -1,27 +1,28 @@
 #![deny(missing_docs)]
 #![doc = include_str!("../README.md")]
 
-mod runtime_rpc;
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use citrea_common::tasks::manager::TaskManager;
-use citrea_common::{
-    BatchProverConfig, FeeThrottleConfig, FullNodeConfig, LightClientProverConfig,
-};
-pub use runtime_rpc::*;
+use citrea_common::{FeeThrottleConfig, FullNodeConfig};
 use sov_db::ledger_db::LedgerDB;
 use sov_db::rocks_db_config::RocksdbConfig;
 use sov_modules_api::{Context, DaSpec, Spec};
 use sov_modules_stf_blueprint::{GenesisParams, Runtime as RuntimeTrait};
+use sov_prover_storage_manager::{ProverStorage, ProverStorageManager, SnapshotManager};
+use sov_rollup_interface::da::DaVerifier;
 use sov_rollup_interface::services::da::DaService;
 use sov_rollup_interface::spec::SpecId;
-use sov_rollup_interface::storage::HierarchicalStorageManager;
 use sov_rollup_interface::zk::{Zkvm, ZkvmHost};
-use sov_stf_runner::ProverService;
+use sov_rollup_interface::Network;
+use sov_stf_runner::{ProverGuestRunConfig, ProverService};
 use tokio::sync::broadcast;
+
+mod runtime_rpc;
+
+pub use runtime_rpc::*;
 
 /// This trait defines how to crate all the necessary dependencies required by a rollup.
 #[async_trait]
@@ -35,6 +36,9 @@ pub trait RollupBlueprint: Sized + Send + Sync {
     /// Data Availability config.
     type DaConfig: Send + Sync;
 
+    /// Data Availability verifier.
+    type DaVerifier: DaVerifier + Send + Sync;
+
     /// Host of a zkVM program.
     type Vm: ZkvmHost + Zkvm + Send + Sync + 'static;
 
@@ -42,14 +46,7 @@ pub trait RollupBlueprint: Sized + Send + Sync {
     type ZkContext: Context;
 
     /// Context for Native environment.
-    type NativeContext: Context + Sync + Send;
-
-    /// Manager for the native storage lifecycle.
-    type StorageManager: HierarchicalStorageManager<
-        Self::DaSpec,
-        NativeStorage = <Self::NativeContext as Spec>::Storage,
-        NativeChangeSet = <Self::NativeContext as Spec>::Storage,
-    >;
+    type NativeContext: Context + Spec<Storage = ProverStorage<SnapshotManager>> + Sync + Send;
 
     /// Runtime for the Zero Knowledge environment.
     type ZkRuntime: RuntimeTrait<Self::ZkContext, Self::DaSpec> + Default;
@@ -60,20 +57,28 @@ pub trait RollupBlueprint: Sized + Send + Sync {
     type ProverService: ProverService<DaService = Self::DaService> + Send + Sync + 'static;
 
     /// Creates a new instance of the blueprint.
-    fn new() -> Self;
+    fn new(network: Network) -> Self;
+
+    /// Get batch proof guest code elfs by fork.
+    fn get_batch_proof_elfs(&self) -> HashMap<SpecId, Vec<u8>>;
+
+    /// Get light client guest code elfs by fork.
+    fn get_light_client_elfs(&self) -> HashMap<SpecId, Vec<u8>>;
 
     /// Get batch prover code commitments by fork.
-    fn get_batch_prover_code_commitments_by_spec(
+    fn get_batch_proof_code_commitments(
         &self,
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment>;
 
     /// Get light client prover code commitment.
-    fn get_light_client_prover_code_commitment(&self) -> <Self::Vm as Zkvm>::CodeCommitment;
+    fn get_light_client_proof_code_commitment(
+        &self,
+    ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment>;
 
     /// Creates RPC methods for the rollup.
     fn create_rpc_methods(
         &self,
-        storage: &<Self::NativeContext as Spec>::Storage,
+        storage: &ProverStorage<SnapshotManager>,
         ledger_db: &LedgerDB,
         da_service: &Arc<Self::DaService>,
         sequencer_client_url: Option<String>,
@@ -113,22 +118,16 @@ pub trait RollupBlueprint: Sized + Send + Sync {
         throttle_config: Option<FeeThrottleConfig>,
     ) -> Result<Arc<Self::DaService>, anyhow::Error>;
 
-    /// Creates instance of [`ProverService`].
-    async fn create_batch_prover_service(
-        &self,
-        prover_config: BatchProverConfig,
-        rollup_config: &FullNodeConfig<Self::DaConfig>,
-        da_service: &Arc<Self::DaService>,
-        ledger_db: LedgerDB,
-    ) -> Self::ProverService;
+    /// Creates instance of [`BitcoinDaVerifier`]
+    fn create_da_verifier(&self) -> Self::DaVerifier;
 
     /// Creates instance of [`ProverService`].
-    async fn create_light_client_prover_service(
+    async fn create_prover_service(
         &self,
-        prover_config: LightClientProverConfig,
-        rollup_config: &FullNodeConfig<Self::DaConfig>,
+        proving_mode: ProverGuestRunConfig,
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
+        proof_sampling_number: usize,
     ) -> Self::ProverService;
 
     /// Creates instance of [`Self::StorageManager`].
@@ -136,7 +135,7 @@ pub trait RollupBlueprint: Sized + Send + Sync {
     fn create_storage_manager(
         &self,
         rollup_config: &FullNodeConfig<Self::DaConfig>,
-    ) -> Result<Self::StorageManager, anyhow::Error>;
+    ) -> Result<ProverStorageManager<Self::DaSpec>, anyhow::Error>;
 
     /// Creates instance of a LedgerDB.
     fn create_ledger_db(&self, rocksdb_config: &RocksdbConfig) -> LedgerDB {

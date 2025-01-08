@@ -8,6 +8,10 @@ use alloy::providers::{PendingTransactionBuilder, Provider as AlloyProvider, Pro
 use alloy::rpc::types::eth::{Block, Transaction, TransactionReceipt, TransactionRequest};
 use alloy::signers::local::PrivateKeySigner;
 use alloy::transports::http::{Http, HyperClient};
+use alloy_primitives::{Address, Bytes, TxHash, TxKind, B256, U256, U64};
+// use reth_rpc_types::TransactionReceipt;
+use alloy_rpc_types::{AnyNetworkBlock, EIP1186AccountProofResponse};
+use alloy_rpc_types_trace::geth::{GethDebugTracingOptions, GethTrace, TraceResult};
 use citrea_batch_prover::GroupCommitments;
 use citrea_evm::{Filter, LogResponse};
 use ethereum_rpc::SyncStatus;
@@ -15,16 +19,14 @@ use jsonrpsee::core::client::{ClientT, SubscriptionClientT};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use jsonrpsee::ws_client::{PingConfig, WsClient, WsClientBuilder};
-use reth_primitives::{Address, BlockId, BlockNumberOrTag, Bytes, TxHash, TxKind, B256, U256, U64};
-use reth_rpc_types::trace::geth::{GethDebugTracingOptions, GethTrace};
-use reth_rpc_types::RichBlock;
-use sequencer_client::GetSoftConfirmationResponse;
+use reth_primitives::{BlockId, BlockNumberOrTag};
+use sov_ledger_rpc::{HexHash, LedgerRpcClient};
 use sov_rollup_interface::rpc::{
     BatchProofResponse, LastVerifiedBatchProofResponse, SequencerCommitmentResponse,
     SoftConfirmationResponse, SoftConfirmationStatus, VerifiedBatchProofResponse,
 };
 
-pub const SEND_ETH_GAS: u128 = 21001;
+pub const SEND_ETH_GAS: u64 = 21001;
 pub const MAX_FEE_PER_GAS: u128 = 1000000001;
 
 pub struct TestClient {
@@ -271,7 +273,7 @@ impl TestClient {
         to_addr: Address,
         max_priority_fee_per_gas: Option<u128>,
         max_fee_per_gas: Option<u128>,
-        gas: u128,
+        gas: u64,
         value: u128,
     ) -> Result<PendingTransactionBuilder<'_, Http<HyperClient>, Ethereum>, anyhow::Error> {
         let nonce = self.current_nonce.fetch_add(1, Ordering::Relaxed);
@@ -301,13 +303,6 @@ impl TestClient {
     pub(crate) async fn web3_sha3(&self, bytes: String) -> String {
         self.http_client
             .request("web3_sha3", rpc_params![bytes])
-            .await
-            .unwrap()
-    }
-
-    pub(crate) async fn eth_accounts(&self) -> Vec<Address> {
-        self.http_client
-            .request("eth_accounts", rpc_params![])
             .await
             .unwrap()
     }
@@ -402,7 +397,7 @@ impl TestClient {
     pub(crate) async fn eth_get_block_by_number_with_detail(
         &self,
         block_number: Option<BlockNumberOrTag>,
-    ) -> Block {
+    ) -> AnyNetworkBlock {
         self.http_client
             .request("eth_getBlockByNumber", rpc_params![block_number, true])
             .await
@@ -487,15 +482,27 @@ impl TestClient {
         eth_logs
     }
 
+    pub(crate) async fn eth_get_proof(
+        &self,
+        address: Address,
+        keys: Vec<U256>,
+        block_number: Option<BlockNumberOrTag>,
+    ) -> Result<EIP1186AccountProofResponse, Box<dyn std::error::Error>> {
+        self.http_client
+            .request("eth_getProof", rpc_params![address, keys, block_number])
+            .await
+            .map_err(|e| e.into())
+    }
+
     #[allow(clippy::extra_unused_type_parameters)]
     pub(crate) async fn ledger_get_soft_confirmation_by_number<
         DaSpec: sov_rollup_interface::da::DaSpec,
     >(
         &self,
         num: u64,
-    ) -> Option<GetSoftConfirmationResponse> {
+    ) -> Option<SoftConfirmationResponse> {
         self.http_client
-            .request("ledger_getSoftConfirmationByNumber", rpc_params![num])
+            .get_soft_confirmation_by_number(U64::from(num))
             .await
             .unwrap()
     }
@@ -503,21 +510,15 @@ impl TestClient {
     pub(crate) async fn ledger_get_soft_confirmation_status(
         &self,
         soft_confirmation_receipt: u64,
-    ) -> Result<Option<SoftConfirmationStatus>, Box<dyn std::error::Error>> {
-        self.http_client
-            .request(
-                "ledger_getSoftConfirmationStatus",
-                rpc_params![soft_confirmation_receipt],
-            )
-            .await
-            .map_err(|e| e.into())
+    ) -> Result<SoftConfirmationStatus, Box<dyn std::error::Error>> {
+        Ok(self
+            .http_client
+            .get_soft_confirmation_status(U64::from(soft_confirmation_receipt))
+            .await?)
     }
 
     pub(crate) async fn ledger_get_last_scanned_l1_height(&self) -> u64 {
-        self.http_client
-            .request("ledger_getLastScannedL1Height", rpc_params![])
-            .await
-            .unwrap()
+        self.http_client.get_last_scanned_l1_height().await.unwrap()
     }
 
     pub(crate) async fn ledger_get_sequencer_commitments_on_slot_by_number(
@@ -525,10 +526,7 @@ impl TestClient {
         height: u64,
     ) -> anyhow::Result<Option<Vec<SequencerCommitmentResponse>>> {
         self.http_client
-            .request(
-                "ledger_getSequencerCommitmentsOnSlotByNumber",
-                rpc_params![height],
-            )
+            .get_sequencer_commitments_on_slot_by_number(U64::from(height))
             .await
             .map_err(|e| e.into())
     }
@@ -536,9 +534,9 @@ impl TestClient {
     pub(crate) async fn ledger_get_batch_proofs_by_slot_height(
         &self,
         height: u64,
-    ) -> Vec<BatchProofResponse> {
+    ) -> Option<Vec<BatchProofResponse>> {
         self.http_client
-            .request("ledger_getBatchProofsBySlotHeight", rpc_params![height])
+            .get_batch_proofs_by_slot_height(U64::from(height))
             .await
             .unwrap()
     }
@@ -548,21 +546,18 @@ impl TestClient {
         height: u64,
     ) -> Option<Vec<VerifiedBatchProofResponse>> {
         self.http_client
-            .request(
-                "ledger_getVerifiedBatchProofsBySlotHeight",
-                rpc_params![height],
-            )
+            .get_verified_batch_proofs_by_slot_height(U64::from(height))
             .await
-            .ok()
+            .unwrap()
     }
 
     pub(crate) async fn ledger_get_last_verified_batch_proof(
         &self,
     ) -> Option<LastVerifiedBatchProofResponse> {
         self.http_client
-            .request("ledger_getLastVerifiedBatchProof", rpc_params![])
+            .get_last_verified_batch_proof()
             .await
-            .ok()
+            .unwrap()
     }
 
     pub(crate) async fn ledger_get_sequencer_commitments_on_slot_by_hash(
@@ -570,10 +565,7 @@ impl TestClient {
         hash: [u8; 32],
     ) -> Result<Option<Vec<SequencerCommitmentResponse>>, Box<dyn std::error::Error>> {
         self.http_client
-            .request(
-                "ledger_getSequencerCommitmentsOnSlotByHash",
-                rpc_params![hash],
-            )
+            .get_sequencer_commitments_on_slot_by_hash(HexHash(hash))
             .await
             .map_err(|e| e.into())
     }
@@ -582,16 +574,16 @@ impl TestClient {
         &self,
     ) -> Result<Option<SoftConfirmationResponse>, Box<dyn std::error::Error>> {
         self.http_client
-            .request("ledger_getHeadSoftConfirmation", rpc_params![])
+            .get_head_soft_confirmation()
             .await
             .map_err(|e| e.into())
     }
 
     pub(crate) async fn ledger_get_head_soft_confirmation_height(
         &self,
-    ) -> Result<Option<u64>, Box<dyn std::error::Error>> {
+    ) -> Result<u64, Box<dyn std::error::Error>> {
         self.http_client
-            .request("ledger_getHeadSoftConfirmationHeight", rpc_params![])
+            .get_head_soft_confirmation_height()
             .await
             .map_err(|e| e.into())
     }
@@ -621,7 +613,7 @@ impl TestClient {
         &self,
         block_number: BlockNumberOrTag,
         opts: Option<GethDebugTracingOptions>,
-    ) -> Vec<GethTrace> {
+    ) -> Vec<TraceResult> {
         self.http_client
             .request("debug_traceBlockByNumber", rpc_params![block_number, opts])
             .await
@@ -632,7 +624,7 @@ impl TestClient {
         &self,
         block_hash: B256,
         opts: Option<GethDebugTracingOptions>,
-    ) -> Vec<GethTrace> {
+    ) -> Vec<TraceResult> {
         self.http_client
             .request("debug_traceBlockByHash", rpc_params![block_hash, opts])
             .await
@@ -644,7 +636,7 @@ impl TestClient {
         start_block: BlockNumberOrTag,
         end_block: BlockNumberOrTag,
         opts: Option<GethDebugTracingOptions>,
-    ) -> Vec<GethTrace> {
+    ) -> Vec<TraceResult> {
         let mut subscription = self
             .ws_client
             .subscribe(
@@ -663,7 +655,7 @@ impl TestClient {
             BlockNumberOrTag::Latest => self.eth_block_number().await,
             _ => panic!("Only number and latest"),
         };
-        let mut traces: Vec<Vec<GethTrace>> = vec![];
+        let mut traces: Vec<Vec<TraceResult>> = vec![];
         for _ in start_block..end_block {
             let block_traces = subscription.next().await.unwrap().unwrap();
             traces.push(block_traces);
@@ -672,7 +664,7 @@ impl TestClient {
         traces.into_iter().flatten().collect()
     }
 
-    pub(crate) async fn subscribe_new_heads(&self) -> mpsc::Receiver<RichBlock> {
+    pub(crate) async fn subscribe_new_heads(&self) -> mpsc::Receiver<AnyNetworkBlock> {
         let (tx, rx) = mpsc::channel();
         let mut subscription = self
             .ws_client
@@ -736,12 +728,13 @@ impl TestClient {
     pub(crate) async fn batch_prover_prove(
         &self,
         l1_height: u64,
+        use_latest_elf: bool,
         group_commitments: Option<GroupCommitments>,
     ) {
         self.http_client
             .request(
                 "batchProver_prove",
-                rpc_params![l1_height, group_commitments],
+                rpc_params![l1_height, use_latest_elf, group_commitments],
             )
             .await
             .unwrap()

@@ -19,14 +19,14 @@ citrea-common = { path = "../../crates/common" }
 citrea-fullnode = { path = "../../crates/fullnode" }
 citrea-light-client-prover = { path = "../../crates/light-client-prover", features = ["native"] }
 citrea-primitives = { path = "../../crates/primitives" }
-citrea-risc0 = { package = "risc0", path = "../../guests/risc0" }
 citrea-risc0-adapter = { path = "../../crates/risc0", features = ["native"] }
+citrea-risc0-batch-proof = { path = "../../guests/risc0/batch-proof" }
+citrea-risc0-light-client = { path = "../../guests/risc0/light-client-proof" }
 citrea-sequencer = { path = "../../crates/sequencer" }
 # citrea-sp1 = { path = "../../crates/sp1", features = ["native"] }
 citrea-stf = { path = "../../crates/citrea-stf", features = ["native"] }
 ethereum-rpc = { path = "../../crates/ethereum-rpc" }
 prover-services = { path = "../../crates/prover-services" }
-sequencer-client = { path = "../../crates/sequencer-client" }
 
 # Sovereign-SDK deps
 soft-confirmation-rule-enforcer = { path = "../../crates/soft-confirmation-rule-enforcer" }
@@ -50,10 +50,14 @@ borsh = { workspace = true, features = ["bytes"] }
 clap = { workspace = true }
 hex = { workspace = true, optional = true }
 jsonrpsee = { workspace = true, features = ["http-client", "server"] }
+lazy_static = { workspace = true }
 log-panics = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true, default-features = true }
+metrics-util = { workspace = true }
 reth-primitives = { workspace = true }
-reth-rpc-types = { workspace = true }
 reth-transaction-pool = { workspace = true }
+risc0-binfmt = { workspace = true }
 secp256k1 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -67,15 +71,18 @@ citrea-evm = { path = "../../crates/evm", features = ["native"] }
 citrea-primitives = { path = "../../crates/primitives", features = ["testing"] }
 sov-mock-da = { path = "../../crates/sovereign-sdk/adapters/mock-da", default-features = false }
 sov-prover-storage-manager = { path = "../../crates/sovereign-sdk/full-node/sov-prover-storage-manager", features = ["test-utils"] }
-sov-rollup-interface = { path = "../../crates/sovereign-sdk/rollup-interface", features = ["fuzzing"] }
+sov-rollup-interface = { path = "../../crates/sovereign-sdk/rollup-interface", features = ["testing"] }
 
 alloy = { workspace = true, features = ["hyper", "consensus", "rpc-types-eth", "provider-http", "signers", "signer-local"] }
 alloy-rlp = { workspace = true }
+alloy-rpc-types = { workspace = true }
+alloy-rpc-types-trace = { workspace = true }
 bincode = { workspace = true }
 borsh = { workspace = true }
 hex = { workspace = true }
-proptest = { workspace = true }
+jmt = { workspace = true }
 reqwest = { workspace = true }
+risc0-zkvm = { workspace = true, default-features = false, features = ["std"] }
 rs_merkle = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -98,8 +105,12 @@ sp1-helper = { version = "3.0.0", default-features = false }
 
 [features]
 default = [] # Deviate from convention by making the "native" feature active by default. This aligns with how this package is meant to be used (as a binary first, library second).
-
-bench = ["hex"] # "sov-risc0-adapter/bench", "risc0/bench"]
+testing = [
+  "citrea-primitives/testing",
+  "citrea-risc0-batch-proof/testing",
+  "citrea-risc0-light-client/testing",
+  "sov-rollup-interface/testing",
+]
 
 [[bin]]
 name = "citrea"

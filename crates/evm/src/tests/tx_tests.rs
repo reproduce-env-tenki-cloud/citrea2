@@ -3,12 +3,12 @@ use std::str::FromStr;
 use alloy::consensus::{SignableTransaction, TxEnvelope};
 use alloy::providers::network::TxSignerSync;
 use alloy::signers::local::PrivateKeySigner;
+use alloy_primitives::{Address, Bytes, TxKind, U256};
 use alloy_rlp::{Decodable, Encodable};
+use alloy_rpc_types::{TransactionInput, TransactionRequest};
 use bytes::BytesMut;
-use reth_primitives::{
-    Address, Bytes, TransactionSigned, TransactionSignedEcRecovered, TxKind, U256,
-};
-use reth_rpc_types::request::{TransactionInput, TransactionRequest};
+use citrea_primitives::forks::fork_from_block_number;
+use reth_primitives::{Signature, TransactionSigned, TransactionSignedEcRecovered};
 use revm::primitives::{BlockEnv, TransactTo, TxEnv};
 
 use crate::conversions::sealed_block_to_block_env;
@@ -73,7 +73,7 @@ fn tx_conversion() {
         signer,
         signed_transaction: reth_primitives::TransactionSigned {
             hash: Default::default(),
-            signature: Default::default(),
+            signature: Signature::new(Default::default(), Default::default(), Default::default()),
             transaction: Default::default(),
         },
         block_number: 5u64,
@@ -105,6 +105,7 @@ fn prepare_call_env_conversion() {
         blob_versioned_hashes: None,
         max_fee_per_blob_gas: None,
         sidecar: None,
+        authorization_list: None,
     };
 
     let block_env = BlockEnv::default();
@@ -143,7 +144,7 @@ fn prepare_call_env_conversion() {
 
 #[test]
 fn prepare_call_block_env() {
-    let block = Block {
+    let block = Block::<alloy_consensus::Header> {
         header: Default::default(),
         l1_fee_rate: Default::default(),
         l1_hash: Default::default(),
@@ -152,7 +153,7 @@ fn prepare_call_block_env() {
 
     let sealed_block = &block.clone().seal();
 
-    let block_env = sealed_block_to_block_env(&sealed_block.header);
+    let block_env = sealed_block_to_block_env(&sealed_block.header, &fork_from_block_number);
 
     assert_eq!(block_env.number, U256::from(block.header.number));
     assert_eq!(block_env.coinbase, block.header.beneficiary);

@@ -8,13 +8,14 @@ use revm::handler::register::{EvmHandler, HandleRegisters};
 #[cfg(feature = "native")]
 use revm::interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter};
 use revm::interpreter::{Gas, InstructionResult};
+use revm::precompile::u64_to_address;
 #[cfg(feature = "native")]
 use revm::primitives::Log;
 use revm::primitives::{
     spec_to_generic, Address, EVMError, Env, HandlerCfg, InvalidTransaction, ResultAndState, Spec,
     SpecId, B256, U256,
 };
-use revm::{Context, Database, FrameResult, InnerEvmContext, JournalEntry};
+use revm::{Context, ContextPrecompiles, Database, FrameResult, InnerEvmContext, JournalEntry};
 #[cfg(feature = "native")]
 use revm::{EvmContext, Inspector};
 use sov_modules_api::{native_debug, native_error, native_warn};
@@ -51,6 +52,10 @@ const CODE_KEY_SIZE: usize = 39;
 /// It is calculated by measuring the state diff we write to da in a single batch every 10 minutes which is about 300 soft confirmations
 /// The full calculation can be found here: https://github.com/chainwayxyz/citrea/blob/erce/l1-fee-overhead-calculations/l1_fee_overhead.md
 pub const L1_FEE_OVERHEAD: usize = 3;
+
+/// The brotli average compression ratio (compressed size / uncompressed size) was calculated as 0.33 by measuring the size of state diffs of batches before and after brotli compression.
+/// calculated diff size * BROTLI_COMPRESSION_PERCENTAGE/100 gives the estimated size of the state diff that is written to the da.
+pub const BROTLI_COMPRESSION_PERCENTAGE: usize = 33;
 
 /// We want to charge the user for the amount of data written as fairly as possible, the problem is at the time of when we write batch proof to the da we cannot know the exact state diff
 /// So we calculate the state diff created by a single transaction and use that to charge user
@@ -286,7 +291,7 @@ where
         // validation.env =
         validation.tx_against_state =
             Arc::new(CitreaHandler::<SPEC, EXT, DB>::validate_tx_against_state);
-        // pre_execution.load_accounts =
+        pre_execution.load_precompiles = Arc::new(CitreaHandler::<SPEC, EXT, DB>::load_precompiles);
         // pre_execution.load_accounts =
         pre_execution.deduct_caller = Arc::new(CitreaHandler::<SPEC, EXT, DB>::deduct_caller);
         // execution.last_frame_return =
@@ -310,13 +315,29 @@ struct CitreaHandler<SPEC, EXT, DB> {
 }
 
 impl<SPEC: Spec, EXT: CitreaExternalExt, DB: Database> CitreaHandler<SPEC, EXT, DB> {
+    fn load_precompiles() -> ContextPrecompiles<DB> {
+        fn our_precompiles<SPEC: Spec, DB: Database>() -> ContextPrecompiles<DB> {
+            let mut precompiles = revm::handler::mainnet::load_precompiles::<SPEC, DB>();
+
+            if SPEC::enabled(SpecId::CANCUN) {
+                precompiles
+                    .to_mut()
+                    .remove(&u64_to_address(0x0A))
+                    .expect("after cancun point eval should be removed");
+            }
+
+            precompiles
+        }
+
+        our_precompiles::<SPEC, DB>()
+    }
     fn validate_tx_against_state(
         context: &mut Context<EXT, DB>,
     ) -> Result<(), EVMError<DB::Error>> {
         if context.is_system_caller() {
             // Don't verify balance but nonce only.
             let tx_caller = context.evm.env.tx.caller;
-            let (caller_account, _) = context
+            let caller_account = context
                 .evm
                 .inner
                 .journaled_state
@@ -347,7 +368,7 @@ impl<SPEC: Spec, EXT: CitreaExternalExt, DB: Database> CitreaHandler<SPEC, EXT, 
             if context.evm.env.tx.transact_to.is_call() {
                 // Nonce is already checked
                 let tx_caller = context.evm.env.tx.caller;
-                let (caller_account, _) = context
+                let mut caller_account = context
                     .evm
                     .inner
                     .journaled_state
@@ -401,8 +422,17 @@ impl<SPEC: Spec, EXT: CitreaExternalExt, DB: Database> CitreaHandler<SPEC, EXT, 
         context: &mut Context<EXT, DB>,
         result: FrameResult,
     ) -> Result<ResultAndState, EVMError<<DB as Database>::Error>> {
-        let diff_size =
-            calc_diff_size::<EXT, SPEC, DB>(context).map_err(EVMError::Database)? as u64;
+        let uncompressed_size =
+            calc_diff_size::<EXT, SPEC, DB>(context).map_err(EVMError::Database)?;
+
+        let compression_percentage = if SPEC::enabled(SpecId::CANCUN) {
+            // Estimate the size of the state diff after the brotli compression
+            BROTLI_COMPRESSION_PERCENTAGE
+        } else {
+            100
+        };
+        let diff_size = (uncompressed_size * compression_percentage / 100) as u64;
+
         let l1_fee_rate = context.external.l1_fee_rate();
         let l1_fee =
             U256::from(l1_fee_rate) * (U256::from(diff_size) + U256::from(L1_FEE_OVERHEAD));
@@ -620,7 +650,7 @@ fn change_balance<EXT, DB: Database>(
         ..
     } = &mut context.evm.inner;
 
-    let (account, _) = journaled_state.load_account(address, db)?;
+    let mut account = journaled_state.load_account(address, db)?;
     account.mark_touch();
 
     let balance = &mut account.info.balance;

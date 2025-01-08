@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 
+use alloy_primitives::U64;
 use anyhow::bail;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
@@ -16,8 +17,8 @@ use citrea_e2e::Result;
 use citrea_primitives::TO_BATCH_PROOF_PREFIX;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::MerkleTree;
-use sov_ledger_rpc::client::RpcClient;
-use sov_rollup_interface::da::{BlobReaderTrait, DaData};
+use sov_ledger_rpc::LedgerRpcClient;
+use sov_rollup_interface::da::{BlobReaderTrait, DaTxRequest};
 use sov_rollup_interface::rpc::SequencerCommitmentResponse;
 use tokio::time::sleep;
 
@@ -29,7 +30,7 @@ pub async fn wait_for_sequencer_commitments(
     timeout: Option<Duration>,
 ) -> Result<Vec<SequencerCommitmentResponse>> {
     let start = Instant::now();
-    let timeout = timeout.unwrap_or(Duration::from_secs(30));
+    let timeout = timeout.unwrap_or(Duration::from_secs(120));
 
     loop {
         if start.elapsed() >= timeout {
@@ -39,7 +40,7 @@ pub async fn wait_for_sequencer_commitments(
         match full_node
             .client
             .http_client()
-            .get_sequencer_commitments_on_slot_by_number(height)
+            .get_sequencer_commitments_on_slot_by_number(U64::from(height))
             .await
         {
             Ok(Some(commitments)) => return Ok(commitments),
@@ -93,7 +94,7 @@ impl TestCase for LedgerGetCommitmentsProverTest {
         let commitments = prover
             .client
             .http_client()
-            .get_sequencer_commitments_on_slot_by_number(finalized_height)
+            .get_sequencer_commitments_on_slot_by_number(U64::from(finalized_height))
             .await
             .unwrap()
             .unwrap();
@@ -101,7 +102,10 @@ impl TestCase for LedgerGetCommitmentsProverTest {
         assert_eq!(commitments.len(), 1);
 
         assert_eq!(commitments[0].l2_start_block_number, 1);
-        assert_eq!(commitments[0].l2_end_block_number, 4);
+        assert_eq!(
+            commitments[0].l2_end_block_number,
+            min_soft_confirmations_per_commitment
+        );
 
         assert_eq!(commitments[0].found_in_l1, finalized_height);
 
@@ -110,7 +114,7 @@ impl TestCase for LedgerGetCommitmentsProverTest {
         let commitments_hash = prover
             .client
             .http_client()
-            .get_sequencer_commitments_on_slot_by_hash(hash.as_raw_hash().to_byte_array())
+            .get_sequencer_commitments_on_slot_by_hash(hash.as_raw_hash().to_byte_array().into())
             .await
             .unwrap()
             .unwrap();
@@ -171,7 +175,10 @@ impl TestCase for LedgerGetCommitmentsTest {
         assert_eq!(commitments.len(), 1);
 
         assert_eq!(commitments[0].l2_start_block_number, 1);
-        assert_eq!(commitments[0].l2_end_block_number, 4);
+        assert_eq!(
+            commitments[0].l2_end_block_number,
+            min_soft_confirmations_per_commitment
+        );
 
         assert_eq!(commitments[0].found_in_l1, finalized_height);
 
@@ -180,7 +187,7 @@ impl TestCase for LedgerGetCommitmentsTest {
         let commitments_node = full_node
             .client
             .http_client()
-            .get_sequencer_commitments_on_slot_by_hash(hash.as_raw_hash().to_byte_array())
+            .get_sequencer_commitments_on_slot_by_hash(hash.as_raw_hash().to_byte_array().into())
             .await
             .unwrap()
             .unwrap();
@@ -203,7 +210,7 @@ struct SequencerSendCommitmentsToDaTest;
 impl TestCase for SequencerSendCommitmentsToDaTest {
     fn sequencer_config() -> SequencerConfig {
         SequencerConfig {
-            min_soft_confirmations_per_commitment: 12,
+            min_soft_confirmations_per_commitment: FINALITY_DEPTH * 2,
             ..Default::default()
         }
     }
@@ -245,13 +252,6 @@ impl TestCase for SequencerSendCommitmentsToDaTest {
         // Publish one more L2 block and send commitment
         sequencer.client.send_publish_batch_request().await?;
 
-        sequencer
-            .wait_for_l2_height(
-                min_soft_confirmations_per_commitment + FINALITY_DEPTH - 1,
-                None,
-            )
-            .await?;
-
         // Wait for blob tx to hit the mempool
         da.wait_mempool_len(2, None).await?;
 
@@ -260,7 +260,10 @@ impl TestCase for SequencerSendCommitmentsToDaTest {
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
         let start_l2_block = 1;
-        let end_l2_block = 19;
+        let end_l2_block = sequencer
+            .client
+            .ledger_get_head_soft_confirmation_height()
+            .await?;
 
         self.check_sequencer_commitment(sequencer, da, start_l2_block, end_l2_block)
             .await?;
@@ -268,12 +271,6 @@ impl TestCase for SequencerSendCommitmentsToDaTest {
         for _ in 0..min_soft_confirmations_per_commitment {
             sequencer.client.send_publish_batch_request().await?;
         }
-        sequencer
-            .wait_for_l2_height(
-                end_l2_block + min_soft_confirmations_per_commitment + FINALITY_DEPTH - 2,
-                None,
-            )
-            .await?;
 
         // Wait for blob tx to hit the mempool
         da.wait_mempool_len(2, None).await?;
@@ -281,7 +278,7 @@ impl TestCase for SequencerSendCommitmentsToDaTest {
         da.generate(FINALITY_DEPTH).await?;
 
         let start_l2_block = end_l2_block + 1;
-        let end_l2_block = end_l2_block + 12;
+        let end_l2_block = end_l2_block + min_soft_confirmations_per_commitment;
 
         self.check_sequencer_commitment(sequencer, da, start_l2_block, end_l2_block)
             .await?;
@@ -312,11 +309,11 @@ impl SequencerSendCommitmentsToDaTest {
 
         let data = BlobReaderTrait::full_data(&mut blob);
 
-        let commitment = DaData::try_from_slice(data).unwrap();
+        let commitment = DaTxRequest::try_from_slice(data).unwrap();
 
-        matches!(commitment, DaData::SequencerCommitment(_));
+        matches!(commitment, DaTxRequest::SequencerCommitment(_));
 
-        let DaData::SequencerCommitment(commitment) = commitment else {
+        let DaTxRequest::SequencerCommitment(commitment) = commitment else {
             panic!("Expected SequencerCommitment, got {:?}", commitment);
         };
 
@@ -327,7 +324,7 @@ impl SequencerSendCommitmentsToDaTest {
                 sequencer
                     .client
                     .http_client()
-                    .get_soft_confirmation_by_number(i)
+                    .get_soft_confirmation_by_number(U64::from(i))
                     .await?
                     .unwrap(),
             );

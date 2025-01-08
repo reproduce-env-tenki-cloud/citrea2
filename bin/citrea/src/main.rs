@@ -1,19 +1,26 @@
 use core::fmt::Debug as DebugTrait;
+use std::net::SocketAddr;
+use std::time::Duration;
 
-use anyhow::Context as _;
+use anyhow::{anyhow, Context as _};
 use bitcoin_da::service::BitcoinServiceConfig;
-use citrea::{initialize_logging, BitcoinRollup, CitreaRollupBlueprint, MockDemoRollup};
+use citrea::{
+    initialize_logging, BitcoinRollup, CitreaRollupBlueprint, MockDemoRollup, NetworkArg,
+};
 use citrea_common::{
     from_toml_path, BatchProverConfig, FromEnv, FullNodeConfig, LightClientProverConfig,
     SequencerConfig,
 };
 use citrea_stf::genesis_config::GenesisPaths;
 use clap::Parser;
+use metrics_exporter_prometheus::PrometheusBuilder;
+use metrics_util::MetricKindMask;
 use sov_mock_da::MockDaConfig;
 use sov_modules_api::Spec;
 use sov_modules_rollup_blueprint::RollupBlueprint;
+use sov_rollup_interface::Network;
 use sov_state::storage::NativeStorage;
-use tracing::{error, instrument};
+use tracing::{debug, error, info, instrument};
 
 #[cfg(test)]
 mod test_rpc;
@@ -23,6 +30,16 @@ mod test_rpc;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    /// The mode in which the node runs.
+    /// This determines which guest code to use.
+    /// Default is Mainnet.
+    #[clap(short, long, default_value_t, value_enum)]
+    network: NetworkArg,
+
+    /// Run the development chain
+    #[arg(long, default_value_t)]
+    dev: bool,
+
     /// Path to the genesis configuration.
     /// Defines the genesis of module states like evm.
     #[arg(long)]
@@ -131,9 +148,17 @@ async fn main() -> Result<(), anyhow::Error> {
         ));
     }
 
+    let mut network = args.network.into();
+    if args.dev {
+        network = Network::Nightly;
+    }
+
+    info!("Starting node on {network}");
+
     match args.da_layer {
         SupportedDaLayer::Mock => {
             start_rollup::<MockDemoRollup, MockDaConfig>(
+                network,
                 &GenesisPaths::from_dir(&args.genesis_paths),
                 args.rollup_config_path,
                 batch_prover_config,
@@ -144,6 +169,7 @@ async fn main() -> Result<(), anyhow::Error> {
         }
         SupportedDaLayer::Bitcoin => {
             start_rollup::<BitcoinRollup, BitcoinServiceConfig>(
+                network,
                 &GenesisPaths::from_dir(&args.genesis_paths),
                 args.rollup_config_path,
                 batch_prover_config,
@@ -159,6 +185,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
 #[instrument(level = "trace", skip_all, err)]
 async fn start_rollup<S, DaC>(
+    network: Network,
     rt_genesis_paths: &<<S as RollupBlueprint>::NativeRuntime as sov_modules_stf_blueprint::Runtime<
         <S as RollupBlueprint>::NativeContext,
         <S as RollupBlueprint>::DaSpec,
@@ -179,18 +206,40 @@ where
         None => FullNodeConfig::from_env()
             .context("Failed to read rollup configuration from the environment")?,
     };
-    let rollup_blueprint = S::new();
+
+    if rollup_config.telemetry.bind_host.is_some() && rollup_config.telemetry.bind_port.is_some() {
+        let bind_host = rollup_config.telemetry.bind_host.as_ref().unwrap();
+        let bind_port = rollup_config.telemetry.bind_port.as_ref().unwrap();
+        let telemetry_addr: SocketAddr = format!("{}:{}", bind_host, bind_port)
+            .parse()
+            .map_err(|_| anyhow!("Invalid telemetry address"))?;
+
+        debug!("Starting telemetry server on: {}", telemetry_addr);
+
+        let builder = PrometheusBuilder::new().with_http_listener(telemetry_addr);
+        builder
+            .idle_timeout(
+                MetricKindMask::GAUGE | MetricKindMask::HISTOGRAM,
+                Some(Duration::from_secs(30)),
+            )
+            .install()
+            .map_err(|_| anyhow!("failed to install Prometheus recorder"))?;
+    }
+
+    let rollup_blueprint = S::new(network);
 
     if let Some(sequencer_config) = sequencer_config {
-        let sequencer_rollup = rollup_blueprint
+        let (mut sequencer, rpc_methods) = rollup_blueprint
             .create_new_sequencer(rt_genesis_paths, rollup_config.clone(), sequencer_config)
             .await
             .expect("Could not start sequencer");
-        if let Err(e) = sequencer_rollup.run().await {
+        sequencer.start_rpc_server(rpc_methods, None).await.unwrap();
+
+        if let Err(e) = sequencer.run().await {
             error!("Error: {}", e);
         }
     } else if let Some(batch_prover_config) = batch_prover_config {
-        let prover = CitreaRollupBlueprint::create_new_batch_prover(
+        let (mut prover, rpc_methods) = CitreaRollupBlueprint::create_new_batch_prover(
             &rollup_blueprint,
             rt_genesis_paths,
             rollup_config,
@@ -198,28 +247,43 @@ where
         )
         .await
         .expect("Could not start batch prover");
+
+        prover
+            .start_rpc_server(rpc_methods, None)
+            .await
+            .expect("Failed to start rpc server");
+
         if let Err(e) = prover.run().await {
             error!("Error: {}", e);
         }
     } else if let Some(light_client_prover_config) = light_client_prover_config {
-        let prover = CitreaRollupBlueprint::create_new_light_client_prover(
+        let (mut prover, rpc_methods) = CitreaRollupBlueprint::create_new_light_client_prover(
             &rollup_blueprint,
             rollup_config,
             light_client_prover_config,
         )
         .await
         .expect("Could not start light client prover");
+
+        prover
+            .start_rpc_server(rpc_methods, None)
+            .await
+            .expect("Failed to start rpc server");
+
         if let Err(e) = prover.run().await {
             error!("Error: {}", e);
         }
     } else {
-        let rollup = CitreaRollupBlueprint::create_new_rollup(
+        let (mut rollup, rpc_methods) = CitreaRollupBlueprint::create_new_rollup(
             &rollup_blueprint,
             rt_genesis_paths,
             rollup_config,
         )
         .await
         .expect("Could not start full-node");
+
+        rollup.start_rpc_server(rpc_methods, None).await;
+
         if let Err(e) = rollup.run().await {
             error!("Error: {}", e);
         }

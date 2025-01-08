@@ -1,6 +1,6 @@
 //! This module implements the [`ZkvmHost`] trait for the RISC0 VM.
-
 use borsh::{BorshDeserialize, BorshSerialize};
+use metrics::histogram;
 use risc0_zkvm::sha::Digest;
 use risc0_zkvm::{
     compute_image_id, default_prover, AssumptionReceipt, ExecutorEnvBuilder, ProveInfo, ProverOpts,
@@ -35,23 +35,15 @@ pub struct RecoveredBonsaiSession {
 
 /// A [`Risc0BonsaiHost`] stores a binary to execute in the Risc0 VM and prove in the Risc0 Bonsai API.
 #[derive(Clone)]
-pub struct Risc0BonsaiHost<'a> {
-    elf: &'a [u8],
+pub struct Risc0BonsaiHost {
     env: Vec<u8>,
     assumptions: Vec<AssumptionReceipt>,
-    image_id: Digest,
     _ledger_db: LedgerDB,
 }
 
-impl<'a> Risc0BonsaiHost<'a> {
+impl Risc0BonsaiHost {
     /// Create a new Risc0Host to prove the given binary.
-    pub fn new(elf: &'a [u8], ledger_db: LedgerDB) -> Self {
-        // Compute the image_id, then upload the ELF with the image_id as its key.
-        // handle error
-        let image_id = compute_image_id(elf).unwrap();
-
-        tracing::trace!("Calculated image id: {:?}", image_id.as_words());
-
+    pub fn new(ledger_db: LedgerDB) -> Self {
         match std::env::var("RISC0_PROVER") {
             Ok(prover) => match prover.as_str() {
                 "bonsai" => {
@@ -85,16 +77,14 @@ impl<'a> Risc0BonsaiHost<'a> {
         }
 
         Self {
-            elf,
             env: Default::default(),
             assumptions: vec![],
-            image_id,
             _ledger_db: ledger_db,
         }
     }
 }
 
-impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
+impl ZkvmHost for Risc0BonsaiHost {
     type Guest = Risc0Guest;
 
     fn add_hint(&mut self, item: Vec<u8>) {
@@ -116,7 +106,7 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
 
     /// Only with_proof = true is supported.
     /// Proofs are created on the Bonsai API.
-    fn run(&mut self, with_proof: bool) -> Result<Proof, anyhow::Error> {
+    fn run(&mut self, elf: Vec<u8>, with_proof: bool) -> Result<Proof, anyhow::Error> {
         if !with_proof {
             if std::env::var("RISC0_PROVER") == Ok("bonsai".to_string()) {
                 panic!("Bonsai prover requires with_proof to be true");
@@ -145,11 +135,16 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
 
         tracing::info!("Starting risc0 proving");
         let ProveInfo { receipt, stats } =
-            prover.prove_with_opts(env, self.elf, &ProverOpts::groth16())?;
+            prover.prove_with_opts(env, &elf, &ProverOpts::groth16())?;
+
+        histogram!("proving_session_cycle_count").record(stats.total_cycles as f64);
 
         tracing::info!("Execution Stats: {:?}", stats);
 
-        receipt.verify(self.image_id)?;
+        let image_id = compute_image_id(&elf)?;
+
+        receipt.verify(image_id)?;
+        tracing::trace!("Calculated image id: {:?}", image_id.as_words());
 
         tracing::info!("Verified the receipt");
 
@@ -164,9 +159,7 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
         Ok(serialized_receipt)
     }
 
-    fn extract_output<Da: sov_rollup_interface::da::DaSpec, T: BorshDeserialize>(
-        proof: &Proof,
-    ) -> Result<T, Self::Error> {
+    fn extract_output<T: BorshDeserialize>(proof: &Proof) -> Result<T, Self::Error> {
         let receipt: Receipt = bincode::deserialize(proof)?;
         let journal = receipt.journal;
 
@@ -204,7 +197,7 @@ impl<'a> ZkvmHost for Risc0BonsaiHost<'a> {
     }
 }
 
-impl<'host> Zkvm for Risc0BonsaiHost<'host> {
+impl Zkvm for Risc0BonsaiHost {
     type CodeCommitment = Digest;
 
     type Error = anyhow::Error;
@@ -212,13 +205,13 @@ impl<'host> Zkvm for Risc0BonsaiHost<'host> {
     fn verify(
         serialized_proof: &[u8],
         code_commitment: &Self::CodeCommitment,
-    ) -> Result<Vec<u8>, Self::Error> {
+    ) -> Result<(), Self::Error> {
         let receipt: Receipt = bincode::deserialize(serialized_proof)?;
 
         #[allow(clippy::clone_on_copy)]
         receipt.verify(code_commitment.clone())?;
 
-        Ok(receipt.journal.bytes)
+        Ok(())
     }
 
     fn extract_raw_output(serialized_proof: &[u8]) -> Result<Vec<u8>, Self::Error> {
@@ -226,7 +219,11 @@ impl<'host> Zkvm for Risc0BonsaiHost<'host> {
         Ok(receipt.journal.bytes)
     }
 
-    fn verify_and_extract_output<T: BorshDeserialize>(
+    fn deserialize_output<T: BorshDeserialize>(journal: &[u8]) -> Result<T, Self::Error> {
+        Ok(T::try_from_slice(journal)?)
+    }
+
+    fn verify_and_deserialize_output<T: BorshDeserialize>(
         serialized_proof: &[u8],
         code_commitment: &Self::CodeCommitment,
     ) -> Result<T, Self::Error> {
@@ -236,5 +233,14 @@ impl<'host> Zkvm for Risc0BonsaiHost<'host> {
         receipt.verify(code_commitment.clone())?;
 
         Ok(T::deserialize(&mut receipt.journal.bytes.as_slice())?)
+    }
+
+    fn verify_expected_to_fail(
+        _serialized_proof: &[u8],
+        _code_commitment: &Self::CodeCommitment,
+    ) -> Result<(), Self::Error> {
+        unimplemented!(
+            "Risc0 host can use verify function to show proof fails. This function is not needed."
+        )
     }
 }

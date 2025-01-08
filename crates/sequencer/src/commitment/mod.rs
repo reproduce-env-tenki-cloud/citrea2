@@ -1,5 +1,6 @@
 use std::ops::RangeInclusive;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::anyhow;
 use futures::channel::mpsc::UnboundedReceiver;
@@ -8,24 +9,24 @@ use parking_lot::RwLock;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::MerkleTree;
 use sov_db::ledger_db::SequencerLedgerOps;
-use sov_db::schema::types::{BatchNumber, SlotNumber};
+use sov_db::schema::types::{SlotNumber, SoftConfirmationNumber};
 use sov_modules_api::StateDiff;
-use sov_rollup_interface::da::{BlockHeaderTrait, DaData, SequencerCommitment};
-use sov_rollup_interface::services::da::{DaService, SenderWithNotifier};
+use sov_rollup_interface::da::{BlockHeaderTrait, DaTxRequest, SequencerCommitment};
+use sov_rollup_interface::services::da::{DaService, TxRequestWithNotifier};
 use tokio::select;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument};
 
-use self::strategy::{CommitmentController, MinSoftConfirmations, StateDiffThreshold};
-use crate::commitment::strategy::CommitmentStrategy;
+use self::controller::CommitmentController;
+use crate::metrics::SEQUENCER_METRICS;
 
-mod strategy;
+mod controller;
 
 #[derive(Clone, Debug)]
 pub struct CommitmentInfo {
     /// L2 heights to commit
-    pub l2_height_range: RangeInclusive<BatchNumber>,
+    pub l2_height_range: RangeInclusive<SoftConfirmationNumber>,
 }
 
 pub struct CommitmentService<Da, Db>
@@ -33,32 +34,29 @@ where
     Da: DaService,
     Db: SequencerLedgerOps,
 {
-    ledger_db: Arc<Db>,
+    ledger_db: Db,
     da_service: Arc<Da>,
     sequencer_da_pub_key: Vec<u8>,
     soft_confirmation_rx: UnboundedReceiver<(u64, StateDiff)>,
-    commitment_controller: Arc<RwLock<CommitmentController>>,
+    commitment_controller: Arc<RwLock<CommitmentController<Db>>>,
 }
 
 impl<Da, Db> CommitmentService<Da, Db>
 where
     Da: DaService,
-    Db: SequencerLedgerOps + Send + Sync + 'static,
+    Db: SequencerLedgerOps + Clone + Send + Sync + 'static,
 {
     pub fn new(
-        ledger_db: Arc<Db>,
+        ledger_db: Db,
         da_service: Arc<Da>,
         sequencer_da_pub_key: Vec<u8>,
         min_soft_confirmations: u64,
         soft_confirmation_rx: UnboundedReceiver<(u64, StateDiff)>,
     ) -> Self {
-        let commitment_controller = Arc::new(RwLock::new(CommitmentController::new(vec![
-            Box::new(MinSoftConfirmations::new(
-                ledger_db.clone(),
-                min_soft_confirmations,
-            )),
-            Box::new(StateDiffThreshold::new(ledger_db.clone())),
-        ])));
+        let commitment_controller = Arc::new(RwLock::new(CommitmentController::new(
+            ledger_db.clone(),
+            min_soft_confirmations,
+        )));
         Self {
             ledger_db,
             da_service,
@@ -79,6 +77,7 @@ where
                     let Some((height, state_diff)) = info else {
                         // An error is returned because the channel is either
                         // closed or lagged.
+                        error!("Commitment service soft confirmation channel closed abruptly");
                         return;
                     };
 
@@ -124,9 +123,6 @@ where
         let l2_start = *commitment_info.l2_height_range.start();
         let l2_end = *commitment_info.l2_height_range.end();
 
-        // Clear state diff early
-        self.ledger_db.set_state_diff(vec![])?;
-
         let soft_confirmation_hashes = self
             .ledger_db
             .get_soft_confirmation_range(&(l2_start..=l2_end))?
@@ -134,13 +130,17 @@ where
             .map(|sb| sb.hash)
             .collect::<Vec<[u8; 32]>>();
 
+        SEQUENCER_METRICS
+            .commitment_blocks_count
+            .set(soft_confirmation_hashes.len() as f64);
+
         let commitment = self.get_commitment(commitment_info, soft_confirmation_hashes)?;
 
         debug!("Sequencer: submitting commitment: {:?}", commitment);
 
-        let da_data = DaData::SequencerCommitment(commitment.clone());
+        let tx_request = DaTxRequest::SequencerCommitment(commitment);
         let (notify, rx) = oneshot::channel();
-        let request = SenderWithNotifier { da_data, notify };
+        let request = TxRequestWithNotifier { tx_request, notify };
         self.da_service
             .get_send_transaction_queue()
             .send(request)
@@ -151,6 +151,7 @@ where
             l2_start.0, l2_end.0,
         );
 
+        let start = Instant::now();
         let ledger_db = self.ledger_db.clone();
         let handle_da_response = async move {
             let result: anyhow::Result<()> = async move {
@@ -158,6 +159,12 @@ where
                     .await
                     .map_err(|_| anyhow!("DA service is dead!"))?
                     .map_err(|_| anyhow!("Send transaction cannot fail"))?;
+
+                SEQUENCER_METRICS.send_commitment_execution.record(
+                    Instant::now()
+                        .saturating_duration_since(start)
+                        .as_secs_f64(),
+                );
 
                 ledger_db
                     .set_last_commitment_l2_height(l2_end)
