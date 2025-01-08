@@ -30,6 +30,7 @@ impl Network {
             b"testnet" => Some(Network::Testnet),
             b"devnet" => Some(Network::Devnet),
             b"nightly" => Some(Network::Nightly),
+            b"regtest" => Some(Network::Regtest),
             _ => None,
         }
     }
