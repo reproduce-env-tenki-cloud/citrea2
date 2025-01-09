@@ -150,7 +150,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut network = args.network.into();
     if args.dev {
-        network = Network::Nightly
+        network = Network::Nightly;
     }
 
     info!("Starting node on {network}");
