@@ -118,12 +118,12 @@ pub const METHOD_ID_UPGRADE_AUTHORITY_DA_PUBLIC_KEY: [u8; 33] = {
 };
 
 fn get_network() -> Network {
-    #[cfg(feature = "testing")]
-    {
-        if std::env::var("CITREA_NETWORK") == Ok(String::from("regtest")) {
-            return Network::Regtest;
-        }
-    }
+    // #[cfg(feature = "testing")]
+    // {
+    //     if std::env::var("CITREA_NETWORK") == Ok(String::from("regtest")) {
+    //         return Network::Regtest;
+    //     }
+    // }
     NETWORK
 }
 

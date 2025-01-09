@@ -40,6 +40,10 @@ struct Args {
     #[arg(long, default_value_t)]
     dev: bool,
 
+    /// Run the regtest chain
+    #[arg(long, default_value_t, conflicts_with = "dev")]
+    dev_all_forks: bool,
+
     /// Path to the genesis configuration.
     /// Defines the genesis of module states like evm.
     #[arg(long)]
@@ -151,6 +155,11 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut network = args.network.into();
     if args.dev {
         network = Network::Nightly;
+    }
+
+    if args.dev_all_forks {
+        std::env::set_var("CITREA_NETWORK", "regtest");
+        network = Network::Regtest;
     }
 
     info!("Starting node on {network}");
