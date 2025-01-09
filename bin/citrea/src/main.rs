@@ -11,6 +11,7 @@ use citrea_common::{
     from_toml_path, BatchProverConfig, FromEnv, FullNodeConfig, LightClientProverConfig,
     SequencerConfig,
 };
+use citrea_primitives::forks::use_network_forks;
 use citrea_stf::genesis_config::GenesisPaths;
 use clap::Parser;
 use metrics_exporter_prometheus::PrometheusBuilder;
@@ -158,8 +159,8 @@ async fn main() -> Result<(), anyhow::Error> {
     }
 
     if args.dev_all_forks {
-        std::env::set_var("CITREA_NETWORK", "regtest");
         network = Network::Regtest;
+        use_network_forks(network);
     }
 
     info!("Starting node on {network}");

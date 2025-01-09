@@ -38,11 +38,7 @@ pub fn get_forks() -> &'static [Fork] {
 
             #[cfg(feature = "testing")]
             {
-                if std::env::var("CITREA_NETWORK") == Ok(String::from("regtest")) {
-                    use_network_forks(Network::Regtest);
-                } else {
-                    use_network_forks(Network::Nightly);
-                }
+                use_network_forks(Network::Nightly);
                 FORKS.get().expect("Just set it")
             }
         }

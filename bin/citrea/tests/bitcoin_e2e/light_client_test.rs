@@ -11,7 +11,7 @@ use citrea_batch_prover::GroupCommitments;
 use citrea_common::tasks::manager::TaskManager;
 use citrea_e2e::config::{
     BatchProverConfig, CitreaMode, LightClientProverConfig, SequencerConfig,
-    SequencerMempoolConfig, TestCaseConfig, TestCaseEnv,
+    SequencerMempoolConfig, TestCaseConfig,
 };
 use citrea_e2e::framework::TestFramework;
 use citrea_e2e::node::NodeKind;

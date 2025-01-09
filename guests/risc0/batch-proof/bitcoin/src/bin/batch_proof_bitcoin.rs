@@ -71,7 +71,7 @@ const FORKS: &[Fork] = match NETWORK {
 fn get_forks() -> &'static [Fork] {
     #[cfg(feature = "testing")]
     {
-        if std::env::var("CITREA_NETWORK") == Ok(String::from("regtest")) {
+        if std::env::var("ALL_FORKS") == Ok(String::from("1")) {
             return &ALL_FORKS;
         }
     }
