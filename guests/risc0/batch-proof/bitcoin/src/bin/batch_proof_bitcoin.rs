@@ -1,7 +1,9 @@
 #![no_main]
 use bitcoin_da::spec::RollupParams;
 use bitcoin_da::verifier::BitcoinVerifier;
-use citrea_primitives::forks::{DEVNET_FORKS, MAINNET_FORKS, NIGHTLY_FORKS, TESTNET_FORKS};
+use citrea_primitives::forks::{
+    ALL_FORKS, DEVNET_FORKS, MAINNET_FORKS, NIGHTLY_FORKS, TESTNET_FORKS,
+};
 use citrea_primitives::{TO_BATCH_PROOF_PREFIX, TO_LIGHT_CLIENT_PREFIX};
 use citrea_risc0_adapter::guest::Risc0Guest;
 use citrea_stf::runtime::Runtime;
@@ -17,12 +19,10 @@ use sov_state::ZkStorage;
 risc0_zkvm::guest::entry!(main);
 
 const NETWORK: Network = match option_env!("CITREA_NETWORK") {
-    Some(network) => {
-        match Network::const_from_str(network) {
-            Some(network) => network,
-            None => panic!("Invalid CITREA_NETWORK value"),
-        } 
-    }
+    Some(network) => match Network::const_from_str(network) {
+        Some(network) => network,
+        None => panic!("Invalid CITREA_NETWORK value"),
+    },
     None => Network::Nightly,
 };
 
@@ -31,7 +31,7 @@ const SEQUENCER_PUBLIC_KEY: [u8; 32] = {
         Network::Mainnet => "0000000000000000000000000000000000000000000000000000000000000000",
         Network::Testnet => "4682a70af1d3fae53a5a26b682e2e75f7a1de21ad5fc8d61794ca889880d39d1",
         Network::Devnet => "52f41a5076498d1ae8bdfa57d19e91e3c2c94b6de21985d099cd48cfa7aef174",
-        Network::Nightly => {
+        Network::Nightly | Network::TestNetworkWithForks => {
             match option_env!("SEQUENCER_PUBLIC_KEY") {
                 Some(hex_pub_key) => hex_pub_key,
                 None => "204040e364c10f2bec9c1fe500a1cd4c247c89d650a01ed7e82caba867877c21",
@@ -50,7 +50,7 @@ const SEQUENCER_DA_PUBLIC_KEY: [u8; 33] = {
         Network::Mainnet => "030000000000000000000000000000000000000000000000000000000000000000",
         Network::Testnet => "03015a7c4d2cc1c771198686e2ebef6fe7004f4136d61f6225b061d1bb9b821b9b",
         Network::Devnet => "039cd55f9b3dcf306c4d54f66cd7c4b27cc788632cd6fb73d80c99d303c6536486",
-        Network::Nightly => {
+        Network::Nightly | Network::TestNetworkWithForks => {
             match option_env!("SEQUENCER_DA_PUB_KEY") {
                 Some(hex_pub_key) => hex_pub_key,
                 None => "02588d202afcc1ee4ab5254c7847ec25b9a135bbda0f2bc69ee1a714749fd77dc9",
@@ -69,7 +69,18 @@ const FORKS: &[Fork] = match NETWORK {
     Network::Testnet => &TESTNET_FORKS,
     Network::Devnet => &DEVNET_FORKS,
     Network::Nightly => &NIGHTLY_FORKS,
+    Network::TestNetworkWithForks => &ALL_FORKS,
 };
+
+fn get_forks() -> &'static [Fork] {
+    #[cfg(feature = "testing")]
+    {
+        if std::env::var("ALL_FORKS") == Ok(String::from("1")) {
+            return &ALL_FORKS;
+        }
+    }
+    FORKS
+}
 
 pub fn main() {
     let guest = Risc0Guest::new();
@@ -87,7 +98,13 @@ pub fn main() {
     let data = guest.read_from_host();
 
     let out = stf_verifier
-        .run_sequencer_commitments_in_da_slot(data, storage, &SEQUENCER_PUBLIC_KEY, &SEQUENCER_DA_PUBLIC_KEY, FORKS)
+        .run_sequencer_commitments_in_da_slot(
+            data,
+            storage,
+            &SEQUENCER_PUBLIC_KEY,
+            &SEQUENCER_DA_PUBLIC_KEY,
+            get_forks(),
+        )
         .expect("Prover must be honest");
 
     guest.commit(&out);

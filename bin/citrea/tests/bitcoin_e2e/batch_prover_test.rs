@@ -9,7 +9,7 @@ use bitcoin_da::service::{BitcoinService, BitcoinServiceConfig, FINALITY_DEPTH};
 use bitcoin_da::spec::RollupParams;
 use citrea_common::tasks::manager::TaskManager;
 use citrea_e2e::config::{
-    BatchProverConfig, LightClientProverConfig, ProverGuestRunConfig, SequencerConfig,
+    BatchProverConfig, CitreaMode, LightClientProverConfig, ProverGuestRunConfig, SequencerConfig,
     SequencerMempoolConfig, TestCaseConfig, TestCaseEnv,
 };
 use citrea_e2e::framework::TestFramework;
@@ -19,13 +19,14 @@ use citrea_e2e::test_case::{TestCase, TestCaseRunner};
 use citrea_e2e::traits::NodeT;
 use citrea_e2e::Result;
 use citrea_light_client_prover::rpc::LightClientProverRpcClient;
-use citrea_primitives::forks::{fork_from_block_number, get_forks};
+use citrea_primitives::forks::{fork_from_block_number, get_forks, use_network_forks};
 use citrea_primitives::{TO_BATCH_PROOF_PREFIX, TO_LIGHT_CLIENT_PREFIX};
 use sov_ledger_rpc::LedgerRpcClient;
 use sov_modules_api::fork::ForkManager;
 use sov_modules_api::SpecId;
 use sov_rollup_interface::da::{DaTxRequest, SequencerCommitment};
 use sov_rollup_interface::rpc::VerifiedBatchProofResponse;
+use sov_rollup_interface::Network;
 use tokio::time::sleep;
 
 use super::get_citrea_path;
@@ -68,13 +69,6 @@ impl TestCase for BasicProverTest {
         TestCaseConfig {
             with_batch_prover: true,
             with_full_node: true,
-            ..Default::default()
-        }
-    }
-
-    fn batch_prover_config() -> BatchProverConfig {
-        BatchProverConfig {
-            use_latest_elf: false,
             ..Default::default()
         }
     }
@@ -161,13 +155,6 @@ impl TestCase for SkipPreprovenCommitmentsTest {
     fn sequencer_config() -> SequencerConfig {
         SequencerConfig {
             min_soft_confirmations_per_commitment: 1,
-            ..Default::default()
-        }
-    }
-
-    fn batch_prover_config() -> BatchProverConfig {
-        BatchProverConfig {
-            use_latest_elf: false,
             ..Default::default()
         }
     }
@@ -551,6 +538,15 @@ impl TestCase for ForkElfSwitchingTest {
             with_batch_prover: true,
             with_full_node: true,
             with_light_client_prover: true,
+            mode: CitreaMode::DevAllForks,
+            ..Default::default()
+        }
+    }
+
+    fn light_client_prover_config() -> LightClientProverConfig {
+        LightClientProverConfig {
+            initial_da_height: 171,
+            enable_recovery: false,
             ..Default::default()
         }
     }
@@ -565,21 +561,6 @@ impl TestCase for ForkElfSwitchingTest {
         // and second batch above fork1
         SequencerConfig {
             min_soft_confirmations_per_commitment: fork_1_height - 5,
-            ..Default::default()
-        }
-    }
-
-    fn batch_prover_config() -> BatchProverConfig {
-        BatchProverConfig {
-            use_latest_elf: false,
-            ..Default::default()
-        }
-    }
-
-    fn light_client_prover_config() -> LightClientProverConfig {
-        LightClientProverConfig {
-            initial_da_height: 171,
-            enable_recovery: false,
             ..Default::default()
         }
     }
@@ -693,6 +674,8 @@ impl TestCase for ForkElfSwitchingTest {
 
 #[tokio::test]
 async fn test_fork_elf_switching() -> Result<()> {
+    use_network_forks(Network::TestNetworkWithForks);
+
     TestCaseRunner::new(ForkElfSwitchingTest)
         .set_citrea_path(get_citrea_path())
         .run()

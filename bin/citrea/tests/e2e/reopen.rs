@@ -330,10 +330,7 @@ async fn test_reopen_prover() -> Result<(), anyhow::Error> {
                 start_rollup(
                     prover_node_port_tx,
                     GenesisPaths::from_dir(TEST_DATA_GENESIS_PATH),
-                    Some(BatchProverConfig {
-                        use_latest_elf: true,
-                        ..Default::default()
-                    }),
+                    Some(BatchProverConfig::default()),
                     None,
                     rollup_config,
                     None,
@@ -402,10 +399,7 @@ async fn test_reopen_prover() -> Result<(), anyhow::Error> {
                 start_rollup(
                     prover_node_port_tx,
                     GenesisPaths::from_dir(TEST_DATA_GENESIS_PATH),
-                    Some(BatchProverConfig {
-                        use_latest_elf: true,
-                        ..Default::default()
-                    }),
+                    Some(BatchProverConfig::default()),
                     None,
                     rollup_config,
                     None,
@@ -458,10 +452,7 @@ async fn test_reopen_prover() -> Result<(), anyhow::Error> {
                 start_rollup(
                     prover_node_port_tx,
                     GenesisPaths::from_dir(TEST_DATA_GENESIS_PATH),
-                    Some(BatchProverConfig {
-                        use_latest_elf: true,
-                        ..Default::default()
-                    }),
+                    Some(BatchProverConfig::default()),
                     None,
                     rollup_config,
                     None,

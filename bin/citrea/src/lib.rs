@@ -18,7 +18,7 @@ pub use rollup::*;
 
 /// The network currently running.
 #[derive(clap::ValueEnum, Copy, Clone, Default, Debug, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "lowercase")]
 pub enum NetworkArg {
     /// Mainnet
     #[default]
