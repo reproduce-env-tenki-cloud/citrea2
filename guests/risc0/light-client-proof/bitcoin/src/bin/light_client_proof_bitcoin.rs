@@ -23,7 +23,7 @@ const L2_GENESIS_ROOT: [u8; 32] = {
         Network::Mainnet => "0000000000000000000000000000000000000000000000000000000000000000",
         // TODO: Update this after finding out the first batch prover output of the next release
         Network::Testnet => "05183faf24857f0fa6d4a7738fe5ef14b7ebe88be0f66e6f87f461485554d531",
-        Network::Devnet => "c23eb4eec08765750400f6e98567ef1977dc86334318f5424b7783c4080c0a36",
+        Network::Devnet => "c6584931466a25793f7f4d6d512d0ce53af4067d3ac61af20df968f5835d3743",
         Network::Nightly | Network::TestNetworkWithForks => match option_env!("L2_GENESIS_ROOT") {
             Some(hex_root) => hex_root,
             None => "dacb59b0ff5d16985a8418235133eee37758a3ac1b76ab6d1f87c6df20e4d4da",
@@ -62,8 +62,20 @@ const INITIAL_BATCH_PROOF_METHOD_IDS: &[(u64, [u32; 8])] = {
                 ),
             ),
         ],
-        // TODO: Update
-        Network::Devnet => &[(0, [0; 8])],
+        Network::Devnet => &[
+            (
+                0,
+                decode_to_u32_array(
+                    "3631d90630a3f0deb47f3a3411fe6e7ede1b0d86ad4216c75041e1a2020f009f",
+                ),
+            ),
+            (
+                1921835,
+                decode_to_u32_array(
+                    "b44b5a78d60714131e02829fe5f7575cbaff7586d6d4a7346bd495ea41ccb481",
+                ),
+            ),
+        ],
         Network::Nightly | Network::TestNetworkWithForks => {
             match option_env!("BATCH_PROOF_METHOD_ID") {
                 Some(hex_method_id) => &[(0, decode_to_u32_array(hex_method_id))],
@@ -104,7 +116,7 @@ pub const METHOD_ID_UPGRADE_AUTHORITY_DA_PUBLIC_KEY: [u8; 33] = {
     let hex_pub_key = match NETWORK {
         Network::Mainnet => "000000000000000000000000000000000000000000000000000000000000000000",
         Network::Testnet => "000000000000000000000000000000000000000000000000000000000000000000",
-        Network::Devnet => "000000000000000000000000000000000000000000000000000000000000000000",
+        Network::Devnet => "0388e988066db18e19750fa92aa0fbf9c85104be2b5b507ce0aa7f30f3fe24b1ac",
         Network::Nightly | Network::TestNetworkWithForks => {
             match option_env!("METHOD_ID_UPGRADE_AUTHORITY_DA_PUBLIC_KEY") {
                 Some(hex_pub_key) => hex_pub_key,
