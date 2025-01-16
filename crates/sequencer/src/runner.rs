@@ -481,7 +481,7 @@ where
                 evm_txs,
                 &pub_key,
                 prestate.clone(),
-                &da_block_header,
+                da_block_header,
                 soft_confirmation_info.clone(),
                 l2_block_mode,
             )
