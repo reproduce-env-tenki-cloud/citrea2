@@ -730,18 +730,17 @@ where
             tokio::select! {
                 // Receive updates from DA layer worker.
                 l1_data = da_height_update_rx.recv() => {
+                    (last_finalized_block, l1_fee_rate) = l1_data.expect("Da block channel should never close");
                     // Stop receiving updates from DA layer until we have caught up.
                     if missed_da_blocks_count > 0 {
                         continue;
                     }
-                    if let Some(l1_data) = l1_data {
-                        (last_finalized_block, l1_fee_rate) = l1_data;
-                        let last_finalized_height = last_finalized_block.header().height();
 
-                        missed_da_blocks_count = self.da_blocks_missed(last_finalized_height, last_used_l1_height);
+                    let last_finalized_height = last_finalized_block.header().height();
 
-                        SEQUENCER_METRICS.current_l1_block.set(last_finalized_height as f64);
-                    }
+                    missed_da_blocks_count = self.da_blocks_missed(last_finalized_height, last_used_l1_height);
+
+                    SEQUENCER_METRICS.current_l1_block.set(last_finalized_height as f64);
                 },
                 // If sequencer is in test mode, it will build a block every time it receives a message
                 // The RPC from which the sender can be called is only registered for test mode. This means
