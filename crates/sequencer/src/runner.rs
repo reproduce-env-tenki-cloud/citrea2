@@ -1081,6 +1081,7 @@ async fn da_block_monitor<Da>(
 ) where
     Da: DaService,
 {
+    let mut last_sent_l1_height = 0;
     loop {
         tokio::select! {
             biased;
@@ -1088,7 +1089,7 @@ async fn da_block_monitor<Da>(
                 return;
             }
             l1_data = get_da_block_data(da_service.clone()) => {
-                let l1_data = match l1_data {
+                let (l1_block, l1_height) = match l1_data {
                     Ok(l1_data) => l1_data,
                     Err(e) => {
                         error!("Could not fetch L1 data, {}", e);
@@ -1096,7 +1097,12 @@ async fn da_block_monitor<Da>(
                     }
                 };
 
-                let _ = sender.send(l1_data).await;
+                if l1_height > last_sent_l1_height + 1 {
+                    warn!("Last monitored l1 height was {last_sent_l1_height}, received height {l1_height} after {loop_interval} milliseconds");
+                }
+
+                let _ = sender.send((l1_block, l1_height)).await;
+                last_sent_l1_height = l1_height;
 
                 sleep(Duration::from_millis(loop_interval)).await;
             },
