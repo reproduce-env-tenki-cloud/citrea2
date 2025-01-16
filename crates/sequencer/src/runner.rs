@@ -679,7 +679,7 @@ where
         let mut last_finalized_height = last_finalized_block.header().height();
 
         let mut last_used_l1_height = match self.ledger_db.get_head_soft_confirmation() {
-            Ok(Some((_, sb))) => sb.da_slot_height,
+            Ok(Some((_, sc))) => sc.da_slot_height,
             Ok(None) => last_finalized_height, // starting for the first time
             Err(e) => {
                 return Err(anyhow!("previous L1 height: {}", e));
