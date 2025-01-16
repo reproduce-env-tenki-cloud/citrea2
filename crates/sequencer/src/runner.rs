@@ -1098,7 +1098,12 @@ async fn da_block_monitor<Da>(
                 };
 
                 if l1_height > last_sent_l1_height + 1 {
-                    warn!("Last monitored l1 height was {last_sent_l1_height}, received height {l1_height} after {loop_interval} milliseconds");
+                    warn!(
+                        "Last monitored l1 height was {}, received l1 height {} after {} milliseconds",
+                        last_sent_l1_height,
+                        l1_height,
+                        loop_interval,
+                    );
                 }
 
                 let _ = sender.send((l1_block, l1_height)).await;
