@@ -675,13 +675,7 @@ where
         }
 
         let (mut last_finalized_block, mut l1_fee_rate) =
-            match get_da_block_data(self.da_service.clone()).await {
-                Ok(l1_data) => l1_data,
-                Err(e) => {
-                    error!("{}", e);
-                    return Err(e);
-                }
-            };
+            get_da_block_data(self.da_service.clone()).await?;
         let mut last_finalized_height = last_finalized_block.header().height();
 
         let mut last_used_l1_height = match self.ledger_db.get_head_soft_confirmation() {
