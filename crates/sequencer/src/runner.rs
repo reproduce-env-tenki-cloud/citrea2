@@ -489,8 +489,7 @@ where
 
         let prestate = self
             .storage_manager
-            .create_storage_on_l2_height(l2_height)
-            .map_err(Into::<anyhow::Error>::into)?;
+            .create_storage_on_l2_height(l2_height)?;
 
         let checkpoint =
             StateCheckpoint::with_witness(prestate.clone(), Default::default(), Default::default());
@@ -526,7 +525,6 @@ where
                             &txs_new,
                             &mut working_set,
                         )
-                        // TODO: handle this error
                         .expect("dry_run_transactions should have already checked this");
                 }
 
