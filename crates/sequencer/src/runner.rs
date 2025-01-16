@@ -677,7 +677,7 @@ where
         let last_finalized_height = last_finalized_block.header().height();
 
         let mut last_used_l1_height = match self.ledger_db.get_head_soft_confirmation() {
-            Ok(Some((_, sc))) => sc.da_slot_height,
+            Ok(Some((_, sb))) => sb.da_slot_height,
             Ok(None) => last_finalized_height, // starting for the first time
             Err(e) => {
                 return Err(anyhow!("previous L1 height: {}", e));
@@ -728,7 +728,7 @@ where
             tokio::select! {
                 // Receive updates from DA layer worker.
                 l1_data = da_height_update_rx.recv() => {
-                    (last_finalized_block, l1_fee_rate) = l1_data.expect("Da block channel should never close");
+                    (last_finalized_block, l1_fee_rate) = l1_data.expect("Da block channel closed");
                     // Stop receiving updates from DA layer until we have caught up.
                     if missed_da_blocks_count > 0 {
                         continue;
