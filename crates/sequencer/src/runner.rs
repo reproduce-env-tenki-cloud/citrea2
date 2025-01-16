@@ -982,7 +982,7 @@ where
     pub async fn restore_mempool(&self) -> Result<(), anyhow::Error> {
         let mempool_txs = self.ledger_db.get_mempool_txs()?;
         for (_, tx) in mempool_txs {
-            let recovered = recover_raw_transaction(Bytes::from(tx.as_slice().to_vec()))?;
+            let recovered = recover_raw_transaction(Bytes::from(tx))?;
             let pooled_tx = EthPooledTransaction::from_pooled(recovered);
 
             let _ = self.mempool.add_external_transaction(pooled_tx).await?;
