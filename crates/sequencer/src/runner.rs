@@ -254,7 +254,7 @@ where
         >,
         pub_key: &[u8],
         prestate: ProverStorage<SnapshotManager>,
-        da_block_header: <<Da as DaService>::Spec as DaSpec>::BlockHeader,
+        da_block_header: &<<Da as DaService>::Spec as DaSpec>::BlockHeader,
         soft_confirmation_info: HookSoftConfirmationInfo,
         l2_block_mode: L2BlockMode,
     ) -> anyhow::Result<(Vec<RlpEvmTransaction>, Vec<TxHash>)> {
@@ -273,7 +273,7 @@ where
             match self.stf.begin_soft_confirmation(
                 pub_key,
                 &mut working_set_to_discard,
-                &da_block_header,
+                da_block_header,
                 &soft_confirmation_info,
             ) {
                 Ok(_) => {
@@ -415,12 +415,12 @@ where
 
     async fn produce_l2_block(
         &mut self,
-        da_block: <Da as DaService>::FilteredBlock,
+        da_block_header: &<<Da as DaService>::Spec as DaSpec>::BlockHeader,
         l1_fee_rate: u128,
         l2_block_mode: L2BlockMode,
     ) -> anyhow::Result<(u64, u64, StateDiff)> {
         let start = Instant::now();
-        let da_height = da_block.header().height();
+        let da_height = da_block_header.height();
         let (l2_height, l1_height) = match self
             .ledger_db
             .get_head_soft_confirmation()
@@ -451,9 +451,9 @@ where
 
         let soft_confirmation_info = HookSoftConfirmationInfo {
             l2_height,
-            da_slot_height: da_block.header().height(),
-            da_slot_hash: da_block.header().hash().into(),
-            da_slot_txs_commitment: da_block.header().txs_commitment().into(),
+            da_slot_height: da_block_header.height(),
+            da_slot_hash: da_block_header.hash().into(),
+            da_slot_txs_commitment: da_block_header.txs_commitment().into(),
             pre_state_root: self.state_root.clone().as_ref().to_vec(),
             deposit_data: deposit_data.clone(),
             current_spec: active_fork_spec,
@@ -468,7 +468,7 @@ where
             .map_err(Into::<anyhow::Error>::into)?;
         debug!(
             "Applying soft confirmation on DA block: {}",
-            hex::encode(da_block.header().hash().into())
+            hex::encode(da_block_header.hash().into())
         );
 
         let evm_txs = self.get_best_transactions()?;
@@ -481,7 +481,7 @@ where
                 evm_txs,
                 &pub_key,
                 prestate.clone(),
-                da_block.header().clone(),
+                &da_block_header,
                 soft_confirmation_info.clone(),
                 l2_block_mode,
             )
@@ -500,7 +500,7 @@ where
         match self.stf.begin_soft_confirmation(
             &pub_key,
             &mut working_set,
-            da_block.header(),
+            da_block_header,
             &soft_confirmation_info,
         ) {
             Ok(_) => {
@@ -533,9 +533,9 @@ where
                 // create the unsigned batch with the txs then sign th sc
                 let unsigned_batch = UnsignedSoftConfirmation::new(
                     l2_height,
-                    da_block.header().height(),
-                    da_block.header().hash().into(),
-                    da_block.header().txs_commitment().into(),
+                    da_block_header.height(),
+                    da_block_header.hash().into(),
+                    da_block_header.txs_commitment().into(),
                     &txs,
                     &txs_new,
                     deposit_data.clone(),
@@ -602,11 +602,11 @@ where
 
                 // connect L1 and L2 height
                 self.ledger_db.extend_l2_range_of_l1_slot(
-                    SlotNumber(da_block.header().height()),
+                    SlotNumber(da_block_header.height()),
                     SoftConfirmationNumber(l2_height),
                 )?;
 
-                let l1_height = da_block.header().height();
+                let l1_height = da_block_header.height();
                 info!(
                     "New block #{}, DA #{}, Tx count: #{}",
                     l2_height, l1_height, evm_txs_count,
@@ -642,7 +642,7 @@ where
 
                 Ok((
                     l2_height,
-                    da_block.header().height(),
+                    da_block_header.height(),
                     soft_confirmation_result.state_diff,
                 ))
             }
@@ -755,7 +755,7 @@ where
                         missed_da_blocks_count = 0;
                     }
 
-                    match self.produce_l2_block(last_finalized_block.clone(), l1_fee_rate, L2BlockMode::NotEmpty).await {
+                    match self.produce_l2_block(last_finalized_block.header(), l1_fee_rate, L2BlockMode::NotEmpty).await {
                         Ok((l2_height, l1_block_number, state_diff)) => {
                             last_used_l1_height = l1_block_number;
 
@@ -775,8 +775,6 @@ where
                     // last_finalized_block. If there are missed DA blocks, we start producing
                     // empty blocks at ~2 second rate, 1 L2 block per respective missed DA block
                     // until we know we caught up with L1.
-                    let da_block = last_finalized_block.clone();
-
                     if missed_da_blocks_count > 0 {
                         if let Err(e) = self.process_missed_da_blocks(missed_da_blocks_count, last_used_l1_height, l1_fee_rate).await {
                             error!("Sequencer error: {}", e);
@@ -787,7 +785,7 @@ where
                     }
 
 
-                    match self.produce_l2_block(da_block, l1_fee_rate, L2BlockMode::NotEmpty).await {
+                    match self.produce_l2_block(last_finalized_block.header(), l1_fee_rate, L2BlockMode::NotEmpty).await {
                         Ok((l2_height, l1_block_number, state_diff)) => {
                             last_used_l1_height = l1_block_number;
 
@@ -1045,7 +1043,7 @@ where
             .await?;
 
             debug!("Created an empty L2 for L1={}", needed_da_block_height);
-            self.produce_l2_block(da_block, l1_fee_rate, L2BlockMode::Empty)
+            self.produce_l2_block(da_block.header(), l1_fee_rate, L2BlockMode::Empty)
                 .await?;
         }
 
