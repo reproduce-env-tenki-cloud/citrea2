@@ -676,7 +676,7 @@ where
 
         let (mut last_finalized_block, mut l1_fee_rate) =
             get_da_block_data(self.da_service.clone()).await?;
-        let mut last_finalized_height = last_finalized_block.header().height();
+        let last_finalized_height = last_finalized_block.header().height();
 
         let mut last_used_l1_height = match self.ledger_db.get_head_soft_confirmation() {
             Ok(Some((_, sc))) => sc.da_slot_height,
@@ -736,11 +736,12 @@ where
                     }
                     if let Some(l1_data) = l1_data {
                         (last_finalized_block, l1_fee_rate) = l1_data;
-                        last_finalized_height = last_finalized_block.header().height();
+                        let last_finalized_height = last_finalized_block.header().height();
 
                         missed_da_blocks_count = self.da_blocks_missed(last_finalized_height, last_used_l1_height);
+
+                        SEQUENCER_METRICS.current_l1_block.set(last_finalized_height as f64);
                     }
-                    SEQUENCER_METRICS.current_l1_block.set(last_finalized_height as f64);
                 },
                 // If sequencer is in test mode, it will build a block every time it receives a message
                 // The RPC from which the sender can be called is only registered for test mode. This means
