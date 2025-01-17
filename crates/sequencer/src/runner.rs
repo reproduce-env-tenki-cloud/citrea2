@@ -728,12 +728,13 @@ where
             tokio::select! {
                 // Receive updates from DA layer worker.
                 l1_data = da_height_update_rx.recv() => {
-                    (last_finalized_block, l1_fee_rate) = l1_data.expect("Da block channel closed");
+                    let l1_data = l1_data.expect("Da block channel closed");
                     // Stop receiving updates from DA layer until we have caught up.
                     if missed_da_blocks_count > 0 {
                         continue;
                     }
 
+                    (last_finalized_block, l1_fee_rate) = l1_data;
                     let last_finalized_height = last_finalized_block.header().height();
 
                     missed_da_blocks_count = self.da_blocks_missed(last_finalized_height, last_used_l1_height);
