@@ -677,7 +677,11 @@ where
         let last_finalized_height = last_finalized_block.header().height();
 
         let mut last_used_l1_height = match self.ledger_db.get_head_soft_confirmation() {
-            Ok(Some((_, sb))) => sb.da_slot_height,
+            Ok(Some((_, sb))) => {
+                self.ensure_no_da_forks(sb.da_slot_height, sb.da_slot_hash)
+                    .await;
+                sb.da_slot_height
+            }
             Ok(None) => last_finalized_height, // starting for the first time
             Err(e) => {
                 return Err(anyhow!("previous L1 height: {}", e));
@@ -1067,6 +1071,22 @@ where
         }
         // Missed DA blocks means that we produce n - 1 empty blocks, 1 per missed DA block.
         skipped_blocks
+    }
+
+    async fn ensure_no_da_forks(&self, da_block_height: u64, expected_da_block_hash: [u8; 32]) {
+        let da_block = self
+            .da_service
+            .get_block_at(da_block_height)
+            .await
+            .expect("Should not continue if we cannot ensure there are no DA forks");
+        assert_eq!(
+            da_block.header().hash(),
+            expected_da_block_hash.into(),
+            "Fork happened on DA.\nHead soft confirmation DA block height: {}\nExpected DA block hash: {:?}\nGot DA block hash from DA service: {:?}",
+            da_block_height,
+            expected_da_block_hash,
+            da_block.header().hash(),
+        );
     }
 }
 
