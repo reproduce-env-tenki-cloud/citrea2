@@ -1,8 +1,8 @@
+use std::cmp;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::vec;
 
 use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{Address, Bytes, TxHash};
@@ -678,7 +678,7 @@ where
 
         let mut last_used_l1_height = match self.ledger_db.get_head_soft_confirmation() {
             Ok(Some((_, sb))) => {
-                self.ensure_no_da_forks(sb.da_slot_height, sb.da_slot_hash)
+                ensure_no_da_forks(self.da_service.clone(), sb.da_slot_height, sb.da_slot_hash)
                     .await;
                 sb.da_slot_height
             }
@@ -714,6 +714,8 @@ where
                 da_height_update_tx,
                 self.config.da_update_interval_ms,
                 cancellation_token,
+                last_finalized_height,
+                last_finalized_block.hash(),
             )
         });
 
@@ -1072,22 +1074,6 @@ where
         // Missed DA blocks means that we produce n - 1 empty blocks, 1 per missed DA block.
         skipped_blocks
     }
-
-    async fn ensure_no_da_forks(&self, da_block_height: u64, expected_da_block_hash: [u8; 32]) {
-        let da_block = self
-            .da_service
-            .get_block_at(da_block_height)
-            .await
-            .expect("Should not continue if we cannot ensure there are no DA forks");
-        assert_eq!(
-            da_block.header().hash(),
-            expected_da_block_hash.into(),
-            "Fork happened on DA.\nHead soft confirmation DA block height: {}\nExpected DA block hash: {:?}\nGot DA block hash from DA service: {:?}",
-            da_block_height,
-            expected_da_block_hash,
-            da_block.header().hash(),
-        );
-    }
 }
 
 async fn da_block_monitor<Da>(
@@ -1095,6 +1081,8 @@ async fn da_block_monitor<Da>(
     sender: mpsc::Sender<L1Data<Da>>,
     loop_interval: u64,
     cancellation_token: CancellationToken,
+    mut last_da_height: u64,
+    mut last_da_hash: [u8; 32],
 ) where
     Da: DaService,
 {
@@ -1112,6 +1100,28 @@ async fn da_block_monitor<Da>(
                         continue;
                     }
                 };
+
+                let header = l1_block.header();
+                match header.height().cmp(&last_da_height) {
+                    cmp::Ordering::Less => panic!("DA blockchain moved in reverse"),
+                    cmp::Ordering::Equal => assert_eq!(
+                        last_da_hash,
+                        header.hash().into(),
+                        "Fork happened on DA.\nDA block height: {}\nExpected DA block hash: {:?}\nGot DA block hash from DA service: {:?}",
+                        last_da_height,
+                        last_da_hash,
+                        header.hash(),
+                    ),
+                    cmp::Ordering::Greater => {
+                        if header.height() == last_da_height + 1 {
+                            assert_eq!(last_da_hash, header.prev_hash().into());
+                        } else {
+                            ensure_no_da_forks(da_service.clone(), last_da_height, last_da_hash).await;
+                        }
+                        last_da_height = header.height();
+                        last_da_hash = header.hash().into();
+                    }
+                }
 
                 let _ = sender.send((l1_block, l1_fee_rate)).await;
 
@@ -1147,4 +1157,23 @@ where
         .map_err(|e| anyhow!("Failed to fetch l1 fee rate: {e}"))?;
 
     Ok((last_finalized_block, l1_fee_rate))
+}
+
+async fn ensure_no_da_forks<Da: DaService>(
+    da_service: Arc<Da>,
+    da_block_height: u64,
+    expected_da_block_hash: [u8; 32],
+) {
+    let da_block = da_service
+        .get_block_at(da_block_height)
+        .await
+        .expect("Should not continue if we cannot ensure there are no DA forks");
+    assert_eq!(
+        da_block.header().hash(),
+        expected_da_block_hash.into(),
+        "Fork happened on DA.\nHead soft confirmation DA block height: {}\nExpected DA block hash: {:?}\nGot DA block hash from DA service: {:?}",
+        da_block_height,
+        expected_da_block_hash,
+        da_block.header().hash(),
+    );
 }
