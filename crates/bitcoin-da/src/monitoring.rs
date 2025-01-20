@@ -236,16 +236,14 @@ impl FromEnv for MonitoringConfig {
                     |_| Ok(monitoring_defaults::max_history_size()),
                     |v| v.parse().map_err(Into::<anyhow::Error>::into),
                 )?,
-                max_da_bandwidth_bytes: std::env::var("DA_MONITORING_MAX_DA_BANDWIDTH_BYTES")
-                    .map_or_else(
-                        |_| Ok(monitoring_defaults::max_da_bandwidth_bytes()),
-                        |v| v.parse().map_err(Into::<anyhow::Error>::into),
-                    )?,
-                window_duration_secs: std::env::var("DA_MONITORING_WINDOW_DURATION_SECS")
-                    .map_or_else(
-                        |_| Ok(monitoring_defaults::window_duration_secs()),
-                        |v| v.parse().map_err(Into::<anyhow::Error>::into),
-                    )?,
+                max_da_bandwidth_bytes: max_da_bandwidth_bytes.map_or_else(
+                    |_| Ok(monitoring_defaults::max_da_bandwidth_bytes()),
+                    |v| v.parse().map_err(Into::<anyhow::Error>::into),
+                )?,
+                window_duration_secs: window_duration_secs.map_or_else(
+                    |_| Ok(monitoring_defaults::window_duration_secs()),
+                    |v| v.parse().map_err(Into::<anyhow::Error>::into),
+                )?,
             }),
         }
     }
