@@ -211,7 +211,6 @@ where
     Ok((sequencer_commitments, batch_proof_circuit_inputs))
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn prove_l1<Da, Ps, Vm, DB, StateRoot, Witness, Tx>(
     prover_service: Arc<Ps>,
     ledger: DB,
@@ -220,7 +219,6 @@ pub(crate) async fn prove_l1<Da, Ps, Vm, DB, StateRoot, Witness, Tx>(
     l1_block: &Da::FilteredBlock,
     sequencer_commitments: Vec<SequencerCommitment>,
     inputs: Vec<BatchProofCircuitInput<'_, StateRoot, Witness, Da::Spec, Tx>>,
-    use_latest_elf: bool,
 ) -> anyhow::Result<()>
 where
     Da: DaService,
@@ -242,17 +240,16 @@ where
         .unwrap_or(vec![]);
 
     // Add each non-proven proof's data to ProverService
-    for (i, input) in inputs.into_iter().enumerate() {
+    for input in inputs {
         if !state_transition_already_proven::<StateRoot, Witness, Da, Tx>(&input, &submitted_proofs)
         {
-            let seq_com = sequencer_commitments.get(i).expect("Commitment exists");
-            let last_l2_height = seq_com.l2_end_block_number;
+            let range_end = input.sequencer_commitments_range.1;
 
-            let mut current_spec = fork_from_block_number(last_l2_height).spec_id;
-
-            if use_latest_elf {
-                current_spec = SpecId::Fork1;
-            }
+            let last_seq_com = sequencer_commitments
+                .get(range_end as usize)
+                .expect("Commitment does not exist");
+            let last_l2_height = last_seq_com.l2_end_block_number;
+            let current_spec = fork_from_block_number(last_l2_height).spec_id;
 
             let elf = elfs_by_spec
                 .get(&current_spec)
@@ -288,7 +285,6 @@ where
         ledger.clone(),
         txs_and_proofs,
         code_commitments_by_spec.clone(),
-        use_latest_elf,
     )
     .await?;
 
@@ -331,7 +327,6 @@ pub(crate) async fn extract_and_store_proof<DB, Da, Vm, StateRoot>(
     ledger_db: DB,
     txs_and_proofs: Vec<(<Da as DaService>::TransactionId, Proof)>,
     code_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
-    use_latest_elf: bool,
 ) -> Result<(), anyhow::Error>
 where
     Da: DaService,
@@ -350,7 +345,7 @@ where
 
         // l1_height => (tx_id, proof, circuit_output)
         // save proof along with tx id to db, should be queryable by slot number or slot hash
-        let (mut last_active_spec_id, circuit_output) = match Vm::extract_output::<
+        let (last_active_spec_id, circuit_output) = match Vm::extract_output::<
             BatchProofCircuitOutput<<Da as DaService>::Spec, StateRoot>,
         >(&proof)
         {
@@ -383,10 +378,6 @@ where
                 (SpecId::Genesis, batch_proof_output)
             }
         };
-
-        if use_latest_elf {
-            last_active_spec_id = SpecId::Fork1;
-        }
 
         let code_commitment = code_commitments_by_spec
             .get(&last_active_spec_id)

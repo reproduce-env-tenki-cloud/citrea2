@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
     Deserialize,
     Hash,
 )]
+#[repr(u8)]
 #[borsh(use_discriminant = true)]
 pub enum SpecId {
     /// Genesis spec
@@ -28,7 +29,9 @@ pub enum SpecId {
     /// 1. the light client proof
     /// 2. EVM cancun upgrade (with no kzg precompile)
     /// 3. Don't use borsh when signing SoftConfirmation's
-    Fork1 = 1,
+    /// 4. Better usage of DA layer by committing only the hash
+    ///    of the smart contracts to state
+    Kumquat = 1,
     /// Fork2 spec
     #[cfg(feature = "testing")]
     Fork2 = 2,
@@ -43,7 +46,7 @@ impl SpecId {
     pub const fn from_u8(n: u8) -> Option<SpecId> {
         match n {
             0 => Some(SpecId::Genesis),
-            1 => Some(SpecId::Fork1),
+            1 => Some(SpecId::Kumquat),
             #[cfg(feature = "testing")]
             2 => Some(SpecId::Fork2),
             #[cfg(feature = "testing")]

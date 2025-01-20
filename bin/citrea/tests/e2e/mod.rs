@@ -96,7 +96,6 @@ async fn test_all_flow() {
                 proving_mode: sov_stf_runner::ProverGuestRunConfig::Execute,
                 proof_sampling_number: 0,
                 enable_recovery: true,
-                use_latest_elf: true,
             }),
             None,
             rollup_config,
@@ -657,7 +656,7 @@ async fn test_offchain_contract_storage() {
     let seq_fork = fork_from_block_number(seq_height);
 
     // Assert we are at fork1
-    assert_eq!(seq_fork.spec_id, SpecId::Fork1);
+    assert_eq!(seq_fork.spec_id, SpecId::Kumquat);
 
     // This should access the `code` and copy code over to `offchain_code` in EVM
     let code = sequencer_client

@@ -7,7 +7,7 @@ use citrea_common::{LightClientProverConfig, RollupPublicKeys, RpcConfig, Runner
 use jsonrpsee::server::{BatchRequestConfig, ServerBuilder};
 use jsonrpsee::RpcModule;
 use sov_db::ledger_db::{LightClientProverLedgerOps, SharedLedgerOps};
-use sov_db::schema::types::SlotNumber;
+use sov_db::mmr_db::MmrDB;
 use sov_rollup_interface::services::da::DaService;
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::zk::ZkvmHost;
@@ -18,6 +18,11 @@ use tracing::{error, info, instrument};
 
 use crate::da_block_handler::L1BlockHandler;
 use crate::rpc::{create_rpc_module, RpcContext};
+
+pub(crate) enum StartVariant {
+    LastScanned(u64),
+    FromBlock(u64),
+}
 
 pub struct CitreaLightClientProver<Da, Vm, Ps, DB>
 where
@@ -37,6 +42,7 @@ where
     batch_proof_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
     light_client_proof_commitment: HashMap<SpecId, Vm::CodeCommitment>,
     light_client_proof_elfs: HashMap<SpecId, Vec<u8>>,
+    mmr_db: MmrDB,
 }
 
 impl<Da, Vm, Ps, DB> CitreaLightClientProver<Da, Vm, Ps, DB>
@@ -58,6 +64,7 @@ where
         batch_proof_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
         light_client_proof_commitment: HashMap<SpecId, Vm::CodeCommitment>,
         light_client_proof_elfs: HashMap<SpecId, Vec<u8>>,
+        mmr_db: MmrDB,
         task_manager: TaskManager<()>,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
@@ -72,6 +79,7 @@ where
             batch_proof_commitments_by_spec,
             light_client_proof_commitment,
             light_client_proof_elfs,
+            mmr_db,
         })
     }
 
@@ -141,15 +149,17 @@ where
     /// Runs the rollup.
     #[instrument(level = "trace", skip_all, err)]
     pub async fn run(&mut self) -> Result<(), anyhow::Error> {
-        let last_l1_height_scanned = match self.ledger_db.get_last_scanned_l1_height()? {
-            Some(l1_height) => l1_height,
-            // If not found, start from the first L2 block's L1 height
-            None => SlotNumber(self.prover_config.initial_da_height),
+        let starting_block = match self.ledger_db.get_last_scanned_l1_height()? {
+            Some(l1_height) => StartVariant::LastScanned(l1_height.0),
+            // first time starting the prover
+            // start from the block given in the config
+            None => StartVariant::FromBlock(self.prover_config.initial_da_height),
         };
 
         let prover_config = self.prover_config.clone();
         let prover_service = self.prover_service.clone();
         let ledger_db = self.ledger_db.clone();
+        let mmr_db = self.mmr_db.clone();
         let da_service = self.da_service.clone();
         let batch_prover_da_pub_key = self.public_keys.prover_da_pub_key.clone();
         let batch_proof_commitments_by_spec = self.batch_proof_commitments_by_spec.clone();
@@ -166,9 +176,10 @@ where
                 batch_proof_commitments_by_spec,
                 light_client_proof_commitment,
                 light_client_proof_elfs,
+                mmr_db,
             );
             l1_block_handler
-                .run(last_l1_height_scanned.0, cancellation_token)
+                .run(starting_block, cancellation_token)
                 .await
         });
 

@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use anyhow::anyhow;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::{Address, BlockHash, Transaction, Txid};
@@ -159,7 +160,7 @@ pub enum MonitorError {
     BitcoinEncodeError(#[from] bitcoin::consensus::encode::Error),
 }
 
-mod defaults {
+mod monitoring_defaults {
     pub const fn max_da_bandwidth_bytes() -> u64 {
         4 * 1024 * 1024 // 4MB
     }
@@ -167,7 +168,6 @@ mod defaults {
     pub const fn window_duration_secs() -> u64 {
         600 // 10 minutes
     }
-
     pub const fn check_interval() -> u64 {
         60
     }
@@ -183,55 +183,71 @@ mod defaults {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct MonitoringConfig {
-    #[serde(default = "defaults::check_interval")]
+    #[serde(default = "monitoring_defaults::check_interval")]
     pub check_interval: u64,
-    #[serde(default = "defaults::history_limit")]
+    #[serde(default = "monitoring_defaults::history_limit")]
     pub history_limit: usize,
-    #[serde(default = "defaults::max_history_size")]
+    #[serde(default = "monitoring_defaults::max_history_size")]
     pub max_history_size: usize,
-    #[serde(default = "defaults::max_da_bandwidth_bytes")]
+    #[serde(default = "monitoring_defaults::max_da_bandwidth_bytes")]
     max_da_bandwidth_bytes: u64,
-    #[serde(default = "defaults::window_duration_secs")]
+    #[serde(default = "monitoring_defaults::window_duration_secs")]
     window_duration_secs: u64,
 }
 
 impl Default for MonitoringConfig {
     fn default() -> Self {
         Self {
-            check_interval: defaults::check_interval(),
-            history_limit: defaults::history_limit(),
-            max_history_size: defaults::max_history_size(),
-            max_da_bandwidth_bytes: defaults::max_da_bandwidth_bytes(),
-            window_duration_secs: defaults::window_duration_secs(),
+            check_interval: monitoring_defaults::check_interval(),
+            history_limit: monitoring_defaults::history_limit(),
+            max_history_size: monitoring_defaults::max_history_size(),
+            max_da_bandwidth_bytes: monitoring_defaults::max_da_bandwidth_bytes(),
+            window_duration_secs: monitoring_defaults::window_duration_secs(),
         }
     }
 }
 
 impl FromEnv for MonitoringConfig {
     fn from_env() -> anyhow::Result<Self> {
-        Ok(MonitoringConfig {
-            check_interval: std::env::var("DA_MONITORING_CHECK_INTERVAL").map_or_else(
-                |_| Ok(defaults::check_interval()),
-                |v| v.parse().map_err(Into::<anyhow::Error>::into),
-            )?,
-            history_limit: std::env::var("DA_MONITORING_HISTORY_LIMIT").map_or_else(
-                |_| Ok(defaults::history_limit()),
-                |v| v.parse().map_err(Into::<anyhow::Error>::into),
-            )?,
-            max_history_size: std::env::var("DA_MONITORING_MAX_HISTORY_SIZE").map_or_else(
-                |_| Ok(defaults::max_history_size()),
-                |v| v.parse().map_err(Into::<anyhow::Error>::into),
-            )?,
-            max_da_bandwidth_bytes: std::env::var("DA_MONITORING_MAX_DA_BANDWIDTH_BYTES")
-                .map_or_else(
-                    |_| Ok(defaults::max_da_bandwidth_bytes()),
+        match (
+            std::env::var("DA_MONITORING_CHECK_INTERVAL"),
+            std::env::var("DA_MONITORING_HISTORY_LIMIT"),
+            std::env::var("DA_MONITORING_MAX_HISTORY_SIZE"),
+            std::env::var("DA_MONITORING_MAX_DA_BANDWIDTH_BYTES"),
+            std::env::var("DA_MONITORING_WINDOW_DURATION_SECS"),
+        ) {
+            (Err(_), Err(_), Err(_), Err(_), Err(_)) => Err(anyhow!("Missing monitoring config")),
+            (
+                check_interval,
+                history_limit,
+                max_history_size,
+                max_da_bandwidth_bytes,
+                window_duration_secs,
+            ) => Ok(MonitoringConfig {
+                check_interval: check_interval.map_or_else(
+                    |_| Ok(monitoring_defaults::check_interval()),
                     |v| v.parse().map_err(Into::<anyhow::Error>::into),
                 )?,
-            window_duration_secs: std::env::var("DA_MONITORING_WINDOW_DURATION_SECS").map_or_else(
-                |_| Ok(defaults::window_duration_secs()),
-                |v| v.parse().map_err(Into::<anyhow::Error>::into),
-            )?,
-        })
+                history_limit: history_limit.map_or_else(
+                    |_| Ok(monitoring_defaults::history_limit()),
+                    |v| v.parse().map_err(Into::<anyhow::Error>::into),
+                )?,
+                max_history_size: max_history_size.map_or_else(
+                    |_| Ok(monitoring_defaults::max_history_size()),
+                    |v| v.parse().map_err(Into::<anyhow::Error>::into),
+                )?,
+                max_da_bandwidth_bytes: std::env::var("DA_MONITORING_MAX_DA_BANDWIDTH_BYTES")
+                    .map_or_else(
+                        |_| Ok(monitoring_defaults::max_da_bandwidth_bytes()),
+                        |v| v.parse().map_err(Into::<anyhow::Error>::into),
+                    )?,
+                window_duration_secs: std::env::var("DA_MONITORING_WINDOW_DURATION_SECS")
+                    .map_or_else(
+                        |_| Ok(monitoring_defaults::window_duration_secs()),
+                        |v| v.parse().map_err(Into::<anyhow::Error>::into),
+                    )?,
+            }),
+        }
     }
 }
 

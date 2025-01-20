@@ -1800,6 +1800,7 @@ dependencies = [
  "metrics-exporter-prometheus",
  "metrics-util",
  "prover-services",
+ "rand",
  "regex",
  "reqwest",
  "reth-primitives",
@@ -1908,7 +1909,7 @@ dependencies = [
 [[package]]
 name = "citrea-e2e"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=06394fb#06394fbeff7375d4887760a7d1a00d51f09e7689"
+source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=6cee848#6cee84887501a44887cefa9e92c2237f64471fbc"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1948,6 +1949,7 @@ dependencies = [
  "bytes",
  "citrea-primitives",
  "clap",
+ "derive_more",
  "hex",
  "itertools 0.13.0",
  "jsonrpsee",
@@ -2039,6 +2041,7 @@ dependencies = [
  "metrics",
  "metrics-derive",
  "once_cell",
+ "rand",
  "sov-db",
  "sov-ledger-rpc",
  "sov-mock-da",
@@ -2088,6 +2091,7 @@ dependencies = [
  "borsh",
  "hex",
  "metrics",
+ "risc0-zkp",
  "risc0-zkvm",
  "serde",
  "sov-db",
@@ -7805,6 +7809,7 @@ dependencies = [
 name = "sov-db"
 version = "0.6.0"
 dependencies = [
+ "alloy-primitives",
  "anyhow",
  "bincode",
  "borsh",
@@ -8009,6 +8014,7 @@ dependencies = [
 name = "sov-rollup-interface"
 version = "0.6.0"
 dependencies = [
+ "alloy-primitives",
  "anyhow",
  "async-trait",
  "borsh",
@@ -8017,6 +8023,7 @@ dependencies = [
  "futures",
  "hex",
  "jmt",
+ "risc0-zkp",
  "serde",
  "serde_json",
  "sha2",

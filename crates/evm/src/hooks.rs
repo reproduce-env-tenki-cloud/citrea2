@@ -33,7 +33,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         let current_spec = soft_confirmation_info.current_spec;
 
-        let mut parent_block = if current_spec >= CitreaSpecId::Fork1 {
+        let mut parent_block = if current_spec >= CitreaSpecId::Kumquat {
             match self.head_rlp.get(working_set) {
                 Some(block) => block.clone().into(),
                 None => self
@@ -51,7 +51,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         parent_block.header.state_root = B256::from_slice(&soft_confirmation_info.pre_state_root);
 
-        if current_spec >= CitreaSpecId::Fork1 {
+        if current_spec >= CitreaSpecId::Kumquat {
             self.head_rlp.set(&parent_block.clone().into(), working_set);
         } else {
             self.head.set(&parent_block, working_set);
@@ -168,7 +168,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         let current_spec = soft_confirmation_info.current_spec;
 
-        let parent_block = if current_spec >= CitreaSpecId::Fork1 {
+        let parent_block = if current_spec >= CitreaSpecId::Kumquat {
             match self.head_rlp.get(working_set) {
                 Some(block) => block.seal(),
                 None => {
@@ -266,7 +266,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
             transactions: start_tx_index..start_tx_index + pending_transactions.len() as u64,
         };
 
-        if current_spec >= CitreaSpecId::Fork1 {
+        if current_spec >= CitreaSpecId::Kumquat {
             self.head_rlp.set(&block, working_set);
         } else {
             self.head.set(&block.clone().into(), working_set);
@@ -283,14 +283,35 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
             self.pending_head.set(&block, &mut accessory_state);
 
+            // migration start
+            if self.transactions_rlp.len(&mut accessory_state) == 0 {
+                let len = self.transactions.len(&mut accessory_state);
+                tracing::info!("Migrating {} transactions from storage to RLP", len);
+                for i in 0..len {
+                    let tx = self.transactions.get(i, &mut accessory_state).unwrap();
+                    self.transactions_rlp.push(&tx.into(), &mut accessory_state);
+                }
+            }
+
+            if self.receipts_rlp.len(&mut accessory_state) == 0 {
+                let len = self.receipts.len(&mut accessory_state);
+                tracing::info!("Migrating {} receipts from storage to RLP", len);
+                for i in 0..len {
+                    let receipt = self.receipts.get(i, &mut accessory_state).unwrap();
+                    self.receipts_rlp.push(&receipt, &mut accessory_state);
+                }
+            }
+            // migration end
+
             let mut tx_index = start_tx_index;
             for PendingTransaction {
                 transaction,
                 receipt,
             } in pending_transactions
             {
-                self.transactions.push(transaction, &mut accessory_state);
-                self.receipts.push(receipt, &mut accessory_state);
+                self.transactions_rlp
+                    .push(transaction, &mut accessory_state);
+                self.receipts_rlp.push(receipt, &mut accessory_state);
 
                 self.transaction_hashes.set(
                     &transaction.signed_transaction.hash,
@@ -321,7 +342,18 @@ impl<C: sov_modules_api::Context> Evm<C> {
     ) {
         #[cfg(feature = "native")]
         {
-            let expected_block_number = self.blocks.len(accessory_working_set) as u64;
+            // migration start
+            if self.blocks_rlp.len(accessory_working_set) == 0 {
+                let len = self.blocks.len(accessory_working_set);
+                tracing::info!("Migrating {} blocks from storage to RLP", len);
+                for i in 0..len {
+                    let block = self.blocks.get(i, accessory_working_set).unwrap();
+                    self.blocks_rlp.push(&block.into(), accessory_working_set);
+                }
+            }
+            // migration end
+
+            let expected_block_number = self.blocks_rlp.len(accessory_working_set) as u64;
 
             let mut block = self
                 .pending_head
@@ -343,7 +375,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
             let sealed_block = block.seal();
 
-            self.blocks.push(&sealed_block, accessory_working_set);
+            self.blocks_rlp.push(&sealed_block, accessory_working_set);
             self.block_hashes.set(
                 &sealed_block.header.hash(),
                 &sealed_block.header.number,

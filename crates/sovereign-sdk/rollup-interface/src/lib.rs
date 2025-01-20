@@ -12,26 +12,23 @@ extern crate alloc;
 ///
 /// Mostly used for web3_clientVersion RPC calls and might be used for other purposes.
 #[cfg(feature = "native")]
-pub const CITREA_VERSION: &str = "v0.5.5";
+pub const CITREA_VERSION: &str = "v0.6.0";
 
-mod state_machine;
-pub use state_machine::*;
-
+/// Fork module
+pub mod fork;
+pub mod mmr;
 mod network;
-pub use network::*;
-
 mod node;
+/// Specs module
+pub mod spec;
+mod state_machine;
 
 #[cfg(not(target_has_atomic = "ptr"))]
 pub use alloc::rc::Rc as RefCount;
 #[cfg(target_has_atomic = "ptr")]
 pub use alloc::sync::Arc as RefCount;
 
+pub use network::*;
 pub use node::*;
+pub use state_machine::*;
 pub use {anyhow, digest};
-
-/// Fork module
-pub mod fork;
-
-/// Specs module
-pub mod spec;

@@ -31,8 +31,8 @@ use tracing::instrument;
 
 use crate::guests::{
     BATCH_PROOF_DEVNET_GUESTS, BATCH_PROOF_LATEST_BITCOIN_GUESTS, BATCH_PROOF_MAINNET_GUESTS,
-    BATCH_PROOF_TESTNET_GUESTS, LIGHT_CLIENT_DEVNET_GUESTS, LIGHT_CLIENT_LATEST_BITCOIN_GUESTS,
-    LIGHT_CLIENT_MAINNET_GUESTS, LIGHT_CLIENT_TESTNET_GUESTS,
+    BATCH_PROOF_REGTEST_BITCOIN_GUESTS, BATCH_PROOF_TESTNET_GUESTS, LIGHT_CLIENT_DEVNET_GUESTS,
+    LIGHT_CLIENT_LATEST_BITCOIN_GUESTS, LIGHT_CLIENT_MAINNET_GUESTS, LIGHT_CLIENT_TESTNET_GUESTS,
 };
 use crate::{CitreaRollupBlueprint, Network};
 
@@ -183,6 +183,10 @@ impl RollupBlueprint for BitcoinRollup {
                 .iter()
                 .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
+            Network::TestNetworkWithForks => BATCH_PROOF_REGTEST_BITCOIN_GUESTS
+                .iter()
+                .map(|(k, (_, code))| (*k, code.clone()))
+                .collect(),
         }
     }
 
@@ -200,7 +204,7 @@ impl RollupBlueprint for BitcoinRollup {
                 .iter()
                 .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
-            Network::Nightly => LIGHT_CLIENT_LATEST_BITCOIN_GUESTS
+            Network::Nightly | Network::TestNetworkWithForks => LIGHT_CLIENT_LATEST_BITCOIN_GUESTS
                 .iter()
                 .map(|(k, (_, code))| (*k, code.clone()))
                 .collect(),
@@ -227,6 +231,10 @@ impl RollupBlueprint for BitcoinRollup {
                 .iter()
                 .map(|(k, (id, _))| (*k, *id))
                 .collect(),
+            Network::TestNetworkWithForks => BATCH_PROOF_REGTEST_BITCOIN_GUESTS
+                .iter()
+                .map(|(k, (id, _))| (*k, *id))
+                .collect(),
         }
     }
 
@@ -246,7 +254,7 @@ impl RollupBlueprint for BitcoinRollup {
                 .iter()
                 .map(|(k, (id, _))| (*k, *id))
                 .collect(),
-            Network::Nightly => LIGHT_CLIENT_LATEST_BITCOIN_GUESTS
+            Network::Nightly | Network::TestNetworkWithForks => LIGHT_CLIENT_LATEST_BITCOIN_GUESTS
                 .iter()
                 .map(|(k, (id, _))| (*k, *id))
                 .collect(),
@@ -261,7 +269,7 @@ impl RollupBlueprint for BitcoinRollup {
         ledger_db: LedgerDB,
         proof_sampling_number: usize,
     ) -> Self::ProverService {
-        let vm = Risc0BonsaiHost::new(ledger_db.clone());
+        let vm = Risc0BonsaiHost::new(ledger_db.clone(), self.network);
         // let vm = SP1Host::new(
         //     include_bytes!("../guests/sp1/batch-prover-bitcoin/elf/zkvm-elf"),
         //     ledger_db.clone(),

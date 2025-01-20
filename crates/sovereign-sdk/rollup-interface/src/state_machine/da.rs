@@ -60,11 +60,45 @@ pub enum DaDataLightClient {
     /// A zk proof and state diff
     Complete(Proof),
     /// A list of tx ids
-    Aggregate(Vec<[u8; 32]>),
+    Aggregate(Vec<[u8; 32]>, Vec<[u8; 32]>),
     /// A chunk of an aggregate
     Chunk(Vec<u8>),
     /// A new batch proof method_id
     BatchProofMethodId(BatchProofMethodId),
+}
+
+impl DaDataLightClient {
+    /// Implement parsing of ::Complete variant according to possible changes
+    ///  of format on DA.
+    pub fn borsh_parse_complete(body: &[u8]) -> borsh::io::Result<Self> {
+        #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize)]
+        enum PreFork1Proof {
+            /// Only public input was generated.
+            PublicInput(Vec<u8>),
+            /// The serialized ZK proof.
+            Full(Vec<u8>),
+        }
+
+        #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize)]
+        enum PreFork1DaDataLightClient {
+            Complete(PreFork1Proof),
+        }
+
+        if let Ok(res) = Self::try_from_slice(body) {
+            Ok(res)
+        } else {
+            let prefork1_data = PreFork1DaDataLightClient::try_from_slice(body)?;
+            if let PreFork1DaDataLightClient::Complete(PreFork1Proof::Full(full)) = prefork1_data {
+                Ok(DaDataLightClient::Complete(full))
+            } else {
+                use borsh::io::{Error, ErrorKind};
+                Err(Error::new(
+                    ErrorKind::InvalidData,
+                    "PreFork1 Complete failed to parse",
+                ))
+            }
+        }
+    }
 }
 
 /// Data written to DA and read from DA must be the borsh serialization of this enum
@@ -127,7 +161,7 @@ pub trait DaSpec:
 }
 
 /// Latest da state to verify and apply da block changes
-#[derive(Debug, Clone, BorshDeserialize, BorshSerialize, PartialEq)]
+#[derive(Default, Debug, Clone, BorshDeserialize, BorshSerialize, PartialEq)]
 pub struct LatestDaState {
     /// Proved DA block's header hash
     /// This is used to compare the previous DA block hash with first batch proof's DA block hash
@@ -178,6 +212,9 @@ pub trait DaVerifier: Send + Sync {
         block_header: &<Self::Spec as DaSpec>::BlockHeader,
         network: Network,
     ) -> Result<LatestDaState, Self::Error>;
+
+    /// Decompress chunks to complete
+    fn decompress_chunks(&self, complete_chunks: &[u8]) -> Result<Vec<u8>, Self::Error>;
 }
 
 #[cfg(feature = "std")]
@@ -260,6 +297,9 @@ pub trait BlobReaderTrait:
     /// Returns the hash of the blob as it appears on the DA layer
     fn hash(&self) -> [u8; 32];
 
+    /// Returns the witness transaction ID of the blob as it appears on the DA layer
+    fn wtxid(&self) -> Option<[u8; 32]>;
+
     /// Returns a slice containing all the data accessible to the rollup at this point in time.
     /// When running in native mode, the rollup can extend this slice by calling `advance`. In zk-mode,
     /// the rollup is limited to only the verified data.
@@ -290,6 +330,9 @@ pub trait BlobReaderTrait:
     fn full_data(&mut self) -> &[u8] {
         self.advance(self.total_len())
     }
+
+    /// Weird method to serialize blob as v1. Should be removed when a better way is introduced in the future.
+    fn serialize_v1(&self) -> borsh::io::Result<Vec<u8>>;
 }
 
 /// Trait with collection of trait bounds for a block hash.
