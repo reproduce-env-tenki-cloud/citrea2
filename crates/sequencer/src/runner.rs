@@ -1107,14 +1107,17 @@ async fn da_block_monitor<Da>(
                     cmp::Ordering::Equal => assert_eq!(
                         last_da_hash,
                         header.hash().into(),
-                        "Fork happened on DA.\nDA block height: {}\nExpected DA block hash: {:?}\nGot DA block hash from DA service: {:?}",
+                        "Detected fork on DA block {}",
                         last_da_height,
-                        last_da_hash,
-                        header.hash(),
                     ),
                     cmp::Ordering::Greater => {
                         if header.height() == last_da_height + 1 {
-                            assert_eq!(last_da_hash, header.prev_hash().into());
+                            assert_eq!(
+                                last_da_hash,
+                                header.prev_hash().into(),
+                                "Detected fork on DA block {}",
+                                last_da_height,
+                            );
                         } else {
                             ensure_no_da_forks(da_service.clone(), last_da_height, last_da_hash).await;
                         }
@@ -1171,9 +1174,7 @@ async fn ensure_no_da_forks<Da: DaService>(
     assert_eq!(
         da_block.header().hash(),
         expected_da_block_hash.into(),
-        "Fork happened on DA.\nHead soft confirmation DA block height: {}\nExpected DA block hash: {:?}\nGot DA block hash from DA service: {:?}",
+        "Detected fork on DA block {}",
         da_block_height,
-        expected_da_block_hash,
-        da_block.header().hash(),
     );
 }
