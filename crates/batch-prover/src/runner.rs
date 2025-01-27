@@ -412,6 +412,7 @@ where
             bail!("Previous hash mismatch at height: {}", l2_height);
         }
 
+        tracing::info!("getting storage on l2 height");
         let pre_state = self
             .storage_manager
             .create_storage_on_l2_height(l2_height)?;

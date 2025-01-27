@@ -208,9 +208,10 @@ where
                 new_snapshot_id
             }
         };
-        debug!(
+        tracing::info!(
             "Requested native storage for block at height: {:?}, giving snapshot id={}",
-            l2_block_height, snapshot_id
+            l2_block_height,
+            snapshot_id
         );
 
         self.get_storage_with_snapshot_id(snapshot_id)
