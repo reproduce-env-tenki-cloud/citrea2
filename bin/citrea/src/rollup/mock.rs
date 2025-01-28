@@ -118,7 +118,7 @@ impl RollupBlueprint for MockDemoRollup {
             .collect()
     }
 
-    fn get_light_client_proof_code_commitment(
+    fn get_light_client_proof_code_commitments(
         &self,
     ) -> HashMap<SpecId, <Self::Vm as Zkvm>::CodeCommitment> {
         LIGHT_CLIENT_LATEST_MOCK_GUESTS
@@ -133,6 +133,7 @@ impl RollupBlueprint for MockDemoRollup {
         da_service: &Arc<Self::DaService>,
         ledger_db: LedgerDB,
         proof_sampling_number: usize,
+        is_light_client_prover: bool,
     ) -> Self::ProverService {
         let vm = Risc0BonsaiHost::new(ledger_db.clone(), self.network);
 
@@ -145,8 +146,14 @@ impl RollupBlueprint for MockDemoRollup {
             }
         };
 
-        ParallelProverService::new(da_service.clone(), vm, proof_mode, 1, ledger_db)
-            .expect("Should be able to instantiate prover service")
+        if is_light_client_prover {
+            // Parallel proof limit should be 1 for light client prover
+            ParallelProverService::new(da_service.clone(), vm, proof_mode, 1, ledger_db)
+                .expect("Should be able to instantiate prover service")
+        } else {
+            ParallelProverService::new_from_env(da_service.clone(), vm, proof_mode, ledger_db)
+                .expect("Should be able to instantiate prover service")
+        }
     }
 
     fn create_storage_manager(

@@ -28,7 +28,10 @@ build: ## Build the project
 build-test: ## Build the project
 	@cargo build $(TEST_FEATURES)
 
-build-release: build-risc0-docker build-sp1 ## Build the project in release mode
+build-reproducible: build-risc0-docker build-sp1 ## Build the project in release mode with reproducible guest builds
+	@cargo build --release
+
+build-release: ## Build the project in release mode
 	@cargo build --release
 
 clean: ## Cleans compiled
@@ -69,7 +72,7 @@ install-dev-tools:  ## Installs all necessary cargo helpers
 
 install-risc0:
 	cargo install --version 1.7.0 cargo-binstall
-	cargo binstall --no-confirm cargo-risczero@1.2.0
+	cargo binstall --no-confirm cargo-risczero@1.2.1
 	cargo risczero install --version r0.1.81.0
 
 install-sp1: ## Install necessary SP1 toolchain
