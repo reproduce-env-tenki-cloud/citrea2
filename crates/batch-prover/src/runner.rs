@@ -322,9 +322,39 @@ where
         // Create l2 sync worker task
         let (l2_tx, mut l2_rx) = mpsc::channel(1);
 
-        let start_l2_height = self.start_l2_height;
+        let mut start_l2_height = self.start_l2_height;
         let sequencer_client = self.sequencer_client.clone();
         let sync_blocks_count = self.sync_blocks_count;
+
+        if start_l2_height == 5352591 {
+            start_l2_height += 1;
+
+            // also pull soft conf 5352591 and put to ledger db
+            let sc = sequencer_client
+                .get_soft_confirmation_by_number(U64::from(5352591))
+                .await
+                .expect("should get")
+                .expect("should get");
+
+            let signed_soft_confirmation: SignedSoftConfirmation<StfTransaction<C, Da::Spec, RT>> =
+                sc.clone().try_into().expect("should parse");
+
+            self.batch_hash = signed_soft_confirmation.hash();
+            let mut tmp = [0u8; 32];
+            tmp.copy_from_slice(sc.state_root.as_ref());
+            self.state_root = tmp.into();
+            let txs_bodies = signed_soft_confirmation.blobs().to_owned();
+            let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(
+                signed_soft_confirmation,
+                SpecId::Genesis,
+            );
+
+            self.ledger_db.commit_soft_confirmation(
+                sc.state_root.as_ref(),
+                receipt,
+                Some(txs_bodies),
+            )?;
+        }
 
         let l2_sync_worker = sync_l2(start_l2_height, sequencer_client, l2_tx, sync_blocks_count);
         tokio::pin!(l2_sync_worker);
