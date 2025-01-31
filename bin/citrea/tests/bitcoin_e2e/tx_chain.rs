@@ -138,7 +138,7 @@ impl TestSequencerTransactionChaining {
         let mempool = da.get_raw_mempool().await?;
         assert_eq!(mempool.len(), 0);
 
-        sequencer.restart(None).await?;
+        sequencer.restart(None, None).await?;
 
         let min_soft_confirmations_per_commitment =
             sequencer.min_soft_confirmations_per_commitment();
@@ -204,7 +204,7 @@ impl TestSequencerTransactionChaining {
         da.wait_mempool_len(2, None).await?;
 
         // Restart before generating a block to check `get_prev_utxo` prioritisting UTXO from mempool
-        sequencer.restart(None).await?;
+        sequencer.restart(None, None).await?;
 
         for _ in 0..min_soft_confirmations_per_commitment {
             sequencer.client.send_publish_batch_request().await?;
@@ -297,7 +297,7 @@ impl TestSequencerTransactionChaining {
         assert_eq!(mempool.len(), 0);
 
         // Assert that sequencer has properly rebuilt the TX chain on restart
-        sequencer.restart(None).await?;
+        sequencer.restart(None, None).await?;
 
         let last_monitored_tx = sequencer
             .client
@@ -374,7 +374,7 @@ impl TestSequencerTransactionChaining {
         assert_eq!(mempool.len(), 3);
 
         // Assert that sequencer has properly rebuilt the TX chain on restart
-        sequencer.restart(None).await?;
+        sequencer.restart(None, None).await?;
 
         let monitored_txs = sequencer
             .client
@@ -561,7 +561,7 @@ impl TestCase for TestProverTransactionChaining {
         assert!(tx3.output[0].value >= get_reveal_tx_input_value(tx4));
         assert!(tx4.output[0].value >= Amount::from_sat(REVEAL_OUTPUT_AMOUNT));
 
-        batch_prover.restart(None).await?;
+        batch_prover.restart(None, None).await?;
 
         // // Do another round post restart and make sure third batch is chained from second batch
         for _ in 0..min_soft_confirmations_per_commitment {
