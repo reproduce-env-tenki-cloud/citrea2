@@ -50,23 +50,6 @@ impl<C: Context> Transaction<C> {
 
         Ok(())
     }
-
-    /// New transaction.
-    pub fn new(
-        pub_key: C::PublicKey,
-        message: Vec<u8>,
-        signature: C::Signature,
-        chain_id: u64,
-        nonce: u64,
-    ) -> Self {
-        Self {
-            signature,
-            runtime_msg: message,
-            pub_key,
-            chain_id,
-            nonce,
-        }
-    }
 }
 
 impl<C: Context> TransactionDigest for Transaction<C> {

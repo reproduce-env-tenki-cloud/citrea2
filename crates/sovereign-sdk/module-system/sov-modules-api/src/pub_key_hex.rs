@@ -2,7 +2,7 @@ use derive_more::Display;
 use ed25519_dalek::{VerifyingKey as DalekPublicKey, PUBLIC_KEY_LENGTH};
 
 /// A hexadecimal representation of a PublicKey.
-use crate::default_signature::DefaultPublicKey;
+use crate::default_signature::{DefaultPublicKey, K256PublicKey};
 
 #[derive(
     serde::Serialize,
@@ -78,6 +78,30 @@ impl TryFrom<&PublicKeyHex> for DefaultPublicKey {
             .map_err(|_| anyhow::anyhow!("Invalid public key"))?;
 
         Ok(DefaultPublicKey { pub_key })
+    }
+}
+
+impl From<&K256PublicKey> for PublicKeyHex {
+    fn from(pub_key: &K256PublicKey) -> Self {
+        let hex = hex::encode(pub_key.pub_key.to_sec1_bytes());
+        Self { hex }
+    }
+}
+
+impl TryFrom<&PublicKeyHex> for K256PublicKey {
+    type Error = anyhow::Error;
+
+    fn try_from(pub_key: &PublicKeyHex) -> Result<Self, Self::Error> {
+        let bytes = hex::decode(&pub_key.hex)?;
+
+        let bytes: [u8; 33] = bytes
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("Invalid public key size"))?;
+
+        let pub_key = k256::ecdsa::VerifyingKey::from_sec1_bytes(bytes.as_ref())
+            .map_err(|_| anyhow::anyhow!("Invalid public key"))?;
+
+        Ok(K256PublicKey { pub_key })
     }
 }
 

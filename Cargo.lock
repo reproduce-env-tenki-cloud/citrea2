@@ -2568,6 +2568,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f55bf8e7b65898637379c1b74eb1551107c8294ed26d855ceb9fd1a09cfc9bc0"
 dependencies = [
  "const-oid",
+ "pem-rfc7468",
  "zeroize",
 ]
 
@@ -2722,6 +2723,7 @@ dependencies = [
  "digest 0.10.7",
  "elliptic-curve",
  "rfc6979",
+ "serdect",
  "signature",
  "spki",
 ]
@@ -2776,9 +2778,11 @@ dependencies = [
  "ff",
  "generic-array",
  "group",
+ "pem-rfc7468",
  "pkcs8",
  "rand_core",
  "sec1",
+ "serdect",
  "subtle",
  "zeroize",
 ]
@@ -4182,6 +4186,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "once_cell",
+ "serdect",
  "sha2",
  "signature",
 ]
@@ -4982,6 +4987,15 @@ checksum = "8e459365e590736a54c3fa561947c84837534b8e9af6fc5bf781307e82658fae"
 dependencies = [
  "base64 0.22.1",
  "serde",
+]
+
+[[package]]
+name = "pem-rfc7468"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88b39c9bfcfc231068454382784bb460aae594343fb030d46e9f50a645418412"
+dependencies = [
+ "base64ct",
 ]
 
 [[package]]
@@ -7444,6 +7458,7 @@ dependencies = [
  "der",
  "generic-array",
  "pkcs8",
+ "serdect",
  "subtle",
  "zeroize",
 ]
@@ -7643,6 +7658,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.87",
+]
+
+[[package]]
+name = "serdect"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a84f14a19e9a014bb9f4512488d9829a68e04ecabffb0f9904cd1ace94598177"
+dependencies = [
+ "base16ct",
+ "serde",
 ]
 
 [[package]]
@@ -7917,6 +7942,7 @@ dependencies = [
  "hex",
  "jmt",
  "jsonrpsee",
+ "k256",
  "rand",
  "schemars",
  "serde",
