@@ -120,11 +120,6 @@ where
     ) -> anyhow::Result<Self> {
         let sov_tx_signer_priv_key = hex::decode(&config.private_key)?;
 
-        println!(
-            "PRIVATE KEY IN SEQUENCER ENCODED: {:?}",
-            hex::encode(&sov_tx_signer_priv_key)
-        );
-
         Ok(Self {
             da_service,
             mempool,
