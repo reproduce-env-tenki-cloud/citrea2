@@ -110,7 +110,16 @@ mod tests {
     use sov_modules_core::PrivateKey;
 
     use super::*;
+    use crate::default_signature::k256_private_key::K256PrivateKey;
     use crate::default_signature::private_key::DefaultPrivateKey;
+
+    #[test]
+    fn test_k256_pub_key_hex() {
+        let pub_key = K256PrivateKey::generate().pub_key();
+        let pub_key_hex = PublicKeyHex::from(&pub_key);
+        let converted_pub_key = K256PublicKey::try_from(&pub_key_hex).unwrap();
+        assert_eq!(pub_key, converted_pub_key);
+    }
 
     #[test]
     fn test_pub_key_hex() {
@@ -118,6 +127,18 @@ mod tests {
         let pub_key_hex = PublicKeyHex::from(&pub_key);
         let converted_pub_key = DefaultPublicKey::try_from(&pub_key_hex).unwrap();
         assert_eq!(pub_key, converted_pub_key);
+    }
+
+    #[test]
+    fn test_k256_pub_key_hex_str() {
+        let key = "0300c27ad8a28f9e69f72984612c435edef385907101315f0317f0632a73aa706a";
+        let pub_key_hex_lower: PublicKeyHex = key.try_into().unwrap();
+        let pub_key_hex_upper: PublicKeyHex = key.to_uppercase().try_into().unwrap();
+
+        let pub_key_lower = K256PublicKey::try_from(&pub_key_hex_lower).unwrap();
+        let pub_key_upper = K256PublicKey::try_from(&pub_key_hex_upper).unwrap();
+
+        assert_eq!(pub_key_lower, pub_key_upper)
     }
 
     #[test]
@@ -130,6 +151,22 @@ mod tests {
         let pub_key_upper = DefaultPublicKey::try_from(&pub_key_hex_upper).unwrap();
 
         assert_eq!(pub_key_lower, pub_key_upper)
+    }
+
+    #[test]
+    fn test_bad_k256_pub_key_hex_str() {
+        let key = "0300c27ad8a28f9e69f72984612c435edef385907101315f0317f0632a73aa706Z";
+        let err = PublicKeyHex::try_from(key).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "Bad hex conversion: wrong character `Z` at index 65"
+        );
+
+        let key = "030";
+        let err = PublicKeyHex::try_from(key).unwrap_err();
+
+        assert_eq!(err.to_string(), "Bad hex conversion: odd input length")
     }
 
     #[test]

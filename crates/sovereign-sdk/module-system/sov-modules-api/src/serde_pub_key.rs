@@ -64,6 +64,25 @@ mod test {
     use super::*;
 
     #[test]
+    fn test_k256_pub_key_json() {
+        let pub_key_hex: PublicKeyHex =
+            "0300c27ad8a28f9e69f72984612c435edef385907101315f0317f0632a73aa706a"
+                .try_into()
+                .unwrap();
+
+        let pub_key = K256PublicKey::try_from(&pub_key_hex).unwrap();
+        let pub_key_str: String = serde_json::to_string(&pub_key).unwrap();
+
+        assert_eq!(
+            pub_key_str,
+            r#""0300c27ad8a28f9e69f72984612c435edef385907101315f0317f0632a73aa706a""#
+        );
+
+        let deserialized: K256PublicKey = serde_json::from_str(&pub_key_str).unwrap();
+        assert_eq!(deserialized, pub_key);
+    }
+
+    #[test]
     fn test_pub_key_json() {
         let pub_key_hex: PublicKeyHex =
             "022e229198d957bf0c0a504e7d7bcec99a1d62cccc7861ed2452676ad0323ad8"

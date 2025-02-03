@@ -23,6 +23,8 @@ pub mod k256_private_key {
         pub key_pair: SigningKey,
     }
 
+    // TODO: Should we implement try_from_keypair? We can set private_key_length, public_key_length and keypair_length as constants which are 32,33,65 respectively
+
     impl TryFrom<&[u8]> for K256PrivateKey {
         type Error = anyhow::Error;
 
@@ -110,7 +112,7 @@ pub mod private_key {
     /// This struct also stores the corresponding public key.
     #[derive(Clone, serde::Serialize, serde::Deserialize)]
     pub struct DefaultPrivateKey {
-        key_pair: SigningKey,
+        pub key_pair: SigningKey,
     }
 
     impl DefaultPrivateKey {
@@ -205,8 +207,10 @@ pub mod private_key {
     }
 }
 
+#[cfg_attr(feature = "native", derive(schemars::JsonSchema))]
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct K256PublicKey {
+    #[cfg_attr(feature = "native", schemars(with = "&[u8]", length(equal = 33)))]
     pub(crate) pub_key: k256::ecdsa::VerifyingKey,
 }
 
@@ -248,9 +252,11 @@ impl TryFrom<&[u8]> for K256PublicKey {
     }
 }
 
+#[cfg_attr(feature = "native", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct K256Signature {
+    #[cfg_attr(feature = "native", schemars(with = "&[u8]", length(equal = 64)))]
     pub(crate) msg_sig: k256::ecdsa::Signature,
 }
 
@@ -260,7 +266,7 @@ impl BorshDeserialize for K256Signature {
         let mut buffer = [0; 64];
         reader.read_exact(&mut buffer)?;
 
-        let msg_sig = k256::ecdsa::Signature::from_der(&buffer).map_err(map_error)?;
+        let msg_sig = k256::ecdsa::Signature::from_slice(&buffer).map_err(map_error)?;
 
         Ok(Self { msg_sig })
     }
@@ -498,4 +504,30 @@ fn test_privatekey_serde_json() {
         .expect("Keypair is serialized correctly");
 
     assert_eq!(key_pair.as_hex(), output.as_hex());
+}
+
+#[test]
+fn test_k256_signature_operations() {
+    use k256_private_key::K256PrivateKey;
+    use sov_modules_core::PrivateKey;
+    let sequ_pk = K256PrivateKey::from_hex(
+        "1212121212121212121212121212121212121212121212121212121212121212",
+    )
+    .unwrap();
+
+    let sequ_pub_key = sequ_pk.pub_key();
+    let sequ_pub_key_sec1 = sequ_pub_key.pub_key.to_sec1_bytes();
+    let sequ_pub_key_sec1_hex = hex::encode(sequ_pub_key_sec1.clone());
+
+    let sequ_pub_key = K256PublicKey::try_from(sequ_pub_key_sec1.to_vec().as_slice()).unwrap();
+
+    let sequ_pub_key_from_hex = K256PublicKey::from_str(&sequ_pub_key_sec1_hex).unwrap();
+
+    assert_eq!(sequ_pub_key, sequ_pk.pub_key());
+    assert_eq!(sequ_pub_key_from_hex, sequ_pk.pub_key());
+
+    let msg = b"hello world";
+    let sig = sequ_pk.sign(msg);
+
+    assert!(sig.verify(&sequ_pub_key, msg).is_ok());
 }

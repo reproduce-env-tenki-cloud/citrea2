@@ -66,14 +66,14 @@ mod tests {
     use std::str::FromStr;
 
     use sov_modules_api::default_context::DefaultContext;
-    use sov_modules_api::default_signature::DefaultPublicKey;
+    use sov_modules_api::default_signature::K256PublicKey;
 
     use super::*;
 
     #[test]
     fn test_config_serialization() {
-        let pub_key = &DefaultPublicKey::from_str(
-            "1cd4e2d9d5943e6f3d12589d31feee6bb6c11e7b8cd996a393623e207da72cbf",
+        let pub_key = &K256PublicKey::from_str(
+            "0300c27ad8a28f9e69f72984612c435edef385907101315f0317f0632a73aa706a",
         )
         .unwrap();
 
@@ -83,7 +83,7 @@ mod tests {
 
         let data = r#"
         {
-            "pub_keys":["1cd4e2d9d5943e6f3d12589d31feee6bb6c11e7b8cd996a393623e207da72cbf"]
+            "pub_keys":["0300c27ad8a28f9e69f72984612c435edef385907101315f0317f0632a73aa706a"]
         }"#;
 
         let parsed_config: AccountConfig<DefaultContext> = serde_json::from_str(data).unwrap();
