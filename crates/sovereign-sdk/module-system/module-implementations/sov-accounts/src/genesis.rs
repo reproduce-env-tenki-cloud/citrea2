@@ -51,19 +51,17 @@ impl<C: sov_modules_api::Context> Accounts<C> {
         working_set: &mut WorkingSet<C::Storage>,
         spec_id: SpecId,
     ) -> Result<Account<C>, SoftConfirmationHookError> {
-        let default_address;
-
-        if spec_id >= SpecId::Fork2 {
+        let default_address = if spec_id >= SpecId::Fork2 {
             let pub_key: K256PublicKey = K256PublicKey::try_from_slice(pub_key)
                 // TODO: Update error handling
                 .map_err(|_| SoftConfirmationHookError::SovTxAccountNotFound)?;
-            default_address = pub_key.to_address();
+            pub_key.to_address()
         } else {
             let pub_key: DefaultPublicKey = DefaultPublicKey::try_from_slice(pub_key)
                 // TODO: Update error handling
                 .map_err(|_| SoftConfirmationHookError::SovTxAccountNotFound)?;
-            default_address = pub_key.to_address();
-        }
+            pub_key.to_address()
+        };
 
         self.exit_if_address_exists(&default_address, working_set)?;
 
