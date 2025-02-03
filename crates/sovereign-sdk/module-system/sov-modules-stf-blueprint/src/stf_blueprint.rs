@@ -67,7 +67,7 @@ where
             for raw_tx in txs {
                 // Stateless verification of transaction, such as signature check
                 let mut reader = std::io::Cursor::new(raw_tx);
-                let tx = Transaction::<C>::deserialize_reader(&mut reader).map_err(|_| {
+                let tx = Transaction::deserialize_reader(&mut reader).map_err(|_| {
                     StateTransitionError::SoftConfirmationError(
                         SoftConfirmationError::NonSerializableSovTx,
                     )
@@ -83,10 +83,12 @@ where
     fn apply_sov_tx_inner(
         &mut self,
         soft_confirmation_info: &HookSoftConfirmationInfo,
-        tx: &Transaction<C>,
+        tx: &Transaction,
         sc_workspace: &mut WorkingSet<C::Storage>,
     ) -> Result<(), StateTransitionError> {
-        tx.verify().map_err(|_| {
+        let current_spec = soft_confirmation_info.current_spec();
+
+        tx.verify(current_spec).map_err(|_| {
             StateTransitionError::SoftConfirmationError(
                 SoftConfirmationError::InvalidSovTxSignature,
             )
@@ -104,13 +106,13 @@ where
         // Pre dispatch hook
         let hook = RuntimeTxHook {
             height: soft_confirmation_info.l2_height(),
-            sequencer: tx.pub_key().clone(),
+            sequencer: tx.pub_key().to_vec(),
             current_spec: soft_confirmation_info.current_spec(),
             l1_fee_rate: soft_confirmation_info.l1_fee_rate(),
         };
         let ctx = self
             .runtime
-            .pre_dispatch_tx_hook(tx, sc_workspace, &hook)
+            .pre_dispatch_tx_hook(tx, sc_workspace, &hook, current_spec)
             .map_err(StateTransitionError::HookError)?;
 
         let _ = self

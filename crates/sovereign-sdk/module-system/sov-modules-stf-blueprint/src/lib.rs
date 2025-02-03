@@ -6,6 +6,9 @@ use itertools::Itertools;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::MerkleTree;
 use sov_modules_api::da::BlockHeaderTrait;
+use sov_modules_api::default_signature::{
+    DefaultPublicKey, DefaultSignature, K256PublicKey, K256Signature,
+};
 use sov_modules_api::fork::Fork;
 use sov_modules_api::hooks::{
     ApplySoftConfirmationHooks, FinalizeHook, HookSoftConfirmationInfo, SlotHooks, TxHooks,
@@ -31,11 +34,11 @@ mod stf_blueprint;
 pub use stf_blueprint::StfBlueprint;
 
 /// The tx hook for a blueprint runtime
-pub struct RuntimeTxHook<C: Context> {
+pub struct RuntimeTxHook {
     /// Height to initialize the context
     pub height: u64,
     /// Sequencer public key
-    pub sequencer: C::PublicKey,
+    pub sequencer: Vec<u8>,
     /// Current spec
     pub current_spec: SpecId,
     /// L1 fee rate
@@ -49,7 +52,7 @@ pub struct RuntimeTxHook<C: Context> {
 pub trait Runtime<C: Context, Da: DaSpec>:
     DispatchCall<Context = C>
     + Genesis<Context = C, Config = Self::GenesisConfig>
-    + TxHooks<Context = C, PreArg = RuntimeTxHook<C>, PreResult = C>
+    + TxHooks<Context = C, PreArg = RuntimeTxHook, PreResult = C>
     + SlotHooks<Da, Context = C>
     + FinalizeHook<Da, Context = C>
     + ApplySoftConfirmationHooks<
@@ -195,7 +198,7 @@ where
         );
 
         // check the claimed hash
-        if current_spec >= SpecId::Kumquat {
+        if current_spec >= SpecId::Fork2 {
             let digest = unsigned.compute_digest::<<C as Spec>::Hasher>();
             let hash = Into::<[u8; 32]>::into(digest);
             if soft_confirmation.hash() != hash {
@@ -205,7 +208,28 @@ where
             }
 
             // verify signature
-            if verify_soft_confirmation_signature::<C, _>(
+            if verify_soft_confirmation_signature(
+                soft_confirmation,
+                soft_confirmation.signature(),
+                sequencer_public_key,
+            )
+            .is_err()
+            {
+                return Err(StateTransitionError::SoftConfirmationError(
+                    SoftConfirmationError::InvalidSoftConfirmationSignature,
+                ));
+            }
+        } else if current_spec >= SpecId::Kumquat {
+            let digest = unsigned.compute_digest::<<C as Spec>::Hasher>();
+            let hash = Into::<[u8; 32]>::into(digest);
+            if soft_confirmation.hash() != hash {
+                return Err(StateTransitionError::SoftConfirmationError(
+                    SoftConfirmationError::InvalidSoftConfirmationHash,
+                ));
+            }
+
+            // verify signature
+            if pre_fork2_verify_soft_confirmation_signature(
                 soft_confirmation,
                 soft_confirmation.signature(),
                 sequencer_public_key,
@@ -227,7 +251,7 @@ where
             }
 
             // verify signature
-            if pre_fork1_verify_soft_confirmation_signature::<C>(
+            if pre_fork1_verify_soft_confirmation_signature(
                 &unsigned,
                 soft_confirmation.signature(),
                 sequencer_public_key,
@@ -313,7 +337,7 @@ where
     Da: DaSpec,
     RT: Runtime<C, Da>,
 {
-    type Transaction = Transaction<C>;
+    type Transaction = Transaction;
     type StateRoot = StorageRootHash;
 
     type GenesisParams = GenesisParams<<RT as Genesis>::Config>;
@@ -669,17 +693,34 @@ where
     }
 }
 
-fn verify_soft_confirmation_signature<C: Context, Tx: Clone>(
+fn verify_soft_confirmation_signature<Tx: Clone>(
     signed_soft_confirmation: &SignedSoftConfirmation<Tx>,
     signature: &[u8],
     sequencer_public_key: &[u8],
 ) -> Result<(), anyhow::Error> {
     let message = signed_soft_confirmation.hash();
 
-    let signature = C::Signature::try_from(signature)?;
+    let signature = K256Signature::try_from(signature)?;
 
     signature.verify(
-        &C::PublicKey::try_from(sequencer_public_key)?,
+        &K256PublicKey::try_from(sequencer_public_key)?,
+        message.as_slice(),
+    )?;
+
+    Ok(())
+}
+
+fn pre_fork2_verify_soft_confirmation_signature<Tx: Clone>(
+    signed_soft_confirmation: &SignedSoftConfirmation<Tx>,
+    signature: &[u8],
+    sequencer_public_key: &[u8],
+) -> Result<(), anyhow::Error> {
+    let message = signed_soft_confirmation.hash();
+
+    let signature = DefaultSignature::try_from(signature)?;
+
+    signature.verify(
+        &DefaultPublicKey::try_from(sequencer_public_key)?,
         message.as_slice(),
     )?;
 
@@ -690,17 +731,17 @@ fn verify_soft_confirmation_signature<C: Context, Tx: Clone>(
 // TODO: Remove derive(BorshSerialize) for UnsignedSoftConfirmation
 //   when removing this fn
 // FIXME: ^
-fn pre_fork1_verify_soft_confirmation_signature<C: Context>(
+fn pre_fork1_verify_soft_confirmation_signature(
     unsigned_soft_confirmation: &UnsignedSoftConfirmationV1,
     signature: &[u8],
     sequencer_public_key: &[u8],
 ) -> Result<(), anyhow::Error> {
     let message = borsh::to_vec(&unsigned_soft_confirmation).unwrap();
 
-    let signature = C::Signature::try_from(signature)?;
+    let signature = DefaultSignature::try_from(signature)?;
 
     signature.verify(
-        &C::PublicKey::try_from(sequencer_public_key)?,
+        &DefaultPublicKey::try_from(sequencer_public_key)?,
         message.as_slice(),
     )?;
 

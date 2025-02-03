@@ -3321,6 +3321,7 @@ name = "sov-accounts"
 version = "0.6.0"
 dependencies = [
  "borsh",
+ "hex",
  "serde",
  "sov-modules-api",
  "sov-state",

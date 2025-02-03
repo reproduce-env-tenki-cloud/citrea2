@@ -25,7 +25,7 @@ impl<C: sov_modules_api::Context> Accounts<C> {
     /// Get the account corresponding to the given public key.
     pub fn get_account(
         &self,
-        pub_key: C::PublicKey,
+        pub_key: Vec<u8>,
         working_set: &mut WorkingSet<C::Storage>,
     ) -> RpcResult<Response> {
         let response = match self.accounts.get(&pub_key, working_set) {

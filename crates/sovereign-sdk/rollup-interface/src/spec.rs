@@ -33,7 +33,6 @@ pub enum SpecId {
     ///    of the smart contracts to state
     Kumquat = 1,
     /// Fork2 spec
-    #[cfg(feature = "testing")]
     Fork2 = 2,
     /// Fork3 spec
     #[cfg(feature = "testing")]
@@ -47,7 +46,6 @@ impl SpecId {
         match n {
             0 => Some(SpecId::Genesis),
             1 => Some(SpecId::Kumquat),
-            #[cfg(feature = "testing")]
             2 => Some(SpecId::Fork2),
             #[cfg(feature = "testing")]
             3 => Some(SpecId::Fork3),

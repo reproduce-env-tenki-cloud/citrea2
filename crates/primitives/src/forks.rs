@@ -67,9 +67,10 @@ pub const DEVNET_FORKS: [Fork; 2] = [
 
 pub const NIGHTLY_FORKS: [Fork; 1] = [Fork::new(SpecId::Kumquat, 0)];
 
-pub const ALL_FORKS: [Fork; 2] = [
+pub const ALL_FORKS: [Fork; 3] = [
     Fork::new(SpecId::Genesis, 0),
     Fork::new(SpecId::Kumquat, 100),
+    Fork::new(SpecId::Fork2, 200),
 ];
 
 const _CHECK_FORKS: () = {

@@ -3,7 +3,9 @@ use sov_modules_api::hooks::{
     ApplySoftConfirmationHooks, FinalizeHook, HookSoftConfirmationInfo, SlotHooks, TxHooks,
 };
 use sov_modules_api::transaction::Transaction;
-use sov_modules_api::{AccessoryWorkingSet, Context, SoftConfirmationHookError, WorkingSet};
+use sov_modules_api::{
+    AccessoryWorkingSet, Context, SoftConfirmationHookError, SpecId, WorkingSet,
+};
 use sov_modules_stf_blueprint::{RuntimeTxHook, SequencerOutcome};
 use sov_rollup_interface::da::{BlobReaderTrait, DaSpec};
 use sov_rollup_interface::zk::StorageRootHash;
@@ -14,15 +16,16 @@ use crate::runtime::Runtime;
 
 impl<C: Context, Da: DaSpec> TxHooks for Runtime<C, Da> {
     type Context = C;
-    type PreArg = RuntimeTxHook<C>;
+    type PreArg = RuntimeTxHook;
     type PreResult = C;
 
     #[cfg_attr(feature = "native", instrument(level = "trace", skip_all, err))]
     fn pre_dispatch_tx_hook(
         &self,
-        tx: &Transaction<Self::Context>,
+        tx: &Transaction,
         working_set: &mut WorkingSet<C::Storage>,
-        arg: &RuntimeTxHook<C>,
+        arg: &RuntimeTxHook,
+        spec_id: SpecId,
     ) -> Result<C, SoftConfirmationHookError> {
         let RuntimeTxHook {
             height,
@@ -31,7 +34,8 @@ impl<C: Context, Da: DaSpec> TxHooks for Runtime<C, Da> {
             ..
         } = arg;
         let AccountsTxHook { sender } =
-            self.accounts.pre_dispatch_tx_hook(tx, working_set, &None)?;
+            self.accounts
+                .pre_dispatch_tx_hook(tx, working_set, &None, spec_id)?;
 
         Ok(C::new(sender, *height, *current_spec, *l1_fee_rate))
     }
@@ -39,7 +43,7 @@ impl<C: Context, Da: DaSpec> TxHooks for Runtime<C, Da> {
     #[cfg_attr(feature = "native", instrument(level = "trace", skip_all, ret))]
     fn post_dispatch_tx_hook(
         &self,
-        tx: &Transaction<Self::Context>,
+        tx: &Transaction,
         ctx: &C,
         working_set: &mut WorkingSet<C::Storage>,
     ) -> Result<(), SoftConfirmationHookError> {

@@ -265,7 +265,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
             LedgerDB,
             StorageRootHash,
             ArrayWitness,
-            Transaction<<Self as RollupBlueprint>::NativeContext>,
+            Transaction,
         >,
         RpcModule<()>,
     )>
