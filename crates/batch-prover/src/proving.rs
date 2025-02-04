@@ -12,7 +12,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sov_db::ledger_db::BatchProverLedgerOps;
 use sov_db::schema::types::{SoftConfirmationNumber, StoredBatchProof, StoredBatchProofOutput};
-use sov_modules_api::{BatchProofCircuitOutput, BlobReaderTrait, SlotData, SpecId, Zkvm};
+use sov_modules_api::{BatchProofCircuitOutput, BlobReaderTrait, Context, SlotData, SpecId, Zkvm};
 use sov_rollup_interface::da::{BlockHeaderTrait, DaNamespace, DaSpec, SequencerCommitment};
 use sov_rollup_interface::rpc::SoftConfirmationStatus;
 use sov_rollup_interface::services::da::DaService;
@@ -41,7 +41,7 @@ pub enum GroupCommitments {
     OneByOne,
 }
 
-pub(crate) async fn data_to_prove<'txs, Da, DB, StateRoot, Witness, Tx>(
+pub(crate) async fn data_to_prove<'txs, Da, DB, StateRoot, Witness, Tx, C>(
     da_service: Arc<Da>,
     ledger: DB,
     sequencer_pub_key: Vec<u8>,
@@ -62,6 +62,7 @@ where
     StateRoot: DeserializeOwned,
     Witness: DeserializeOwned,
     Tx: Clone + BorshDeserialize + 'txs,
+    C: Context,
 {
     let l1_height = l1_block.header().height();
 
@@ -146,7 +147,7 @@ where
             state_transition_witnesses,
             soft_confirmations,
             da_block_headers_of_soft_confirmations,
-        ) = get_batch_proof_circuit_input_from_commitments(
+        ) = get_batch_proof_circuit_input_from_commitments::<_, _, _, _, C>(
             &sequencer_commitments[sequencer_commitments_range.clone()],
             &da_service,
             &ledger,

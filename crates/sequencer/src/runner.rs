@@ -28,7 +28,7 @@ use sov_db::schema::types::{SlotNumber, SoftConfirmationNumber};
 use sov_modules_api::default_signature::k256_private_key::K256PrivateKey;
 use sov_modules_api::default_signature::private_key::DefaultPrivateKey;
 use sov_modules_api::hooks::HookSoftConfirmationInfo;
-use sov_modules_api::transaction::Transaction;
+use sov_modules_api::transaction::{PreFork2Transaction, Transaction};
 use sov_modules_api::{
     Context, EncodeCall, PrivateKey, SignedSoftConfirmation, SlotData, Spec, SpecId,
     StateCheckpoint, StateDiff, UnsignedSoftConfirmation, UnsignedSoftConfirmationV1, WorkingSet,
@@ -782,14 +782,15 @@ where
         // TODO: figure out what to do with sov-tx fields
         // chain id gas tip and gas limit
 
-        let transaction = Transaction::new_signed_tx(
+        let transaction_pre_fork1: PreFork2Transaction<C> = Transaction::new_signed_tx(
             &self.sov_tx_signer_priv_key,
             raw_message,
             0,
             nonce,
             spec_id,
-        );
-        borsh::to_vec(&transaction).map_err(|e| anyhow!(e))
+        )
+        .into();
+        borsh::to_vec(&transaction_pre_fork1).map_err(|e| anyhow!(e))
     }
 
     fn sign_tx(

@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use borsh::BorshDeserialize;
 use sov_modules_api::hooks::HookSoftConfirmationInfo;
-use sov_modules_api::transaction::Transaction;
+use sov_modules_api::transaction::{PreFork2Transaction, Transaction};
 use sov_modules_api::{native_debug, native_error, Context, DaSpec, SpecId, WorkingSet};
 use sov_rollup_interface::soft_confirmation::SignedSoftConfirmation;
 use sov_rollup_interface::stf::{
@@ -67,13 +67,14 @@ where
             for raw_tx in txs {
                 // Stateless verification of transaction, such as signature check
                 let mut reader = std::io::Cursor::new(raw_tx);
-                let tx = Transaction::deserialize_reader(&mut reader).map_err(|_| {
-                    StateTransitionError::SoftConfirmationError(
-                        SoftConfirmationError::NonSerializableSovTx,
-                    )
-                })?;
+                let tx =
+                    PreFork2Transaction::<C>::deserialize_reader(&mut reader).map_err(|_| {
+                        StateTransitionError::SoftConfirmationError(
+                            SoftConfirmationError::NonSerializableSovTx,
+                        )
+                    })?;
 
-                self.apply_sov_tx_inner(&soft_confirmation_info, &tx, sc_workspace)?;
+                self.apply_sov_tx_inner(&soft_confirmation_info, &tx.into(), sc_workspace)?;
             }
         };
 

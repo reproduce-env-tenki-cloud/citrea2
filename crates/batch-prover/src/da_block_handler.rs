@@ -18,7 +18,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sov_db::ledger_db::BatchProverLedgerOps;
 use sov_db::schema::types::{SlotNumber, SoftConfirmationNumber};
-use sov_modules_api::{DaSpec, StateDiff, Zkvm};
+use sov_modules_api::transaction::{PreFork2Transaction, Transaction};
+use sov_modules_api::{Context, DaSpec, StateDiff, Zkvm};
 use sov_rollup_interface::da::{BlockHeaderTrait, SequencerCommitment};
 use sov_rollup_interface::services::da::{DaService, SlotData};
 use sov_rollup_interface::soft_confirmation::SignedSoftConfirmation;
@@ -41,7 +42,7 @@ type CommitmentStateTransitionData<'txs, Witness, Da, Tx> = (
     VecDeque<Vec<<<Da as DaService>::Spec as DaSpec>::BlockHeader>>,
 );
 
-pub struct L1BlockHandler<Vm, Da, Ps, DB, StateRoot, Witness, Tx>
+pub struct L1BlockHandler<Vm, Da, Ps, DB, StateRoot, Witness, Tx, C>
 where
     Da: DaService,
     Vm: ZkvmHost + Zkvm,
@@ -55,6 +56,7 @@ where
         + AsRef<[u8]>
         + Debug,
     Witness: Default + BorshSerialize + BorshDeserialize + Serialize + DeserializeOwned,
+    C: Context,
 {
     prover_config: BatchProverConfig,
     prover_service: Arc<Ps>,
@@ -70,9 +72,11 @@ where
     _state_root: PhantomData<StateRoot>,
     _witness: PhantomData<Witness>,
     _tx: PhantomData<Tx>,
+    _context: PhantomData<C>,
 }
 
-impl<Vm, Da, Ps, DB, StateRoot, Witness, Tx> L1BlockHandler<Vm, Da, Ps, DB, StateRoot, Witness, Tx>
+impl<Vm, Da, Ps, DB, StateRoot, Witness, Tx, C>
+    L1BlockHandler<Vm, Da, Ps, DB, StateRoot, Witness, Tx, C>
 where
     Da: DaService,
     Vm: ZkvmHost + Zkvm,
@@ -87,6 +91,7 @@ where
         + Debug,
     Witness: Default + BorshDeserialize + BorshSerialize + Serialize + DeserializeOwned,
     Tx: Clone + BorshDeserialize + BorshSerialize,
+    C: Context,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -116,6 +121,7 @@ where
             _state_root: PhantomData,
             _witness: PhantomData,
             _tx: PhantomData,
+            _context: PhantomData,
         }
     }
 
@@ -197,7 +203,7 @@ where
                 continue;
             }
 
-            let data_to_prove = data_to_prove::<Da, DB, StateRoot, Witness, Tx>(
+            let data_to_prove = data_to_prove::<Da, DB, StateRoot, Witness, Tx, C>(
                 self.da_service.clone(),
                 self.ledger_db.clone(),
                 self.sequencer_pub_key.clone(),
@@ -324,6 +330,7 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
     DB: BatchProverLedgerOps,
     Witness: DeserializeOwned,
     Tx: Clone + BorshDeserialize + 'txs,
+    C: Context,
 >(
     sequencer_commitments: &[SequencerCommitment],
     da_service: &Arc<Da>,
@@ -376,9 +383,41 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
                 };
                 da_block_headers_to_push.push(filtered_block.header().clone());
             }
-            let signed_soft_confirmation: SignedSoftConfirmation<Tx> = soft_confirmation
-                .try_into()
-                .context("Failed to parse transactions")?;
+            let spec_id = fork_from_block_number(soft_confirmation.l2_height).spec_id;
+            let signed_soft_confirmation = if spec_id >= SpecId::Fork2 {
+                let signed_soft_confirmation: SignedSoftConfirmation<Tx> = soft_confirmation
+                    .try_into()
+                    .context("Failed to parse transactions")?;
+                signed_soft_confirmation
+            } else {
+                let signed_soft_confirmation: SignedSoftConfirmation<PreFork2Transaction<C>> =
+                    soft_confirmation
+                        .try_into()
+                        .context("Failed to parse transactions")?;
+                    let txs: Vec<Transaction> = signed_soft_confirmation
+                        .txs()
+                        .iter()
+                        .map(|tx| tx.clone().into())
+                        .collect();
+                    let ss = SignedSoftConfirmation::new(
+                        signed_soft_confirmation.l2_height(),
+                        signed_soft_confirmation.hash(),
+                        signed_soft_confirmation.prev_hash(),
+                        signed_soft_confirmation.da_slot_height(),
+                        signed_soft_confirmation.da_slot_hash(),
+                        signed_soft_confirmation.da_slot_txs_commitment(),
+                        signed_soft_confirmation.l1_fee_rate(),
+                        signed_soft_confirmation.blobs().to_owned().into(),
+                        txs.into(),
+                        signed_soft_confirmation.deposit_data().to_vec(),
+                        signed_soft_confirmation.signature().to_vec(),
+                        signed_soft_confirmation.pub_key().to_vec(),
+                        signed_soft_confirmation.timestamp(),
+                    );
+                    ss
+
+            }
+
             commitment_soft_confirmations.push(signed_soft_confirmation);
         }
         soft_confirmations.push_back(commitment_soft_confirmations);
