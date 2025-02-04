@@ -176,7 +176,7 @@ where
         self.storage_manager.finalize_l2(l2_height)?;
 
         let tx_bodies = if self.include_tx_body {
-            Some(signed_soft_confirmation.blobs().to_owned())
+            Some(signed_soft_confirmation.txs_pre_fork1().to_owned())
         } else {
             None
         };

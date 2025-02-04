@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use borsh::BorshDeserialize;
 use sov_modules_api::hooks::HookSoftConfirmationInfo;
-use sov_modules_api::transaction::Transaction;
+use sov_modules_api::transaction::{PreFork2Transaction, Transaction};
 use sov_modules_api::{native_debug, native_error, Context, DaSpec, SpecId, WorkingSet};
 use sov_rollup_interface::soft_confirmation::SignedSoftConfirmation;
 use sov_rollup_interface::stf::{
@@ -55,25 +55,51 @@ where
     pub fn apply_sov_txs_inner(
         &mut self,
         soft_confirmation_info: HookSoftConfirmationInfo,
-        txs: &[Vec<u8>],
-        txs_new: &[<Self as StateTransitionFunction<Da>>::Transaction],
+        txs_pre_fork1: &[Vec<u8>],
+        txs_pre_fork2: &[PreFork2Transaction<C>],
+        txs: &[<Self as StateTransitionFunction<Da>>::Transaction],
         sc_workspace: &mut WorkingSet<C::Storage>,
     ) -> Result<(), StateTransitionError> {
-        if soft_confirmation_info.current_spec >= SpecId::Kumquat {
-            for tx in txs_new {
-                self.apply_sov_tx_inner(&soft_confirmation_info, tx, sc_workspace)?;
+        let current_spec = soft_confirmation_info.current_spec();
+        if soft_confirmation_info.current_spec >= SpecId::Fork2 {
+            for tx in txs {
+                self.apply_sov_tx_inner(
+                    &soft_confirmation_info,
+                    None,
+                    Some(tx),
+                    sc_workspace,
+                    current_spec,
+                )?;
+            }
+        } else if soft_confirmation_info.current_spec >= SpecId::Kumquat {
+            for tx in txs_pre_fork2 {
+                // Convert pre fork2 to new tx
+                self.apply_sov_tx_inner(
+                    &soft_confirmation_info,
+                    Some(tx),
+                    None,
+                    sc_workspace,
+                    current_spec,
+                )?;
             }
         } else {
-            for raw_tx in txs {
+            for raw_tx in txs_pre_fork1 {
                 // Stateless verification of transaction, such as signature check
                 let mut reader = std::io::Cursor::new(raw_tx);
-                let tx = Transaction::<C>::deserialize_reader(&mut reader).map_err(|_| {
-                    StateTransitionError::SoftConfirmationError(
-                        SoftConfirmationError::NonSerializableSovTx,
-                    )
-                })?;
+                let tx =
+                    PreFork2Transaction::<C>::deserialize_reader(&mut reader).map_err(|_| {
+                        StateTransitionError::SoftConfirmationError(
+                            SoftConfirmationError::NonSerializableSovTx,
+                        )
+                    })?;
 
-                self.apply_sov_tx_inner(&soft_confirmation_info, &tx, sc_workspace)?;
+                self.apply_sov_tx_inner(
+                    &soft_confirmation_info,
+                    Some(&tx),
+                    None,
+                    sc_workspace,
+                    current_spec,
+                )?;
             }
         };
 
@@ -83,10 +109,14 @@ where
     fn apply_sov_tx_inner(
         &mut self,
         soft_confirmation_info: &HookSoftConfirmationInfo,
-        tx: &Transaction<C>,
+        tx_pre_fork2: Option<&PreFork2Transaction<C>>,
+        tx: Option<&Transaction>,
         sc_workspace: &mut WorkingSet<C::Storage>,
+        spec_id: SpecId,
     ) -> Result<(), StateTransitionError> {
-        tx.verify().map_err(|_| {
+        let current_spec = soft_confirmation_info.current_spec();
+
+        tx.verify(current_spec).map_err(|_| {
             StateTransitionError::SoftConfirmationError(
                 SoftConfirmationError::InvalidSovTxSignature,
             )
@@ -104,13 +134,13 @@ where
         // Pre dispatch hook
         let hook = RuntimeTxHook {
             height: soft_confirmation_info.l2_height(),
-            sequencer: tx.pub_key().clone(),
+            sequencer: tx.pub_key().to_vec(),
             current_spec: soft_confirmation_info.current_spec(),
             l1_fee_rate: soft_confirmation_info.l1_fee_rate(),
         };
         let ctx = self
             .runtime
-            .pre_dispatch_tx_hook(tx, sc_workspace, &hook)
+            .pre_dispatch_tx_hook(tx, sc_workspace, &hook, current_spec)
             .map_err(StateTransitionError::HookError)?;
 
         let _ = self

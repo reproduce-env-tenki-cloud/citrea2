@@ -342,6 +342,7 @@ where
             val.da_slot_txs_commitment,
             val.l1_fee_rate,
             val.txs.into_iter().map(|tx| tx.body.unwrap()).collect(),
+            parsed_txs.clone().into(),
             parsed_txs.into(),
             val.deposit_data,
             val.soft_confirmation_signature,

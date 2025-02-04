@@ -7842,6 +7842,7 @@ version = "0.6.0"
 dependencies = [
  "borsh",
  "clap",
+ "hex",
  "jsonrpsee",
  "schemars",
  "serde",

@@ -18,11 +18,46 @@ pub struct UnsignedSoftConfirmation<'txs, Tx> {
     da_slot_height: u64,
     da_slot_hash: [u8; 32],
     da_slot_txs_commitment: [u8; 32],
+    txs_pre_fork1: &'txs [Vec<u8>],
+    txs_pre_fork2: &'txs [Tx],
+    txs: &'txs [Tx],
+    deposit_data: Vec<Vec<u8>>,
+    l1_fee_rate: u128,
+    timestamp: u64,
+}
+
+// Old version of UnsignedSoftConfirmation
+/// Used for backwards compatibility
+/// Always use ```UnsignedSoftConfirmation``` instead
+#[derive(Debug, PartialEq, BorshSerialize, Clone)]
+pub struct UnsignedSoftConfirmationV2<'txs, Tx> {
+    l2_height: u64,
+    da_slot_height: u64,
+    da_slot_hash: [u8; 32],
+    da_slot_txs_commitment: [u8; 32],
     blobs: &'txs [Vec<u8>],
     txs: &'txs [Tx],
     deposit_data: Vec<Vec<u8>>,
     l1_fee_rate: u128,
     timestamp: u64,
+}
+
+impl<'txs, Tx: BorshSerialize> From<UnsignedSoftConfirmation<'txs, Tx>>
+    for UnsignedSoftConfirmationV2<'txs, Tx>
+{
+    fn from(value: UnsignedSoftConfirmation<'txs, Tx>) -> Self {
+        UnsignedSoftConfirmationV2 {
+            l2_height: value.l2_height,
+            da_slot_height: value.da_slot_height,
+            da_slot_hash: value.da_slot_hash,
+            da_slot_txs_commitment: value.da_slot_txs_commitment,
+            blobs: value.txs_pre_fork1,
+            txs: value.txs,
+            deposit_data: value.deposit_data,
+            l1_fee_rate: value.l1_fee_rate,
+            timestamp: value.timestamp,
+        }
+    }
 }
 
 /// Old version of UnsignedSoftConfirmation
@@ -48,7 +83,8 @@ impl<'txs, Tx: BorshSerialize> UnsignedSoftConfirmation<'txs, Tx> {
         da_slot_height: u64,
         da_slot_hash: [u8; 32],
         da_slot_txs_commitment: [u8; 32],
-        blobs: &'txs [Vec<u8>],
+        txs_pre_fork1: &'txs [Vec<u8>],
+        txs_pre_fork2: &'txs [Tx],
         txs: &'txs [Tx],
         deposit_data: Vec<Vec<u8>>,
         l1_fee_rate: u128,
@@ -59,7 +95,8 @@ impl<'txs, Tx: BorshSerialize> UnsignedSoftConfirmation<'txs, Tx> {
             da_slot_height,
             da_slot_hash,
             da_slot_txs_commitment,
-            blobs,
+            txs_pre_fork1,
+            txs_pre_fork2,
             txs,
             deposit_data,
             l1_fee_rate,
@@ -83,12 +120,16 @@ impl<'txs, Tx: BorshSerialize> UnsignedSoftConfirmation<'txs, Tx> {
         self.da_slot_txs_commitment
     }
     /// Raw blobs of transactions.
-    pub fn blobs(&self) -> &[Vec<u8>] {
-        self.blobs
+    pub fn txs_pre_fork1(&self) -> &[Vec<u8>] {
+        &self.txs_pre_fork1
+    }
+    /// Transactions.
+    pub fn txs_pre_fork2(&self) -> &[Tx] {
+        &self.txs_pre_fork2
     }
     /// Transactions.
     pub fn txs(&self) -> &[Tx] {
-        self.txs
+        &self.txs
     }
     /// Deposit data from L1 chain
     pub fn deposit_data(&self) -> Vec<Vec<u8>> {
@@ -109,7 +150,7 @@ impl<'txs, Tx: BorshSerialize> UnsignedSoftConfirmation<'txs, Tx> {
         hasher.update(self.da_slot_height.to_be_bytes());
         hasher.update(self.da_slot_hash);
         hasher.update(self.da_slot_txs_commitment);
-        for tx in self.blobs {
+        for tx in self.txs_pre_fork1 {
             hasher.update(tx);
         }
         for deposit in &self.deposit_data {
@@ -130,7 +171,7 @@ impl<'txs, Tx: BorshSerialize> From<UnsignedSoftConfirmation<'txs, Tx>>
             da_slot_height: value.da_slot_height,
             da_slot_hash: value.da_slot_hash,
             da_slot_txs_commitment: value.da_slot_txs_commitment,
-            blobs: value.blobs,
+            blobs: &value.txs_pre_fork1,
             deposit_data: value.deposit_data,
             l1_fee_rate: value.l1_fee_rate,
             timestamp: value.timestamp,
@@ -160,6 +201,26 @@ pub struct SignedSoftConfirmation<'txs, Tx: Clone> {
     da_slot_hash: [u8; 32],
     da_slot_txs_commitment: [u8; 32],
     l1_fee_rate: u128,
+    txs_pre_fork1: Cow<'txs, [Vec<u8>]>,
+    txs_pre_fork2: Cow<'txs, [Tx]>,
+    txs: Cow<'txs, [Tx]>,
+    signature: Vec<u8>,
+    deposit_data: Vec<Vec<u8>>,
+    pub_key: Vec<u8>,
+    timestamp: u64,
+}
+
+/// Signed version of the `UnsignedSoftConfirmation`
+/// Contains the signature and public key of the sequencer
+#[derive(PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+pub struct SignedSoftConfirmationV2<'txs, Tx: Clone> {
+    l2_height: u64,
+    hash: [u8; 32],
+    prev_hash: [u8; 32],
+    da_slot_height: u64,
+    da_slot_hash: [u8; 32],
+    da_slot_txs_commitment: [u8; 32],
+    l1_fee_rate: u128,
     blobs: Cow<'txs, [Vec<u8>]>,
     txs: Cow<'txs, [Tx]>,
     signature: Vec<u8>,
@@ -179,7 +240,8 @@ impl<'txs, Tx: Clone> SignedSoftConfirmation<'txs, Tx> {
         da_slot_hash: [u8; 32],
         da_slot_txs_commitment: [u8; 32],
         l1_fee_rate: u128,
-        blobs: Cow<'txs, [Vec<u8>]>,
+        txs_pre_fork1: Cow<'txs, [Vec<u8>]>,
+        txs_pre_fork2: Cow<'txs, [Tx]>,
         txs: Cow<'txs, [Tx]>,
         deposit_data: Vec<Vec<u8>>,
         signature: Vec<u8>,
@@ -194,7 +256,8 @@ impl<'txs, Tx: Clone> SignedSoftConfirmation<'txs, Tx> {
             da_slot_hash,
             da_slot_txs_commitment,
             l1_fee_rate,
-            blobs,
+            txs_pre_fork1,
+            txs_pre_fork2,
             txs,
             deposit_data,
             signature,
@@ -239,8 +302,13 @@ impl<'txs, Tx: Clone> SignedSoftConfirmation<'txs, Tx> {
     }
 
     /// Raw blob of txs of signed batch
-    pub fn blobs(&self) -> &[Vec<u8>] {
-        &self.blobs
+    pub fn txs_pre_fork1(&self) -> &[Vec<u8>] {
+        &self.txs_pre_fork1
+    }
+
+    /// Pre fork2 Txs of signed batch
+    pub fn txs_pre_fork2(&self) -> &[Tx] {
+        &self.txs_pre_fork2
     }
 
     /// Txs of signed batch
@@ -302,6 +370,28 @@ pub struct SignedSoftConfirmationV1 {
     timestamp: u64,
 }
 
+impl<'txs, Tx: Clone> From<SignedSoftConfirmation<'txs, Tx>>
+    for SignedSoftConfirmationV2<'txs, Tx>
+{
+    fn from(input: SignedSoftConfirmation<'txs, Tx>) -> Self {
+        SignedSoftConfirmationV2 {
+            l2_height: input.l2_height,
+            hash: input.hash,
+            prev_hash: input.prev_hash,
+            da_slot_height: input.da_slot_height,
+            da_slot_hash: input.da_slot_hash,
+            da_slot_txs_commitment: input.da_slot_txs_commitment,
+            l1_fee_rate: input.l1_fee_rate,
+            blobs: input.txs_pre_fork1,
+            txs: input.txs_pre_fork2,
+            signature: input.signature,
+            deposit_data: input.deposit_data,
+            pub_key: input.pub_key,
+            timestamp: input.timestamp,
+        }
+    }
+}
+
 impl<'txs, Tx: Clone> From<SignedSoftConfirmation<'txs, Tx>> for SignedSoftConfirmationV1 {
     fn from(input: SignedSoftConfirmation<'txs, Tx>) -> Self {
         SignedSoftConfirmationV1 {
@@ -312,7 +402,7 @@ impl<'txs, Tx: Clone> From<SignedSoftConfirmation<'txs, Tx>> for SignedSoftConfi
             da_slot_hash: input.da_slot_hash,
             da_slot_txs_commitment: input.da_slot_txs_commitment,
             l1_fee_rate: input.l1_fee_rate,
-            txs: input.blobs.into_owned(),
+            txs: input.txs_pre_fork1.into_owned(),
             signature: input.signature,
             deposit_data: input.deposit_data,
             pub_key: input.pub_key,

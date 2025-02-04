@@ -1,4 +1,3 @@
-use sov_modules_api::default_context::DefaultContext;
 use sov_modules_api::fork::Fork;
 use sov_modules_api::transaction::Transaction;
 use sov_rollup_interface::da::DaSpec;
@@ -14,7 +13,7 @@ use sov_rollup_interface::zk::ZkvmGuest;
 pub struct MockStf;
 
 impl<Da: DaSpec> StateTransitionFunction<Da> for MockStf {
-    type Transaction = Transaction<DefaultContext>;
+    type Transaction = Transaction;
     type StateRoot = [u8; 0];
     type GenesisParams = ();
     type PreState = ();

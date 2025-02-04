@@ -114,6 +114,7 @@ where
                 .into_iter()
                 .map(|tx| tx.tx)
                 .collect(),
+            parsed_txs.clone().into(),
             parsed_txs.into(),
             val.deposit_data.into_iter().map(|tx| tx.tx).collect(),
             val.soft_confirmation_signature,

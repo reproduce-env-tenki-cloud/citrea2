@@ -25,11 +25,13 @@ use sov_accounts::Accounts;
 use sov_accounts::Response::{AccountEmpty, AccountExists};
 use sov_db::ledger_db::SequencerLedgerOps;
 use sov_db::schema::types::{SlotNumber, SoftConfirmationNumber};
+use sov_modules_api::default_signature::k256_private_key::K256PrivateKey;
+use sov_modules_api::default_signature::private_key::DefaultPrivateKey;
 use sov_modules_api::hooks::HookSoftConfirmationInfo;
-use sov_modules_api::transaction::Transaction;
+use sov_modules_api::transaction::{PreFork2Transaction, Transaction};
 use sov_modules_api::{
-    Context, EncodeCall, PrivateKey, SignedSoftConfirmation, SlotData, Spec, StateCheckpoint,
-    StateDiff, UnsignedSoftConfirmation, UnsignedSoftConfirmationV1, WorkingSet,
+    Context, EncodeCall, PrivateKey, SignedSoftConfirmation, SlotData, Spec, SpecId,
+    StateCheckpoint, StateDiff, UnsignedSoftConfirmation, UnsignedSoftConfirmationV1, WorkingSet,
 };
 use sov_modules_stf_blueprint::{Runtime as RuntimeT, StfBlueprint};
 use sov_prover_storage_manager::{ProverStorageManager, SnapshotManager};
@@ -72,7 +74,7 @@ where
 {
     da_service: Arc<Da>,
     mempool: Arc<CitreaMempool<C>>,
-    sov_tx_signer_priv_key: C::PrivateKey,
+    sov_tx_signer_priv_key: Vec<u8>,
     l2_force_block_rx: UnboundedReceiver<()>,
     db_provider: DbProvider<C>,
     ledger_db: DB,
@@ -116,7 +118,7 @@ where
         soft_confirmation_tx: broadcast::Sender<u64>,
         l2_force_block_rx: UnboundedReceiver<()>,
     ) -> anyhow::Result<Self> {
-        let sov_tx_signer_priv_key = C::PrivateKey::try_from(&hex::decode(&config.private_key)?)?;
+        let sov_tx_signer_priv_key = hex::decode(&config.private_key)?;
 
         Ok(Self {
             da_service,
@@ -209,22 +211,37 @@ where
                                 >>::encode_call(
                                     call_txs
                                 );
-                                let signed_blob = self
-                                    .make_blob(raw_message.clone(), &mut working_set_to_discard)?;
+                                let signed_blob = self.make_blob(
+                                    raw_message.clone(),
+                                    &mut working_set_to_discard,
+                                    soft_confirmation_info.current_spec(),
+                                )?;
 
-                                let signed_tx =
-                                    self.sign_tx(raw_message, &mut working_set_to_discard)?;
+                                let signed_tx_pre_fork2 = self.sign_tx_pre_fork2(
+                                    raw_message,
+                                    &mut working_set_to_discard,
+                                    soft_confirmation_info.current_spec(),
+                                )?;
 
-                                let txs = vec![signed_blob.clone()];
-                                let txs_new = vec![signed_tx];
+                                let signed_tx = self.sign_tx_pre_fork2(
+                                    raw_message,
+                                    &mut working_set_to_discard,
+                                    soft_confirmation_info.current_spec(),
+                                )?;
+
+                                let txs_pre_fork1 = vec![signed_blob.clone()];
+                                let txs_pre_fork2 = vec![signed_tx_pre_fork2];
+
+                                let txs = vec![signed_tx];
 
                                 let mut working_set =
                                     working_set_to_discard.checkpoint().to_revertable();
 
                                 match self.stf.apply_soft_confirmation_txs(
                                     soft_confirmation_info.clone(),
+                                    &txs_pre_fork1,
+                                    &txs_pre_fork2,
                                     &txs,
-                                    &txs_new,
                                     &mut working_set,
                                 ) {
                                     Ok(result) => result,
@@ -327,8 +344,6 @@ where
         );
 
         let timestamp = chrono::Local::now().timestamp() as u64;
-        let pub_key = borsh::to_vec(&self.sov_tx_signer_priv_key.pub_key())
-            .map_err(Into::<anyhow::Error>::into)?;
 
         let deposit_data = self
             .deposit_mempool
@@ -340,6 +355,19 @@ where
         self.fork_manager.register_block(l2_height)?;
 
         let active_fork_spec = self.fork_manager.active_fork().spec_id;
+        let pub_key = if active_fork_spec >= SpecId::Fork2 {
+            borsh::to_vec(
+                &K256PrivateKey::try_from(self.sov_tx_signer_priv_key.as_slice())
+                    .unwrap()
+                    .pub_key(),
+            )?
+        } else {
+            borsh::to_vec(
+                &DefaultPrivateKey::try_from(self.sov_tx_signer_priv_key.as_slice())
+                    .unwrap()
+                    .pub_key(),
+            )?
+        };
 
         let soft_confirmation_info = HookSoftConfirmationInfo {
             l2_height,
@@ -396,8 +424,9 @@ where
             &soft_confirmation_info,
         ) {
             Ok(_) => {
+                let mut txs_pre_fork1 = vec![];
+                let mut txs_pre_fork2 = vec![];
                 let mut txs = vec![];
-                let mut txs_new = vec![];
 
                 let evm_txs_count = txs_to_run.len();
                 if evm_txs_count > 0 {
@@ -406,16 +435,32 @@ where
                         <Runtime<C, Da::Spec> as EncodeCall<citrea_evm::Evm<C>>>::encode_call(
                             call_txs,
                         );
-                    let signed_blob = self.make_blob(raw_message.clone(), &mut working_set)?;
-                    let signed_tx = self.sign_tx(raw_message, &mut working_set)?;
-                    txs.push(signed_blob);
-                    txs_new.push(signed_tx);
+                    let signed_blob = self.make_blob(
+                        raw_message.clone(),
+                        &mut working_set,
+                        soft_confirmation_info.current_spec(),
+                    )?;
+                    let signed_tx_pre_fork2 = self.sign_tx_pre_fork2(
+                        raw_message,
+                        &mut working_set,
+                        soft_confirmation_info.current_spec(),
+                    )?;
+                    let signed_tx = self.sign_tx(
+                        raw_message,
+                        &mut working_set,
+                        soft_confirmation_info.current_spec(),
+                    )?;
+
+                    txs_pre_fork1.push(signed_blob);
+                    txs_pre_fork2.push(signed_tx_pre_fork2);
+                    txs.push(signed_tx);
 
                     self.stf
                         .apply_soft_confirmation_txs(
                             soft_confirmation_info,
+                            &txs_pre_fork1,
+                            &txs_pre_fork2.as_slice(),
                             &txs,
-                            &txs_new,
                             &mut working_set,
                         )
                         // TODO: handle this error
@@ -428,17 +473,20 @@ where
                     da_block.header().height(),
                     da_block.header().hash().into(),
                     da_block.header().txs_commitment().into(),
+                    &txs_pre_fork1,
+                    &txs_pre_fork2,
                     &txs,
-                    &txs_new,
                     deposit_data.clone(),
                     l1_fee_rate,
                     timestamp,
                 );
 
                 let mut signed_soft_confirmation = if active_fork_spec
-                    >= sov_modules_api::SpecId::Kumquat
+                    >= sov_modules_api::SpecId::Fork2
                 {
                     self.sign_soft_confirmation_batch(&unsigned_batch, self.batch_hash)?
+                } else if active_fork_spec >= sov_modules_api::SpecId::Kumquat {
+                    self.pre_fork2_sign_soft_confirmation_batch(&unsigned_batch, self.batch_hash)?
                 } else {
                     self.pre_fork1_sign_soft_confirmation_batch(&unsigned_batch, self.batch_hash)?
                 };
@@ -480,7 +528,7 @@ where
                 // however we need much better DA + finalization logic here
                 self.storage_manager.finalize_l2(l2_height)?;
 
-                let tx_bodies = signed_soft_confirmation.blobs().to_owned();
+                let tx_bodies = signed_soft_confirmation.txs_pre_fork1().to_owned();
                 let soft_confirmation_hash = signed_soft_confirmation.hash();
                 let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(
                     signed_soft_confirmation,
@@ -745,35 +793,66 @@ where
         &mut self,
         raw_message: Vec<u8>,
         working_set: &mut WorkingSet<C::Storage>,
+        spec_id: SpecId,
     ) -> anyhow::Result<Vec<u8>> {
         // if a batch failed need to refetch nonce
         // so sticking to fetching from state makes sense
-        let nonce = self.get_nonce(working_set)?;
+        let nonce = self.get_nonce(working_set, spec_id)?;
         // TODO: figure out what to do with sov-tx fields
         // chain id gas tip and gas limit
 
-        let transaction =
-            Transaction::<C>::new_signed_tx(&self.sov_tx_signer_priv_key, raw_message, 0, nonce);
-        borsh::to_vec(&transaction).map_err(|e| anyhow!(e))
+        if spec_id >= SpecId::Fork2 {
+            let transaction =
+                Transaction::new_signed_tx(&self.sov_tx_signer_priv_key, raw_message, 0, nonce);
+            borsh::to_vec(&transaction).map_err(|e| anyhow!(e))
+        } else {
+            let transaction = PreFork2Transaction::<C>::new_signed_tx(
+                &C::PrivateKey::try_from(&self.sov_tx_signer_priv_key).unwrap(),
+                raw_message,
+                0,
+                nonce,
+            );
+            borsh::to_vec(&transaction).map_err(|e| anyhow!(e))
+        }
+    }
+
+    fn sign_tx_pre_fork2(
+        &mut self,
+        raw_message: Vec<u8>,
+        working_set: &mut WorkingSet<C::Storage>,
+        spec_id: SpecId,
+    ) -> anyhow::Result<PreFork2Transaction<C>> {
+        // if a batch failed need to refetch nonce
+        // so sticking to fetching from state makes sense
+        let nonce = self.get_nonce(working_set, spec_id)?;
+        // TODO: figure out what to do with sov-tx fields
+        // chain id gas tip and gas limit
+
+        let tx = PreFork2Transaction::<C>::new_signed_tx(
+            &C::PrivateKey::try_from(&self.sov_tx_signer_priv_key).unwrap(),
+            raw_message,
+            0,
+            nonce,
+        );
+        Ok(tx)
     }
 
     fn sign_tx(
         &mut self,
         raw_message: Vec<u8>,
         working_set: &mut WorkingSet<C::Storage>,
+        spec_id: SpecId,
     ) -> anyhow::Result<StfTransaction<C, Da::Spec, RT>> {
         // if a batch failed need to refetch nonce
         // so sticking to fetching from state makes sense
-        let nonce = self.get_nonce(working_set)?;
+        let nonce = self.get_nonce(working_set, spec_id)?;
         // TODO: figure out what to do with sov-tx fields
         // chain id gas tip and gas limit
 
-        let tx =
-            Transaction::<C>::new_signed_tx(&self.sov_tx_signer_priv_key, raw_message, 0, nonce);
+        let tx = Transaction::new_signed_tx(&self.sov_tx_signer_priv_key, raw_message, 0, nonce);
         Ok(tx)
     }
 
-    /// Signs necessary info and returns a BlockTemplate
     fn sign_soft_confirmation_batch<'txs>(
         &mut self,
         soft_confirmation: &'txs UnsignedSoftConfirmation<'_, StfTransaction<C, Da::Spec, RT>>,
@@ -782,8 +861,10 @@ where
         let digest = soft_confirmation.compute_digest::<<C as sov_modules_api::Spec>::Hasher>();
         let hash = Into::<[u8; 32]>::into(digest);
 
-        let signature = self.sov_tx_signer_priv_key.sign(&hash);
-        let pub_key = self.sov_tx_signer_priv_key.pub_key();
+        let priv_key = K256PrivateKey::try_from(self.sov_tx_signer_priv_key.as_slice()).unwrap();
+
+        let signature = priv_key.sign(&hash);
+        let pub_key = priv_key.pub_key();
         Ok(SignedSoftConfirmation::new(
             soft_confirmation.l2_height(),
             hash,
@@ -792,7 +873,38 @@ where
             soft_confirmation.da_slot_hash(),
             soft_confirmation.da_slot_txs_commitment(),
             soft_confirmation.l1_fee_rate(),
-            soft_confirmation.blobs().into(),
+            soft_confirmation.txs_pre_fork1().into(),
+            soft_confirmation.txs_pre_fork2().into(),
+            soft_confirmation.txs().into(),
+            soft_confirmation.deposit_data(),
+            borsh::to_vec(&signature).map_err(|e| anyhow!(e))?,
+            borsh::to_vec(&pub_key).map_err(|e| anyhow!(e))?,
+            soft_confirmation.timestamp(),
+        ))
+    }
+
+    /// Signs necessary info and returns a BlockTemplate
+    fn pre_fork2_sign_soft_confirmation_batch<'txs>(
+        &mut self,
+        soft_confirmation: &'txs UnsignedSoftConfirmation<'_, StfTransaction<C, Da::Spec, RT>>,
+        prev_soft_confirmation_hash: [u8; 32],
+    ) -> anyhow::Result<SignedSoftConfirmation<'txs, StfTransaction<C, Da::Spec, RT>>> {
+        let digest = soft_confirmation.compute_digest::<<C as sov_modules_api::Spec>::Hasher>();
+        let hash = Into::<[u8; 32]>::into(digest);
+        let priv_key = DefaultPrivateKey::try_from(self.sov_tx_signer_priv_key.as_slice()).unwrap();
+
+        let signature = priv_key.sign(&hash);
+        let pub_key = priv_key.pub_key();
+        Ok(SignedSoftConfirmation::new(
+            soft_confirmation.l2_height(),
+            hash,
+            prev_soft_confirmation_hash,
+            soft_confirmation.da_slot_height(),
+            soft_confirmation.da_slot_hash(),
+            soft_confirmation.da_slot_txs_commitment(),
+            soft_confirmation.l1_fee_rate(),
+            soft_confirmation.txs_pre_fork1().into(),
+            soft_confirmation.txs_pre_fork2().into(),
             soft_confirmation.txs().into(),
             soft_confirmation.deposit_data(),
             borsh::to_vec(&signature).map_err(|e| anyhow!(e))?,
@@ -816,8 +928,11 @@ where
             .map_err(|e| anyhow!(e))?;
         let hash = <C as sov_modules_api::Spec>::Hasher::digest(raw.as_slice()).into();
 
-        let signature = self.sov_tx_signer_priv_key.sign(&raw);
-        let pub_key = self.sov_tx_signer_priv_key.pub_key();
+        let priv_key = DefaultPrivateKey::try_from(self.sov_tx_signer_priv_key.as_slice()).unwrap();
+
+        let signature = priv_key.sign(&raw);
+        let pub_key = priv_key.pub_key();
+
         Ok(SignedSoftConfirmation::new(
             soft_confirmation.l2_height(),
             hash,
@@ -826,7 +941,8 @@ where
             soft_confirmation.da_slot_hash(),
             soft_confirmation.da_slot_txs_commitment(),
             soft_confirmation.l1_fee_rate(),
-            soft_confirmation.blobs().into(),
+            soft_confirmation.txs_pre_fork1().into(),
+            soft_confirmation.txs_pre_fork2().into(),
             soft_confirmation.txs().into(),
             soft_confirmation.deposit_data(),
             borsh::to_vec(&signature).map_err(|e| anyhow!(e))?,
@@ -836,11 +952,29 @@ where
     }
 
     /// Fetches nonce from state
-    fn get_nonce(&self, working_set: &mut WorkingSet<C::Storage>) -> anyhow::Result<u64> {
+    fn get_nonce(
+        &self,
+        working_set: &mut WorkingSet<C::Storage>,
+        spec_id: SpecId,
+    ) -> anyhow::Result<u64> {
         let accounts = Accounts::<C>::default();
 
+        let pub_key = if spec_id >= SpecId::Fork2 {
+            borsh::to_vec(
+                &K256PrivateKey::try_from(self.sov_tx_signer_priv_key.as_slice())
+                    .unwrap()
+                    .pub_key(),
+            )?
+        } else {
+            borsh::to_vec(
+                &DefaultPrivateKey::try_from(self.sov_tx_signer_priv_key.as_slice())
+                    .unwrap()
+                    .pub_key(),
+            )?
+        };
+
         match accounts
-            .get_account(self.sov_tx_signer_priv_key.pub_key(), working_set)
+            .get_account(pub_key, working_set)
             .map_err(|e| anyhow!("Sequencer: Failed to get sov-account: {}", e))?
         {
             AccountExists { addr: _, nonce } => Ok(nonce),

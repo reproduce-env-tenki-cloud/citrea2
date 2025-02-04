@@ -58,7 +58,7 @@ pub mod k256_private_key {
 
         fn pub_key(&self) -> Self::PublicKey {
             K256PublicKey {
-                pub_key: self.key_pair.verifying_key().clone(),
+                pub_key: *self.key_pair.verifying_key(),
             }
         }
 

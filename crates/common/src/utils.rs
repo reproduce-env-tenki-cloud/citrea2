@@ -90,13 +90,13 @@ pub fn soft_confirmation_to_receipt<C: Context, Tx: TransactionDigest + Clone, D
 ) -> SoftConfirmationReceipt<DS> {
     let tx_hashes = if current_spec >= SpecId::Kumquat {
         soft_confirmation
-            .txs()
+            .txs_pre_fork2()
             .iter()
             .map(|tx| tx.compute_digest::<<C as Spec>::Hasher>().into())
             .collect()
     } else {
         soft_confirmation
-            .blobs()
+            .txs_pre_fork1()
             .iter()
             .map(|raw_tx| <C as Spec>::Hasher::digest(raw_tx).into())
             .collect()

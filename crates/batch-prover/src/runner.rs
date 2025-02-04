@@ -229,7 +229,7 @@ where
             current_l1_block.header(),
             &mut signed_soft_confirmation,
         )?;
-        let txs_bodies = signed_soft_confirmation.blobs().to_owned();
+        let txs_bodies = signed_soft_confirmation.txs_pre_fork1().to_owned();
 
         let next_state_root = soft_confirmation_result.state_root_transition.final_root;
         // Check if post state root is the same as the one in the soft confirmation
