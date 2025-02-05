@@ -6,7 +6,7 @@ use sov_modules_api::{Context, Spec};
 use sov_rollup_interface::da::{DaSpec, SequencerCommitment};
 use sov_rollup_interface::digest::Digest;
 use sov_rollup_interface::rpc::SoftConfirmationStatus;
-use sov_rollup_interface::soft_confirmation::SignedSoftConfirmation;
+use sov_rollup_interface::soft_confirmation::L2Block;
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::stf::{SoftConfirmationReceipt, StateDiff, TransactionDigest};
 
@@ -85,7 +85,7 @@ pub fn check_l2_range_exists<DB: SharedLedgerOps>(
 }
 
 pub fn soft_confirmation_to_receipt<C: Context, Tx: TransactionDigest + Clone, DS: DaSpec>(
-    soft_confirmation: SignedSoftConfirmation<'_, Tx>,
+    soft_confirmation: L2Block<Tx>,
     current_spec: SpecId,
 ) -> SoftConfirmationReceipt<DS> {
     let tx_hashes = if current_spec >= SpecId::Kumquat {

@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use super::zk::ZkvmGuest;
 use crate::da::DaSpec;
 use crate::fork::Fork;
-use crate::soft_confirmation::SignedSoftConfirmation;
+use crate::soft_confirmation::L2Block;
 use crate::spec::SpecId;
 use crate::zk::batch_proof::output::CumulativeStateDiff;
 
@@ -210,7 +210,7 @@ pub trait StateTransitionFunction<Da: DaSpec> {
         state_witness: Self::Witness,
         offchain_witness: Self::Witness,
         slot_header: &Da::BlockHeader,
-        soft_confirmation: &mut SignedSoftConfirmation<Self::Transaction>,
+        soft_confirmation: &mut L2Block<Self::Transaction>,
     ) -> Result<
         SoftConfirmationResult<Self::StateRoot, Self::ChangeSet, Self::Witness>,
         StateTransitionError,

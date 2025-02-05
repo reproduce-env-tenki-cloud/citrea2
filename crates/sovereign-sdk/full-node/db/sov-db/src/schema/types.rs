@@ -10,7 +10,9 @@ use sov_rollup_interface::rpc::{
     LatestDaStateRpcResponse, LightClientProofOutputRpcResponse, LightClientProofResponse,
     SoftConfirmationResponse, VerifiedBatchProofResponse,
 };
-use sov_rollup_interface::soft_confirmation::SignedSoftConfirmation;
+use sov_rollup_interface::soft_confirmation::{
+    L2Block, SignedSoftConfirmationHeader, SoftConfirmationHeader,
+};
 use sov_rollup_interface::zk::batch_proof::output::CumulativeStateDiff;
 use sov_rollup_interface::zk::light_client_proof::output::{
     BatchProofInfo, LightClientCircuitOutput,
@@ -325,7 +327,7 @@ pub struct StoredSoftConfirmation {
     pub timestamp: u64,
 }
 
-impl<'txs, Tx> TryFrom<StoredSoftConfirmation> for SignedSoftConfirmation<'txs, Tx>
+impl<'txs, Tx> TryFrom<StoredSoftConfirmation> for L2Block<'txs, Tx>
 where
     Tx: Clone + BorshDeserialize,
 {
@@ -339,20 +341,29 @@ where
                 borsh::from_slice::<Tx>(body)
             })
             .collect::<Result<Vec<_>, Self::Error>>()?;
-        let res = SignedSoftConfirmation::new(
+
+        let header = SoftConfirmationHeader::new(
             val.l2_height,
-            val.hash,
-            val.prev_hash,
             val.da_slot_height,
             val.da_slot_hash,
             val.da_slot_txs_commitment,
+            val.prev_hash,
+            // val.state_root.try_into().unwrap(),
             val.l1_fee_rate,
-            val.txs.into_iter().map(|tx| tx.body.unwrap()).collect(),
-            parsed_txs.into(),
             val.deposit_data,
+            val.timestamp,
+        );
+        let signed_header = SignedSoftConfirmationHeader::new(
+            header,
+            val.hash,
             val.soft_confirmation_signature,
             val.pub_key,
-            val.timestamp,
+        );
+
+        let res = L2Block::new(
+            signed_header,
+            val.txs.into_iter().map(|tx| tx.body.unwrap()).collect(),
+            parsed_txs.into(),
         );
         Ok(res)
     }

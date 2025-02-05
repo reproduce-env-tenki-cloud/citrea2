@@ -21,7 +21,7 @@ use sov_db::schema::types::{SlotNumber, SoftConfirmationNumber};
 use sov_modules_api::{DaSpec, StateDiff, Zkvm};
 use sov_rollup_interface::da::{BlockHeaderTrait, SequencerCommitment};
 use sov_rollup_interface::services::da::{DaService, SlotData};
-use sov_rollup_interface::soft_confirmation::SignedSoftConfirmation;
+use sov_rollup_interface::soft_confirmation::L2Block;
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::zk::ZkvmHost;
 use sov_stf_runner::{ProverGuestRunConfig, ProverService};
@@ -37,7 +37,7 @@ use crate::proving::{data_to_prove, extract_and_store_proof, prove_l1, GroupComm
 
 type CommitmentStateTransitionData<'txs, Witness, Da, Tx> = (
     VecDeque<Vec<(Witness, Witness)>>,
-    VecDeque<Vec<SignedSoftConfirmation<'txs, Tx>>>,
+    VecDeque<Vec<L2Block<'txs, Tx>>>,
     VecDeque<Vec<<<Da as DaService>::Spec as DaSpec>::BlockHeader>>,
 );
 
@@ -331,7 +331,7 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
     l1_block_cache: &Arc<Mutex<L1BlockCache<Da>>>,
 ) -> Result<CommitmentStateTransitionData<'txs, Witness, Da, Tx>, anyhow::Error> {
     let mut state_transition_witnesses: VecDeque<Vec<(Witness, Witness)>> = VecDeque::new();
-    let mut soft_confirmations: VecDeque<Vec<SignedSoftConfirmation<Tx>>> = VecDeque::new();
+    let mut soft_confirmations: VecDeque<Vec<L2Block<'txs, Tx>>> = VecDeque::new();
     let mut da_block_headers_of_soft_confirmations: VecDeque<
         Vec<<<Da as DaService>::Spec as DaSpec>::BlockHeader>,
     > = VecDeque::new();
@@ -376,7 +376,7 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
                 };
                 da_block_headers_to_push.push(filtered_block.header().clone());
             }
-            let signed_soft_confirmation: SignedSoftConfirmation<Tx> = soft_confirmation
+            let signed_soft_confirmation: L2Block<Tx> = soft_confirmation
                 .try_into()
                 .context("Failed to parse transactions")?;
             commitment_soft_confirmations.push(signed_soft_confirmation);

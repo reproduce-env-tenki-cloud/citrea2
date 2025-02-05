@@ -98,7 +98,7 @@ impl<'txs, StateRoot, Witness, Da, Tx>
     for BatchProofCircuitInputV1<StateRoot, Witness, Da>
 where
     Da: DaSpec,
-    Tx: Clone,
+    Tx: Clone + 'txs,
     StateRoot: Serialize + DeserializeOwned,
     Witness: Serialize + DeserializeOwned,
 {

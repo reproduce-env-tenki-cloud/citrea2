@@ -8,7 +8,7 @@ use v2::{BatchProofCircuitInputV2Part1, BatchProofCircuitInputV2Part2};
 use v3::{BatchProofCircuitInputV3Part1, BatchProofCircuitInputV3Part2};
 
 use crate::da::DaSpec;
-use crate::soft_confirmation::SignedSoftConfirmation;
+use crate::soft_confirmation::L2Block;
 
 /// Genesis input module
 pub mod v1;
@@ -44,7 +44,7 @@ pub struct BatchProofCircuitInput<'txs, StateRoot, Witness, Da: DaSpec, Tx: Clon
     /// Pre-proven commitments L2 ranges which also exist in the current L1 `da_data`.
     pub preproven_commitments: Vec<usize>,
     /// The soft confirmations that are inside the sequencer commitments.
-    pub soft_confirmations: VecDeque<Vec<SignedSoftConfirmation<'txs, Tx>>>,
+    pub soft_confirmations: VecDeque<Vec<L2Block<'txs, Tx>>>,
     /// Corresponding witness for the soft confirmations.
     pub state_transition_witnesses: VecDeque<Vec<(Witness, Witness)>>,
     /// DA block headers the soft confirmations was constructed on.
@@ -63,7 +63,7 @@ pub struct BatchProofCircuitInput<'txs, StateRoot, Witness, Da: DaSpec, Tx: Clon
 impl<'txs, StateRoot, Witness, Da, Tx> BatchProofCircuitInput<'txs, StateRoot, Witness, Da, Tx>
 where
     Da: DaSpec,
-    Tx: Clone,
+    Tx: Clone + 'txs,
     StateRoot: Serialize + DeserializeOwned,
     Witness: Serialize + DeserializeOwned,
 {
@@ -91,7 +91,7 @@ where
                 .into_iter()
                 .zip(witnesses)
                 .map(|(confirmation, (state_witness, offchain_witness))| {
-                    (confirmation, state_witness, offchain_witness)
+                    (confirmation.into(), state_witness, offchain_witness)
                 })
                 .collect();
 

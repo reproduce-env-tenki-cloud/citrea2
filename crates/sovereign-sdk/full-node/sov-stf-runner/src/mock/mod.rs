@@ -41,7 +41,7 @@ impl<Da: DaSpec> StateTransitionFunction<Da> for MockStf {
         _state_witness: Self::Witness,
         _offchain_witness: Self::Witness,
         _slot_header: &<Da as DaSpec>::BlockHeader,
-        _soft_confirmation: &mut sov_modules_api::SignedSoftConfirmation<Self::Transaction>,
+        _soft_confirmation: &mut sov_modules_api::L2Block<Self::Transaction>,
     ) -> Result<
         SoftConfirmationResult<Self::StateRoot, Self::ChangeSet, Self::Witness>,
         StateTransitionError,

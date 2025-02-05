@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use sov_modules_core::{AccessoryWorkingSet, Context, Spec, WorkingSet};
 use sov_rollup_interface::da::DaSpec;
-use sov_rollup_interface::soft_confirmation::SignedSoftConfirmation;
+use sov_rollup_interface::soft_confirmation::L2Block;
 use sov_rollup_interface::spec::SpecId;
 pub use sov_rollup_interface::stf::SoftConfirmationError;
 use sov_rollup_interface::stf::SoftConfirmationHookError;
@@ -88,7 +88,7 @@ pub struct HookSoftConfirmationInfo {
 
 impl HookSoftConfirmationInfo {
     pub fn new<Tx: Clone>(
-        signed_soft_confirmation: &SignedSoftConfirmation<Tx>,
+        signed_soft_confirmation: &L2Block<Tx>,
         pre_state_root: Vec<u8>,
         current_spec: SpecId,
     ) -> Self {

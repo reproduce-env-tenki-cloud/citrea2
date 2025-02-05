@@ -6,14 +6,14 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::da::DaSpec;
-use crate::soft_confirmation::SignedSoftConfirmation;
+use crate::soft_confirmation::L2Block;
 
 #[derive(BorshDeserialize, BorshSerialize)]
 /// Second part of the Kumquat elf input
 /// This is going to be read per-need basis to not go out of memory
 /// in the zkvm
 pub struct BatchProofCircuitInputV3Part2<'txs, Witness, Tx: Clone>(
-    pub VecDeque<Vec<(SignedSoftConfirmation<'txs, Tx>, Witness, Witness)>>,
+    pub VecDeque<Vec<(L2Block<'txs, Tx>, Witness, Witness)>>,
 );
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize)]

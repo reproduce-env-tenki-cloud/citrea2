@@ -4,7 +4,7 @@ use borsh::BorshDeserialize;
 use sov_modules_api::hooks::HookSoftConfirmationInfo;
 use sov_modules_api::transaction::Transaction;
 use sov_modules_api::{native_debug, native_error, Context, DaSpec, SpecId, WorkingSet};
-use sov_rollup_interface::soft_confirmation::SignedSoftConfirmation;
+use sov_rollup_interface::soft_confirmation::L2Block;
 use sov_rollup_interface::stf::{
     SoftConfirmationError, SoftConfirmationHookError, StateTransitionError, StateTransitionFunction,
 };
@@ -151,9 +151,7 @@ where
         &mut self,
         current_spec: SpecId,
         pre_state_root: Vec<u8>,
-        soft_confirmation: &mut SignedSoftConfirmation<
-            <Self as StateTransitionFunction<Da>>::Transaction,
-        >,
+        soft_confirmation: &L2Block<<Self as StateTransitionFunction<Da>>::Transaction>,
         working_set: &mut WorkingSet<C::Storage>,
     ) -> Result<(), SoftConfirmationHookError> {
         let hook_soft_confirmation_info =

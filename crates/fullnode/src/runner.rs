@@ -16,7 +16,7 @@ use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use sov_db::ledger_db::NodeLedgerOps;
 use sov_db::schema::types::{SlotNumber, SoftConfirmationNumber};
 use sov_ledger_rpc::LedgerRpcClient;
-use sov_modules_api::{Context, SignedSoftConfirmation, Spec};
+use sov_modules_api::{Context, L2Block, Spec};
 use sov_modules_stf_blueprint::{Runtime, StfBlueprint};
 use sov_prover_storage_manager::{ProverStorage, ProverStorageManager, SnapshotManager};
 use sov_rollup_interface::da::BlockHeaderTrait;
@@ -139,7 +139,7 @@ where
             .storage_manager
             .create_storage_on_l2_height(l2_height)?;
 
-        let mut signed_soft_confirmation: SignedSoftConfirmation<StfTransaction<C, Da::Spec, RT>> =
+        let mut signed_soft_confirmation: L2Block<StfTransaction<C, Da::Spec, RT>> =
             soft_confirmation
                 .clone()
                 .try_into()

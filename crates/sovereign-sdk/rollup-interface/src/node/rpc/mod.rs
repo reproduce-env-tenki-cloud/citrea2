@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::da::SequencerCommitment;
 use crate::mmr::MMRGuest;
-use crate::soft_confirmation::SignedSoftConfirmation;
+use crate::soft_confirmation::{L2Block, SignedSoftConfirmationHeader, SoftConfirmationHeader};
 use crate::zk::batch_proof::output::CumulativeStateDiff;
 use crate::zk::light_client_proof::output::BatchProofInfo;
 
@@ -87,7 +87,7 @@ pub struct SoftConfirmationResponse {
     pub timestamp: u64,
 }
 
-impl<'txs, Tx> TryFrom<SoftConfirmationResponse> for SignedSoftConfirmation<'txs, Tx>
+impl<'txs, Tx> TryFrom<SoftConfirmationResponse> for L2Block<'txs, Tx>
 where
     Tx: Clone + BorshDeserialize,
 {
@@ -102,24 +102,33 @@ where
                 borsh::from_slice::<Tx>(body)
             })
             .collect::<Result<Vec<_>, Self::Error>>()?;
-        let res = SignedSoftConfirmation::new(
+
+        let header = SoftConfirmationHeader::new(
             val.l2_height,
-            val.hash,
-            val.prev_hash,
             val.da_slot_height,
             val.da_slot_hash,
             val.da_slot_txs_commitment,
+            val.prev_hash,
+            // val.state_root.try_into().unwrap(),
             val.l1_fee_rate,
+            val.deposit_data.into_iter().map(|tx| tx.tx).collect(),
+            val.timestamp,
+        );
+        let signed_header = SignedSoftConfirmationHeader::new(
+            header,
+            val.hash,
+            val.soft_confirmation_signature,
+            val.pub_key,
+        );
+
+        let res = L2Block::new(
+            signed_header,
             val.txs
                 .unwrap_or_default()
                 .into_iter()
                 .map(|tx| tx.tx)
                 .collect(),
             parsed_txs.into(),
-            val.deposit_data.into_iter().map(|tx| tx.tx).collect(),
-            val.soft_confirmation_signature,
-            val.pub_key,
-            val.timestamp,
         );
         Ok(res)
     }

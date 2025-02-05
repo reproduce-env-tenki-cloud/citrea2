@@ -17,7 +17,9 @@ use sov_modules_api::{
 };
 use sov_rollup_interface::da::DaDataBatchProof;
 use sov_rollup_interface::fork::ForkManager;
-use sov_rollup_interface::soft_confirmation::{SignedSoftConfirmation, UnsignedSoftConfirmationV1};
+use sov_rollup_interface::soft_confirmation::{
+    L2Block, SignedSoftConfirmationHeader, UnsignedSoftConfirmationV1,
+};
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::stf::{
     ApplySequencerCommitmentsOutput, SoftConfirmationError, SoftConfirmationResult,
@@ -178,25 +180,30 @@ where
         current_spec: SpecId,
         pre_state_root: Vec<u8>,
         sequencer_public_key: &[u8],
-        soft_confirmation: &mut SignedSoftConfirmation<
-            <Self as StateTransitionFunction<Da>>::Transaction,
-        >,
+        soft_confirmation: &L2Block<<Self as StateTransitionFunction<Da>>::Transaction>,
         working_set: &mut WorkingSet<C::Storage>,
     ) -> Result<(), StateTransitionError> {
-        let unsigned = UnsignedSoftConfirmation::new(
-            soft_confirmation.l2_height(),
-            soft_confirmation.da_slot_height(),
-            soft_confirmation.da_slot_hash(),
-            soft_confirmation.da_slot_txs_commitment(),
-            soft_confirmation.blobs(),
-            soft_confirmation.txs(),
-            soft_confirmation.deposit_data().to_vec(),
-            soft_confirmation.l1_fee_rate(),
-            soft_confirmation.timestamp(),
-        );
+        let l2_header = &soft_confirmation.header;
 
+        if current_spec >= SpecId::Fork2 {
+            let digest = l2_header.inner.compute_digest::<<C as Spec>::Hasher>();
+            let hash = Into::<[u8; 32]>::into(digest);
+
+            if soft_confirmation.hash() != hash {
+                return Err(StateTransitionError::SoftConfirmationError(
+                    SoftConfirmationError::InvalidSoftConfirmationHash,
+                ));
+            }
+
+            if verify_soft_confirmation_signature::<C>(l2_header, sequencer_public_key).is_err() {
+                return Err(StateTransitionError::SoftConfirmationError(
+                    SoftConfirmationError::InvalidSoftConfirmationSignature,
+                ));
+            }
+        }
         // check the claimed hash
-        if current_spec >= SpecId::Kumquat {
+        else if current_spec == SpecId::Kumquat {
+            let unsigned = UnsignedSoftConfirmation::from(soft_confirmation);
             let digest = unsigned.compute_digest::<<C as Spec>::Hasher>();
             let hash = Into::<[u8; 32]>::into(digest);
             if soft_confirmation.hash() != hash {
@@ -206,19 +213,13 @@ where
             }
 
             // verify signature
-            if verify_soft_confirmation_signature::<C, _>(
-                soft_confirmation,
-                soft_confirmation.signature(),
-                sequencer_public_key,
-            )
-            .is_err()
-            {
+            if verify_soft_confirmation_signature::<C>(l2_header, sequencer_public_key).is_err() {
                 return Err(StateTransitionError::SoftConfirmationError(
                     SoftConfirmationError::InvalidSoftConfirmationSignature,
                 ));
             }
         } else {
-            let unsigned = UnsignedSoftConfirmationV1::from(unsigned);
+            let unsigned = UnsignedSoftConfirmationV1::from(soft_confirmation);
             let digest = unsigned.hash::<<C as Spec>::Hasher>();
             let hash = Into::<[u8; 32]>::into(digest);
             if soft_confirmation.hash() != hash {
@@ -256,9 +257,7 @@ where
         _current_spec: SpecId,
         working_set: WorkingSet<C::Storage>,
         pre_state: <Self as StateTransitionFunction<Da>>::PreState,
-        soft_confirmation: &mut SignedSoftConfirmation<
-            <Self as StateTransitionFunction<Da>>::Transaction,
-        >,
+        soft_confirmation: &mut L2Block<<Self as StateTransitionFunction<Da>>::Transaction>,
     ) -> SoftConfirmationResult<StorageRootHash, C::Storage, <C::Storage as Storage>::Witness> {
         native_debug!(
             "soft confirmation with hash: {:?} from sequencer {:?} has been successfully applied",
@@ -371,7 +370,7 @@ where
         // the header hash does not need to be verified here because the full
         // nodes construct the header on their own
         slot_header: &<Da as DaSpec>::BlockHeader,
-        soft_confirmation: &mut SignedSoftConfirmation<Self::Transaction>,
+        soft_confirmation: &mut L2Block<Self::Transaction>,
     ) -> Result<
         SoftConfirmationResult<Self::StateRoot, Self::ChangeSet, Self::Witness>,
         StateTransitionError,
@@ -536,7 +535,7 @@ where
             for _ in 0..state_change_count {
                 let (mut soft_confirmation, state_witness, offchain_witness) = guest
                     .read_from_host::<(
-                        SignedSoftConfirmation<Self::Transaction>,
+                        L2Block<Self::Transaction>,
                         <C::Storage as Storage>::Witness,
                         <C::Storage as Storage>::Witness,
                     )>();
@@ -670,14 +669,12 @@ where
     }
 }
 
-fn verify_soft_confirmation_signature<C: Context, Tx: Clone>(
-    signed_soft_confirmation: &SignedSoftConfirmation<Tx>,
-    signature: &[u8],
+fn verify_soft_confirmation_signature<C: Spec>(
+    header: &SignedSoftConfirmationHeader,
     sequencer_public_key: &[u8],
 ) -> Result<(), anyhow::Error> {
-    let message = signed_soft_confirmation.hash();
-
-    let signature = C::Signature::try_from(signature)?;
+    let message = header.hash;
+    let signature = C::Signature::try_from(&header.signature)?;
 
     signature.verify(
         &C::PublicKey::try_from(sequencer_public_key)?,
