@@ -8,7 +8,7 @@ use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
 use citrea_common::cache::L1BlockCache;
 use citrea_common::da::get_da_block_at_height;
-use citrea_common::utils::soft_confirmation_to_receipt;
+use citrea_common::utils::{compute_tx_hashes, soft_confirmation_to_receipt};
 use citrea_common::{RollupPublicKeys, RunnerConfig};
 use citrea_primitives::types::SoftConfirmationHash;
 use jsonrpsee::core::client::Error as JsonrpseeError;
@@ -178,11 +178,22 @@ where
             None
         };
 
-        let receipt =
-            soft_confirmation_to_receipt::<C, _, Da::Spec>(signed_soft_confirmation, current_spec);
+        let tx_hashes = compute_tx_hashes::<C, _, Da::Spec>(
+            signed_soft_confirmation.txs(),
+            signed_soft_confirmation.blobs(),
+            current_spec,
+        );
 
-        self.ledger_db
-            .commit_soft_confirmation(next_state_root.as_ref(), receipt, tx_bodies)?;
+        let tx_merkle_root = signed_soft_confirmation.tx_merkle_root();
+        let receipt =
+            soft_confirmation_to_receipt::<C, _, Da::Spec>(signed_soft_confirmation, tx_hashes);
+
+        self.ledger_db.commit_soft_confirmation(
+            next_state_root.as_ref(),
+            receipt,
+            tx_bodies,
+            tx_merkle_root,
+        )?;
 
         self.ledger_db.extend_l2_range_of_l1_slot(
             SlotNumber(current_l1_block.header().height()),

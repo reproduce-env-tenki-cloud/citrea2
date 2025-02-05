@@ -2015,6 +2015,7 @@ dependencies = [
  "metrics-derive",
  "once_cell",
  "rand",
+ "rocksdb",
  "rs_merkle",
  "serde",
  "serde_json",

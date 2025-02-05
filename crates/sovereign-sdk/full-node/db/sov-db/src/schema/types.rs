@@ -325,6 +325,8 @@ pub struct StoredSoftConfirmation {
     pub l1_fee_rate: u128,
     /// Sequencer's block timestamp
     pub timestamp: u64,
+    /// Transactions merkle root
+    pub tx_merkle_root: [u8; 32],
 }
 
 impl<'txs, Tx> TryFrom<StoredSoftConfirmation> for L2Block<'txs, Tx>
@@ -341,7 +343,6 @@ where
                 borsh::from_slice::<Tx>(body)
             })
             .collect::<Result<Vec<_>, Self::Error>>()?;
-
         let header = SoftConfirmationHeader::new(
             val.l2_height,
             val.da_slot_height,
@@ -350,6 +351,7 @@ where
             val.prev_hash,
             // val.state_root.try_into().unwrap(),
             val.l1_fee_rate,
+            val.tx_merkle_root,
             val.deposit_data,
             val.timestamp,
         );
@@ -400,6 +402,7 @@ impl TryFrom<StoredSoftConfirmation> for SoftConfirmationResponse {
                 .collect(),
             l1_fee_rate: value.l1_fee_rate,
             timestamp: value.timestamp,
+            tx_merkle_root: value.tx_merkle_root,
         })
     }
 }

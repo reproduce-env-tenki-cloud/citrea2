@@ -9,7 +9,7 @@ use backoff::exponential::ExponentialBackoffBuilder;
 use backoff::future::retry as retry_backoff;
 use citrea_common::cache::L1BlockCache;
 use citrea_common::da::get_da_block_at_height;
-use citrea_common::utils::soft_confirmation_to_receipt;
+use citrea_common::utils::{compute_tx_hashes, soft_confirmation_to_receipt};
 use citrea_common::{RollupPublicKeys, RunnerConfig};
 use citrea_primitives::types::SoftConfirmationHash;
 use jsonrpsee::core::client::Error as JsonrpseeError;
@@ -209,11 +209,10 @@ where
             .storage_manager
             .create_storage_on_l2_height(l2_height)?;
 
-        let mut signed_soft_confirmation: L2Block<StfTransaction<C, Da::Spec, RT>> =
-            soft_confirmation
-                .clone()
-                .try_into()
-                .context("Failed to parse transactions")?;
+        let mut l2_block: L2Block<StfTransaction<C, Da::Spec, RT>> = soft_confirmation
+            .clone()
+            .try_into()
+            .context("Failed to parse transactions")?;
         // Register this new block with the fork manager to active
         // the new fork on the next block
         self.fork_manager.register_block(l2_height)?;
@@ -227,9 +226,9 @@ where
             Default::default(),
             Default::default(),
             current_l1_block.header(),
-            &mut signed_soft_confirmation,
+            &mut l2_block,
         )?;
-        let txs_bodies = signed_soft_confirmation.blobs().to_owned();
+        let txs_bodies = l2_block.blobs().to_owned();
 
         let next_state_root = soft_confirmation_result.state_root_transition.final_root;
         // Check if post state root is the same as the one in the soft confirmation
@@ -255,13 +254,17 @@ where
 
         self.storage_manager.finalize_l2(l2_height)?;
 
-        let receipt =
-            soft_confirmation_to_receipt::<C, _, Da::Spec>(signed_soft_confirmation, current_spec);
+        let tx_hashes =
+            compute_tx_hashes::<C, _, Da::Spec>(l2_block.txs(), l2_block.blobs(), current_spec);
+
+        let merkle_root = l2_block.tx_merkle_root();
+        let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(l2_block, tx_hashes);
 
         self.ledger_db.commit_soft_confirmation(
             next_state_root.as_ref(),
             receipt,
             Some(txs_bodies),
+            merkle_root,
         )?;
 
         self.ledger_db.extend_l2_range_of_l1_slot(

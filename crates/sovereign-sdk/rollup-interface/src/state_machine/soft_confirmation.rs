@@ -21,7 +21,7 @@ pub struct SoftConfirmationHeader {
     prev_hash: [u8; 32],
     // state_root: [u8; 32],
     l1_fee_rate: u128,
-    // tx_merkle_root: [u8; 32],
+    tx_merkle_root: [u8; 32],
     deposit_data: Vec<Vec<u8>>,
     timestamp: u64,
 }
@@ -37,7 +37,7 @@ impl SoftConfirmationHeader {
         prev_hash: [u8; 32],
         // state_root: [u8; 32],
         l1_fee_rate: u128,
-        // tx_merkle_root: [u8; 32],
+        tx_merkle_root: [u8; 32],
         deposit_data: Vec<Vec<u8>>,
         timestamp: u64,
     ) -> Self {
@@ -49,7 +49,7 @@ impl SoftConfirmationHeader {
             prev_hash,
             // state_root,
             l1_fee_rate,
-            // tx_merkle_root,
+            tx_merkle_root,
             deposit_data,
             timestamp,
         }
@@ -199,6 +199,10 @@ impl<'txs, Tx: Clone> L2Block<'txs, Tx> {
     /// Sequencer block timestamp
     pub fn timestamp(&self) -> u64 {
         self.header.inner.timestamp
+    }
+    /// Tx merkle root
+    pub fn tx_merkle_root(&self) -> [u8; 32] {
+        self.header.inner.tx_merkle_root
     }
 }
 

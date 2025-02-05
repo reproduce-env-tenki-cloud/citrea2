@@ -84,24 +84,27 @@ pub fn check_l2_range_exists<DB: SharedLedgerOps>(
     false
 }
 
-pub fn soft_confirmation_to_receipt<C: Context, Tx: TransactionDigest + Clone, DS: DaSpec>(
-    soft_confirmation: L2Block<Tx>,
+pub fn compute_tx_hashes<C: Context, Tx: TransactionDigest + Clone, DS: DaSpec>(
+    txs: &[Tx],
+    blobs: &[Vec<u8>],
     current_spec: SpecId,
-) -> SoftConfirmationReceipt<DS> {
-    let tx_hashes = if current_spec >= SpecId::Kumquat {
-        soft_confirmation
-            .txs()
-            .iter()
+) -> Vec<[u8; 32]> {
+    if current_spec >= SpecId::Kumquat {
+        txs.iter()
             .map(|tx| tx.compute_digest::<<C as Spec>::Hasher>().into())
             .collect()
     } else {
-        soft_confirmation
-            .blobs()
+        blobs
             .iter()
             .map(|raw_tx| <C as Spec>::Hasher::digest(raw_tx).into())
             .collect()
-    };
+    }
+}
 
+pub fn soft_confirmation_to_receipt<C: Context, Tx: TransactionDigest + Clone, DS: DaSpec>(
+    soft_confirmation: L2Block<Tx>,
+    tx_hashes: Vec<[u8; 32]>,
+) -> SoftConfirmationReceipt<DS> {
     SoftConfirmationReceipt {
         l2_height: soft_confirmation.l2_height(),
         hash: soft_confirmation.hash(),

@@ -32,6 +32,7 @@ pub trait SharedLedgerOps {
         state_root: &[u8],
         sc_receipt: SoftConfirmationReceipt<DS>,
         tx_bodies: Option<Vec<Vec<u8>>>,
+        tx_merkle_root: [u8; 32],
     ) -> Result<()>;
 
     /// Records the L2 height that was created as a soft confirmaiton of an L1 height

@@ -85,6 +85,8 @@ pub struct SoftConfirmationResponse {
     pub l1_fee_rate: u128,
     /// Sequencer's block timestamp.
     pub timestamp: u64,
+    /// Tx merkle root.
+    pub tx_merkle_root: [u8; 32],
 }
 
 impl<'txs, Tx> TryFrom<SoftConfirmationResponse> for L2Block<'txs, Tx>
@@ -111,6 +113,7 @@ where
             val.prev_hash,
             // val.state_root.try_into().unwrap(),
             val.l1_fee_rate,
+            val.tx_merkle_root,
             val.deposit_data.into_iter().map(|tx| tx.tx).collect(),
             val.timestamp,
         );

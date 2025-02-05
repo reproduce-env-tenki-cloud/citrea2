@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use rocksdb::WriteBatch;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sov_rollup_interface::da::{DaSpec, SequencerCommitment};
@@ -135,6 +136,11 @@ impl LedgerDB {
             _ => Ok(None),
         }
     }
+
+    /// Write raw rocksdb WriteBatch
+    pub fn write(&self, batch: WriteBatch) -> anyhow::Result<()> {
+        self.db.write(batch)
+    }
 }
 
 impl SharedLedgerOps for LedgerDB {
@@ -160,6 +166,7 @@ impl SharedLedgerOps for LedgerDB {
         state_root: &[u8],
         soft_confirmation_receipt: SoftConfirmationReceipt<DS>,
         tx_bodies: Option<Vec<Vec<u8>>>,
+        tx_merkle_root: [u8; 32],
     ) -> Result<(), anyhow::Error> {
         let mut schema_batch = SchemaBatch::new();
 
@@ -195,6 +202,7 @@ impl SharedLedgerOps for LedgerDB {
             deposit_data: soft_confirmation_receipt.deposit_data,
             l1_fee_rate: soft_confirmation_receipt.l1_fee_rate,
             timestamp: soft_confirmation_receipt.timestamp,
+            tx_merkle_root,
         };
         self.put_soft_confirmation(
             &soft_confirmation_to_store,

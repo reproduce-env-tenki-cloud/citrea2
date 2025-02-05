@@ -5,10 +5,10 @@ use std::vec;
 
 use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{Address, Bytes, TxHash};
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context as _};
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
-use citrea_common::utils::soft_confirmation_to_receipt;
+use citrea_common::utils::{compute_tx_hashes, soft_confirmation_to_receipt};
 use citrea_common::{RollupPublicKeys, SequencerConfig};
 use citrea_evm::{CallMessage, RlpEvmTransaction, MIN_TRANSACTION_GAS};
 use citrea_primitives::basefee::calculate_next_block_base_fee;
@@ -21,6 +21,8 @@ use reth_transaction_pool::{
     BestTransactions, BestTransactionsAttributes, EthPooledTransaction, PoolTransaction,
     ValidPoolTransaction,
 };
+use rs_merkle::algorithms::Sha256;
+use rs_merkle::MerkleTree;
 use sov_accounts::Accounts;
 use sov_accounts::Response::{AccountEmpty, AccountExists};
 use sov_db::ledger_db::SequencerLedgerOps;
@@ -425,6 +427,18 @@ where
                         .expect("dry_run_transactions should have already checked this");
                 }
 
+                // Calculate tx hashes for merkle root
+                let tx_hashes =
+                    compute_tx_hashes::<C, _, Da::Spec>(&txs_new, &txs, active_fork_spec);
+
+                let tx_merkle_root = if tx_hashes.is_empty() {
+                    [0u8; 32]
+                } else {
+                    MerkleTree::<Sha256>::from_leaves(&tx_hashes)
+                        .root()
+                        .context("Couldn't compute merkle root")?
+                };
+
                 // create the soft confirmation header
                 let header = SoftConfirmationHeader::new(
                     l2_height,
@@ -434,6 +448,7 @@ where
                     self.batch_hash,
                     // self.state_root
                     l1_fee_rate,
+                    tx_merkle_root,
                     deposit_data.clone(),
                     timestamp,
                 );
@@ -480,12 +495,13 @@ where
 
                 let tx_bodies = l2_block.blobs().to_owned();
                 let soft_confirmation_hash = l2_block.hash();
-                let receipt =
-                    soft_confirmation_to_receipt::<C, _, Da::Spec>(l2_block, active_fork_spec);
+                let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(l2_block, tx_hashes);
+
                 self.ledger_db.commit_soft_confirmation(
                     next_state_root.as_ref(),
                     receipt,
                     Some(tx_bodies),
+                    tx_merkle_root,
                 )?;
 
                 // connect L1 and L2 height
@@ -835,7 +851,6 @@ where
         use digest::Digest;
 
         let soft_confirmation = &UnsignedSoftConfirmation::from((&header, blobs, txs));
-
         let raw = borsh::to_vec(&UnsignedSoftConfirmationV1::from(soft_confirmation.clone()))
             .map_err(|e| anyhow!(e))?;
         let hash = <C as sov_modules_api::Spec>::Hasher::digest(raw.as_slice()).into();
