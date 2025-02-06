@@ -372,13 +372,12 @@ impl TryFrom<StoredSoftConfirmation> for SoftConfirmationResponse {
             da_slot_txs_commitment: value.da_slot_txs_commitment,
             hash: value.hash,
             prev_hash: value.prev_hash,
-            txs: Some(
-                value
-                    .txs
-                    .into_iter()
-                    .filter_map(|tx| tx.body.map(Into::into))
-                    .collect(),
-            ), // Rollup full nodes don't store tx bodies
+            txs: value
+                .txs
+                .into_iter()
+                .filter_map(|tx| tx.body.map(|body| (tx.hash, body.into())))
+                .collect(),
+            // Rollup full nodes don't store tx bodies
             state_root: value.state_root,
             soft_confirmation_signature: value.soft_confirmation_signature,
             pub_key: value.pub_key,

@@ -308,7 +308,7 @@ async fn transaction_failing_on_l1_is_removed_from_mempool() -> Result<(), anyho
 
     assert_eq!(block.transactions.len(), 0);
     assert!(tx_from_mempool.is_none());
-    assert_eq!(soft_confirmation.txs.unwrap().len(), 0);
+    assert_eq!(soft_confirmation.txs.len(), 0);
 
     wait_for_l2_block(&full_node_test_client, block.header.number, None).await;
 
@@ -572,9 +572,7 @@ async fn test_system_tx_effect_on_block_gas_limit() -> Result<(), anyhow::Error>
 
     // last in tx byte array should be a subarray of txs[0]
     assert!(find_subarray(
-        initial_soft_confirmation.clone().txs.unwrap()[0]
-            .tx
-            .as_slice(),
+        initial_soft_confirmation.clone().txs[0].1.tx.as_slice(),
         &last_tx_raw[2..]
     )
     .is_some());
@@ -598,7 +596,7 @@ async fn test_system_tx_effect_on_block_gas_limit() -> Result<(), anyhow::Error>
 
     // not in tx byte array should not be a subarray of txs[0]
     assert!(find_subarray(
-        initial_soft_confirmation.txs.unwrap()[0].tx.as_slice(),
+        initial_soft_confirmation.txs[0].1.tx.as_slice(),
         &not_in_raw[2..]
     )
     .is_none());
@@ -612,7 +610,7 @@ async fn test_system_tx_effect_on_block_gas_limit() -> Result<(), anyhow::Error>
 
     // should be in tx byte array of the soft confirmation after
     assert!(find_subarray(
-        second_soft_confirmation.txs.unwrap()[0].tx.as_slice(),
+        second_soft_confirmation.txs[0].1.tx.as_slice(),
         &not_in_raw[2..]
     )
     .is_some());

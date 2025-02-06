@@ -68,8 +68,7 @@ pub struct SoftConfirmationResponse {
     #[serde(with = "hex::serde")]
     pub prev_hash: [u8; 32],
     /// The transactions in this batch.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub txs: Option<Vec<HexTx>>,
+    pub txs: Vec<([u8; 32], HexTx)>,
     /// State root of the soft confirmation.
     #[serde(with = "hex::serde")]
     pub state_root: Vec<u8>,
@@ -96,8 +95,7 @@ where
         let parsed_txs = val
             .txs
             .iter()
-            .flatten()
-            .map(|tx| {
+            .map(|(_hash, tx)| {
                 let body = &tx.tx;
                 borsh::from_slice::<Tx>(body)
             })
@@ -110,11 +108,7 @@ where
             val.da_slot_hash,
             val.da_slot_txs_commitment,
             val.l1_fee_rate,
-            val.txs
-                .unwrap_or_default()
-                .into_iter()
-                .map(|tx| tx.tx)
-                .collect(),
+            val.txs.into_iter().map(|(_hash, tx)| tx.tx).collect(),
             parsed_txs.into(),
             val.deposit_data.into_iter().map(|tx| tx.tx).collect(),
             val.soft_confirmation_signature,

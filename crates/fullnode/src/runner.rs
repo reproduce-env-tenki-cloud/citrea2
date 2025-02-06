@@ -139,6 +139,11 @@ where
             .storage_manager
             .create_storage_on_l2_height(l2_height)?;
 
+        let tx_hashes = soft_confirmation
+            .txs
+            .iter()
+            .map(|(hash, _)| *hash)
+            .collect();
         let mut signed_soft_confirmation: SignedSoftConfirmation<StfTransaction<C, Da::Spec, RT>> =
             soft_confirmation
                 .clone()
@@ -178,8 +183,11 @@ where
             None
         };
 
-        let receipt =
-            soft_confirmation_to_receipt::<C, _, Da::Spec>(signed_soft_confirmation, current_spec);
+        let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(
+            signed_soft_confirmation,
+            current_spec,
+            Some(tx_hashes),
+        );
 
         self.ledger_db
             .commit_soft_confirmation(next_state_root.as_ref(), receipt, tx_bodies)?;

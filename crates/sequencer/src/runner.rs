@@ -482,9 +482,11 @@ where
 
                 let tx_bodies = signed_soft_confirmation.blobs().to_owned();
                 let soft_confirmation_hash = signed_soft_confirmation.hash();
+
                 let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(
                     signed_soft_confirmation,
                     active_fork_spec,
+                    None,
                 );
                 self.ledger_db.commit_soft_confirmation(
                     next_state_root.as_ref(),
