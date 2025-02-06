@@ -6,6 +6,7 @@ use itertools::Itertools;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::MerkleTree;
 use sov_modules_api::da::BlockHeaderTrait;
+use sov_modules_api::digest::Digest;
 use sov_modules_api::fork::Fork;
 use sov_modules_api::hooks::{
     ApplySoftConfirmationHooks, FinalizeHook, HookSoftConfirmationInfo, SlotHooks, TxHooks,
@@ -180,75 +181,42 @@ where
         current_spec: SpecId,
         pre_state_root: Vec<u8>,
         sequencer_public_key: &[u8],
-        soft_confirmation: &L2Block<<Self as StateTransitionFunction<Da>>::Transaction>,
+        l2_block: &L2Block<<Self as StateTransitionFunction<Da>>::Transaction>,
         working_set: &mut WorkingSet<C::Storage>,
     ) -> Result<(), StateTransitionError> {
-        let l2_header = &soft_confirmation.header;
+        let l2_header = &l2_block.header;
 
-        if current_spec >= SpecId::Fork2 {
-            let digest = l2_header.inner.compute_digest::<<C as Spec>::Hasher>();
-            let hash = Into::<[u8; 32]>::into(digest);
-
-            if soft_confirmation.hash() != hash {
-                return Err(StateTransitionError::SoftConfirmationError(
-                    SoftConfirmationError::InvalidSoftConfirmationHash,
-                ));
+        let expected_hash = match current_spec {
+            SpecId::Genesis => {
+                let unsigned = UnsignedSoftConfirmationV1::from(l2_block);
+                let raw = borsh::to_vec(&unsigned).map_err(|_| {
+                    StateTransitionError::SoftConfirmationError(
+                        SoftConfirmationError::NonSerializableSovTx,
+                    )
+                })?;
+                <C as Spec>::Hasher::digest(raw.as_slice()).into()
             }
-
-            if verify_soft_confirmation_signature::<C>(l2_header, sequencer_public_key).is_err() {
-                return Err(StateTransitionError::SoftConfirmationError(
-                    SoftConfirmationError::InvalidSoftConfirmationSignature,
-                ));
+            SpecId::Kumquat => {
+                let unsigned = UnsignedSoftConfirmation::from(l2_block);
+                Into::<[u8; 32]>::into(unsigned.compute_digest::<<C as Spec>::Hasher>())
             }
-        }
-        // check the claimed hash
-        else if current_spec == SpecId::Kumquat {
-            let unsigned = UnsignedSoftConfirmation::from(soft_confirmation);
-            let digest = unsigned.compute_digest::<<C as Spec>::Hasher>();
-            let hash = Into::<[u8; 32]>::into(digest);
-            if soft_confirmation.hash() != hash {
-                return Err(StateTransitionError::SoftConfirmationError(
-                    SoftConfirmationError::InvalidSoftConfirmationHash,
-                ));
-            }
-
-            // verify signature
-            if verify_soft_confirmation_signature::<C>(l2_header, sequencer_public_key).is_err() {
-                return Err(StateTransitionError::SoftConfirmationError(
-                    SoftConfirmationError::InvalidSoftConfirmationSignature,
-                ));
-            }
-        } else {
-            let unsigned = UnsignedSoftConfirmationV1::from(soft_confirmation);
-            let digest = unsigned.hash::<<C as Spec>::Hasher>();
-            let hash = Into::<[u8; 32]>::into(digest);
-            if soft_confirmation.hash() != hash {
-                return Err(StateTransitionError::SoftConfirmationError(
-                    SoftConfirmationError::InvalidSoftConfirmationHash,
-                ));
-            }
-
-            // verify signature
-            if pre_fork1_verify_soft_confirmation_signature::<C>(
-                &unsigned,
-                soft_confirmation.signature(),
-                sequencer_public_key,
-            )
-            .is_err()
-            {
-                return Err(StateTransitionError::SoftConfirmationError(
-                    SoftConfirmationError::InvalidSoftConfirmationSignature,
-                ));
-            }
+            _ => Into::<[u8; 32]>::into(l2_header.inner.compute_digest::<<C as Spec>::Hasher>()),
         };
 
-        self.end_soft_confirmation_inner(
-            current_spec,
-            pre_state_root,
-            soft_confirmation,
-            working_set,
-        )
-        .map_err(StateTransitionError::HookError)
+        if l2_block.hash() != expected_hash {
+            return Err(StateTransitionError::SoftConfirmationError(
+                SoftConfirmationError::InvalidSoftConfirmationHash,
+            ));
+        }
+
+        if verify_soft_confirmation_signature::<C>(l2_header, sequencer_public_key).is_err() {
+            return Err(StateTransitionError::SoftConfirmationError(
+                SoftConfirmationError::InvalidSoftConfirmationSignature,
+            ));
+        }
+
+        self.end_soft_confirmation_inner(current_spec, pre_state_root, l2_block, working_set)
+            .map_err(StateTransitionError::HookError)
     }
 
     /// Finalizes a soft confirmation
@@ -673,34 +641,9 @@ fn verify_soft_confirmation_signature<C: Spec>(
     header: &SignedSoftConfirmationHeader,
     sequencer_public_key: &[u8],
 ) -> Result<(), anyhow::Error> {
-    let message = header.hash;
     let signature = C::Signature::try_from(&header.signature)?;
+    let public_key = C::PublicKey::try_from(sequencer_public_key)?;
 
-    signature.verify(
-        &C::PublicKey::try_from(sequencer_public_key)?,
-        message.as_slice(),
-    )?;
-
-    Ok(())
-}
-
-// Old version of verify_soft_confirmation_signature
-// TODO: Remove derive(BorshSerialize) for UnsignedSoftConfirmation
-//   when removing this fn
-// FIXME: ^
-fn pre_fork1_verify_soft_confirmation_signature<C: Context>(
-    unsigned_soft_confirmation: &UnsignedSoftConfirmationV1,
-    signature: &[u8],
-    sequencer_public_key: &[u8],
-) -> Result<(), anyhow::Error> {
-    let message = borsh::to_vec(&unsigned_soft_confirmation).unwrap();
-
-    let signature = C::Signature::try_from(signature)?;
-
-    signature.verify(
-        &C::PublicKey::try_from(sequencer_public_key)?,
-        message.as_slice(),
-    )?;
-
+    signature.verify(&public_key, &header.hash)?;
     Ok(())
 }
