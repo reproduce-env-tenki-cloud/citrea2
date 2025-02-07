@@ -5,10 +5,12 @@ use std::vec;
 
 use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{Address, Bytes, TxHash};
-use anyhow::{anyhow, bail, Context as _};
+use anyhow::{anyhow, bail};
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
-use citrea_common::utils::{compute_tx_hashes, soft_confirmation_to_receipt};
+use citrea_common::utils::{
+    compute_tx_hashes, compute_tx_merkle_root, soft_confirmation_to_receipt,
+};
 use citrea_common::{RollupPublicKeys, SequencerConfig};
 use citrea_evm::{CallMessage, RlpEvmTransaction, MIN_TRANSACTION_GAS};
 use citrea_primitives::basefee::calculate_next_block_base_fee;
@@ -21,8 +23,6 @@ use reth_transaction_pool::{
     BestTransactions, BestTransactionsAttributes, EthPooledTransaction, PoolTransaction,
     ValidPoolTransaction,
 };
-use rs_merkle::algorithms::Sha256;
-use rs_merkle::MerkleTree;
 use sov_accounts::Accounts;
 use sov_accounts::Response::{AccountEmpty, AccountExists};
 use sov_db::ledger_db::SequencerLedgerOps;
@@ -420,13 +420,7 @@ where
                 let tx_hashes =
                     compute_tx_hashes::<C, _, Da::Spec>(&txs_new, &txs, active_fork_spec);
 
-                let tx_merkle_root = if tx_hashes.is_empty() {
-                    [0u8; 32]
-                } else {
-                    MerkleTree::<Sha256>::from_leaves(&tx_hashes)
-                        .root()
-                        .context("Couldn't compute merkle root")?
-                };
+                let tx_merkle_root = compute_tx_merkle_root(&tx_hashes)?;
 
                 // create the soft confirmation header
                 let header = SoftConfirmationHeader::new(

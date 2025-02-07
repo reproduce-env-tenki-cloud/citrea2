@@ -1897,6 +1897,7 @@ dependencies = [
  "jsonrpsee",
  "lru",
  "metrics",
+ "rs_merkle",
  "serde",
  "serde_json",
  "sov-db",

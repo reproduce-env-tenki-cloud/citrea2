@@ -1,11 +1,9 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::Context;
 use borsh::{BorshDeserialize, BorshSerialize};
+use citrea_common::utils::compute_tx_merkle_root;
 use rocksdb::WriteBatch;
-use rs_merkle::algorithms::Sha256;
-use rs_merkle::MerkleTree;
 use sov_db::ledger_db::migrations::{LedgerMigration, MigrationName, MigrationVersion};
 use sov_db::ledger_db::LedgerDB;
 use sov_db::schema::tables::SoftConfirmationByNumber;
@@ -67,18 +65,9 @@ impl LedgerMigration for MigrateSoftConfirmationTxMerkleRoot {
             }
 
             let merkle_start = Instant::now();
-            let tx_merkle_root = {
-                let leaves: Vec<[u8; 32]> = v.txs.iter().map(|tx| tx.hash).collect();
+            let leaves: Vec<[u8; 32]> = v.txs.iter().map(|tx| tx.hash).collect();
+            let tx_merkle_root = compute_tx_merkle_root(&leaves)?;
 
-                // TODO TBD
-                if leaves.is_empty() {
-                    [0u8; 32]
-                } else {
-                    MerkleTree::<Sha256>::from_leaves(&leaves)
-                        .root()
-                        .context("Couldn't compute merkle root")?
-                }
-            };
             merkle_time_acc += merkle_start.elapsed();
 
             let stored_conf = StoredSoftConfirmation {

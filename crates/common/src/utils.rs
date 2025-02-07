@@ -1,5 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
+use anyhow::Context as _;
+use rs_merkle::algorithms::Sha256;
+use rs_merkle::MerkleTree;
 use sov_db::ledger_db::SharedLedgerOps;
 use sov_db::schema::types::SoftConfirmationNumber;
 use sov_modules_api::{Context, Spec};
@@ -119,4 +122,14 @@ pub fn soft_confirmation_to_receipt<C: Context, Tx: TransactionDigest + Clone, D
         soft_confirmation_signature: soft_confirmation.signature().to_vec(),
         pub_key: soft_confirmation.pub_key().to_vec(),
     }
+}
+
+pub fn compute_tx_merkle_root(tx_hashes: &[[u8; 32]]) -> anyhow::Result<[u8; 32]> {
+    if tx_hashes.is_empty() {
+        return Ok([0u8; 32]);
+    }
+
+    MerkleTree::<Sha256>::from_leaves(tx_hashes)
+        .root()
+        .context("Couldn't compute merkle root")
 }
