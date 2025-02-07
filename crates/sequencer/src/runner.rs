@@ -384,166 +384,162 @@ where
         let mut working_set = WorkingSet::new(prestate.clone());
 
         // Execute the selected transactions
-        match self.stf.begin_soft_confirmation(
-            &pub_key,
-            &mut working_set,
-            da_block.header(),
-            &soft_confirmation_info,
-        ) {
-            Ok(_) => {
-                let mut txs = vec![];
-                let mut txs_new = vec![];
-
-                let evm_txs_count = txs_to_run.len();
-                if evm_txs_count > 0 {
-                    let call_txs = CallMessage { txs: txs_to_run };
-                    let raw_message =
-                        <Runtime<C, Da::Spec> as EncodeCall<citrea_evm::Evm<C>>>::encode_call(
-                            call_txs,
-                        );
-                    let signed_blob = self.make_blob(raw_message.clone(), &mut working_set)?;
-                    let signed_tx = self.sign_tx(raw_message, &mut working_set)?;
-                    txs.push(signed_blob);
-                    txs_new.push(signed_tx);
-
-                    self.stf
-                        .apply_soft_confirmation_txs(
-                            soft_confirmation_info,
-                            &txs,
-                            &txs_new,
-                            &mut working_set,
-                        )
-                        .expect("dry_run_transactions should have already checked this");
-                }
-
-                // Calculate tx hashes for merkle root
-                let tx_hashes =
-                    compute_tx_hashes::<C, _, Da::Spec>(&txs_new, &txs, active_fork_spec);
-
-                let tx_merkle_root = compute_tx_merkle_root(&tx_hashes)?;
-
-                // create the soft confirmation header
-                let header = SoftConfirmationHeader::new(
-                    l2_height,
-                    da_block.header().height(),
-                    da_block.header().hash().into(),
-                    da_block.header().txs_commitment().into(),
-                    self.soft_confirmation_hash,
-                    // self.state_root
-                    l1_fee_rate,
-                    tx_merkle_root,
-                    deposit_data.clone(),
-                    timestamp,
-                );
-
-                let mut l2_block =
-                    self.sign_soft_confirmation(active_fork_spec, header, &txs, &txs_new)?;
-
-                self.stf.end_soft_confirmation(
-                    active_fork_spec,
-                    self.state_root.as_ref().to_vec(),
-                    self.sequencer_pub_key.as_ref(),
-                    &l2_block,
-                    &mut working_set,
-                )?;
-
-                // Finalize soft confirmation
-                let soft_confirmation_result = self.stf.finalize_soft_confirmation(
-                    active_fork_spec,
-                    working_set,
-                    prestate,
-                    &mut l2_block,
-                );
-                let state_root_transition = soft_confirmation_result.state_root_transition;
-
-                if state_root_transition.final_root.as_ref() == self.state_root.as_ref() {
-                    bail!("Max L2 blocks per L1 is reached for the current L1 block. State root is the same as before, skipping");
-                }
-
-                trace!(
-                    "State root after applying slot: {:?}",
-                    state_root_transition.final_root,
-                );
-
-                let next_state_root = state_root_transition.final_root;
-
-                self.storage_manager
-                    .save_change_set_l2(l2_height, soft_confirmation_result.change_set)?;
-
-                // TODO: this will only work for mock da
-                // when https://github.com/Sovereign-Labs/sovereign-sdk/issues/1218
-                // is merged, rpc will access up to date storage then we won't need to finalize right away.
-                // however we need much better DA + finalization logic here
-                self.storage_manager.finalize_l2(l2_height)?;
-
-                let tx_bodies = l2_block.blobs().to_owned();
-                let soft_confirmation_hash = l2_block.hash();
-                let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(l2_block, tx_hashes);
-
-                self.ledger_db.commit_soft_confirmation(
-                    next_state_root.as_ref(),
-                    receipt,
-                    Some(tx_bodies),
-                    tx_merkle_root,
-                )?;
-
-                // connect L1 and L2 height
-                self.ledger_db.extend_l2_range_of_l1_slot(
-                    SlotNumber(da_block.header().height()),
-                    SoftConfirmationNumber(l2_height),
-                )?;
-
-                let l1_height = da_block.header().height();
-                info!(
-                    "New block #{}, DA #{}, Tx count: #{}",
-                    l2_height, l1_height, evm_txs_count,
-                );
-
-                self.state_root = next_state_root;
-                self.soft_confirmation_hash = soft_confirmation_hash;
-
-                let mut txs_to_remove = self.db_provider.last_block_tx_hashes()?;
-                txs_to_remove.extend(l1_fee_failed_txs);
-
-                self.mempool.remove_transactions(txs_to_remove.clone());
-                SEQUENCER_METRICS.mempool_txs.set(self.mempool.len() as f64);
-
-                let account_updates = self.get_account_updates()?;
-
-                self.mempool.update_accounts(account_updates);
-
-                let txs = txs_to_remove
-                    .iter()
-                    .map(|tx_hash| tx_hash.to_vec())
-                    .collect::<Vec<Vec<u8>>>();
-                if let Err(e) = self.ledger_db.remove_mempool_txs(txs) {
-                    warn!("Failed to remove txs from mempool: {:?}", e);
-                }
-
-                SEQUENCER_METRICS.block_production_execution.record(
-                    Instant::now()
-                        .saturating_duration_since(start)
-                        .as_secs_f64(),
-                );
-                SEQUENCER_METRICS.current_l2_block.set(l2_height as f64);
-
-                Ok((
-                    l2_height,
-                    da_block.header().height(),
-                    soft_confirmation_result.state_diff,
-                ))
-            }
-            Err(err) => {
+        self.stf
+            .begin_soft_confirmation(
+                &pub_key,
+                &mut working_set,
+                da_block.header(),
+                &soft_confirmation_info,
+            )
+            .map_err(|err| {
                 warn!(
                     "Failed to apply soft confirmation hook: {:?} \n reverting batch workspace",
                     err
                 );
-                Err(anyhow!(
-                    "Failed to apply begin soft confirmation hook: {:?}",
-                    err
-                ))
-            }
+                anyhow!("Failed to apply begin soft confirmation hook: {:?}", err)
+            })?;
+
+        let mut txs = vec![];
+        let mut txs_new = vec![];
+
+        let evm_txs_count = txs_to_run.len();
+        if evm_txs_count > 0 {
+            let call_txs = CallMessage { txs: txs_to_run };
+            let raw_message =
+                <Runtime<C, Da::Spec> as EncodeCall<citrea_evm::Evm<C>>>::encode_call(call_txs);
+            let signed_blob = self.make_blob(raw_message.clone(), &mut working_set)?;
+            let signed_tx = self.sign_tx(raw_message, &mut working_set)?;
+            txs.push(signed_blob);
+            txs_new.push(signed_tx);
+
+            self.stf
+                .apply_soft_confirmation_txs(
+                    soft_confirmation_info,
+                    &txs,
+                    &txs_new,
+                    &mut working_set,
+                )
+                .expect("dry_run_transactions should have already checked this");
         }
+
+        // Calculate tx hashes for merkle root
+        let tx_hashes = compute_tx_hashes::<C, _, Da::Spec>(&txs_new, &txs, active_fork_spec);
+
+        let tx_merkle_root = compute_tx_merkle_root(&tx_hashes)?;
+
+        // create the soft confirmation header
+        let header = SoftConfirmationHeader::new(
+            l2_height,
+            da_block.header().height(),
+            da_block.header().hash().into(),
+            da_block.header().txs_commitment().into(),
+            self.soft_confirmation_hash,
+            // self.state_root
+            l1_fee_rate,
+            tx_merkle_root,
+            deposit_data.clone(),
+            timestamp,
+        );
+
+        let mut l2_block = self.sign_soft_confirmation(active_fork_spec, header, &txs, &txs_new)?;
+
+        self.stf.verify_soft_confirmation_signature(
+            active_fork_spec,
+            &l2_block,
+            &self.sequencer_pub_key,
+        )?;
+        self.stf.end_soft_confirmation(
+            active_fork_spec,
+            self.state_root.as_ref().to_vec(),
+            &l2_block,
+            &mut working_set,
+        )?;
+
+        // Finalize soft confirmation
+        let soft_confirmation_result = self.stf.finalize_soft_confirmation(
+            active_fork_spec,
+            working_set,
+            prestate,
+            &mut l2_block,
+        );
+        let state_root_transition = soft_confirmation_result.state_root_transition;
+
+        if state_root_transition.final_root.as_ref() == self.state_root.as_ref() {
+            bail!("Max L2 blocks per L1 is reached for the current L1 block. State root is the same as before, skipping");
+        }
+
+        trace!(
+            "State root after applying slot: {:?}",
+            state_root_transition.final_root,
+        );
+
+        let next_state_root = state_root_transition.final_root;
+
+        self.storage_manager
+            .save_change_set_l2(l2_height, soft_confirmation_result.change_set)?;
+
+        // TODO: this will only work for mock da
+        // when https://github.com/Sovereign-Labs/sovereign-sdk/issues/1218
+        // is merged, rpc will access up to date storage then we won't need to finalize right away.
+        // however we need much better DA + finalization logic here
+        self.storage_manager.finalize_l2(l2_height)?;
+
+        let tx_bodies = l2_block.blobs().to_owned();
+        let soft_confirmation_hash = l2_block.hash();
+        let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(l2_block, tx_hashes);
+
+        self.ledger_db.commit_soft_confirmation(
+            next_state_root.as_ref(),
+            receipt,
+            Some(tx_bodies),
+            tx_merkle_root,
+        )?;
+
+        // connect L1 and L2 height
+        self.ledger_db.extend_l2_range_of_l1_slot(
+            SlotNumber(da_block.header().height()),
+            SoftConfirmationNumber(l2_height),
+        )?;
+
+        let l1_height = da_block.header().height();
+        info!(
+            "New block #{}, DA #{}, Tx count: #{}",
+            l2_height, l1_height, evm_txs_count,
+        );
+
+        self.state_root = next_state_root;
+        self.soft_confirmation_hash = soft_confirmation_hash;
+
+        let mut txs_to_remove = self.db_provider.last_block_tx_hashes()?;
+        txs_to_remove.extend(l1_fee_failed_txs);
+
+        self.mempool.remove_transactions(txs_to_remove.clone());
+        SEQUENCER_METRICS.mempool_txs.set(self.mempool.len() as f64);
+
+        let account_updates = self.get_account_updates()?;
+
+        self.mempool.update_accounts(account_updates);
+
+        let txs = txs_to_remove
+            .iter()
+            .map(|tx_hash| tx_hash.to_vec())
+            .collect::<Vec<Vec<u8>>>();
+        if let Err(e) = self.ledger_db.remove_mempool_txs(txs) {
+            warn!("Failed to remove txs from mempool: {:?}", e);
+        }
+
+        SEQUENCER_METRICS.block_production_execution.record(
+            Instant::now()
+                .saturating_duration_since(start)
+                .as_secs_f64(),
+        );
+        SEQUENCER_METRICS.current_l2_block.set(l2_height as f64);
+
+        Ok((
+            l2_height,
+            da_block.header().height(),
+            soft_confirmation_result.state_diff,
+        ))
     }
 
     #[instrument(level = "trace", skip(self, cancellation_token), err, ret)]

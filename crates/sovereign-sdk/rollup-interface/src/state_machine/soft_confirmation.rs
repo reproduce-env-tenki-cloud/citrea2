@@ -65,7 +65,7 @@ impl SoftConfirmationHeader {
         hasher.update(self.prev_hash);
         // hasher.update(&self.state_root);
         hasher.update(self.l1_fee_rate.to_le_bytes());
-        hasher.update(&self.tx_merkle_root);
+        hasher.update(self.tx_merkle_root);
         hasher.update(self.deposit_data.concat());
         hasher.update(self.timestamp.to_le_bytes());
         hasher.finalize()

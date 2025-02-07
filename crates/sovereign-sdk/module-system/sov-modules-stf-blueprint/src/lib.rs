@@ -173,14 +173,12 @@ where
         self.apply_sov_txs_inner(soft_confirmation_info, txs, txs_new, batch_workspace)
     }
 
-    /// End a soft confirmation
-    pub fn end_soft_confirmation(
-        &mut self,
+    /// Verify l2_block hash and signature
+    pub fn verify_soft_confirmation_signature(
+        &self,
         current_spec: SpecId,
-        pre_state_root: Vec<u8>,
-        sequencer_public_key: &[u8],
         l2_block: &L2Block<<Self as StateTransitionFunction<Da>>::Transaction>,
-        working_set: &mut WorkingSet<C::Storage>,
+        sequencer_public_key: &[u8],
     ) -> Result<(), StateTransitionError> {
         let l2_header = &l2_block.header;
 
@@ -207,12 +205,21 @@ where
             ));
         }
 
-        if verify_soft_confirmation_signature::<C>(l2_header, sequencer_public_key).is_err() {
-            return Err(StateTransitionError::SoftConfirmationError(
+        verify_soft_confirmation_signature::<C>(l2_header, sequencer_public_key).map_err(|_| {
+            StateTransitionError::SoftConfirmationError(
                 SoftConfirmationError::InvalidSoftConfirmationSignature,
-            ));
-        }
+            )
+        })
+    }
 
+    /// End a soft confirmation
+    pub fn end_soft_confirmation(
+        &mut self,
+        current_spec: SpecId,
+        pre_state_root: Vec<u8>,
+        l2_block: &L2Block<<Self as StateTransitionFunction<Da>>::Transaction>,
+        working_set: &mut WorkingSet<C::Storage>,
+    ) -> Result<(), StateTransitionError> {
         self.end_soft_confirmation_inner(current_spec, pre_state_root, l2_block, working_set)
             .map_err(StateTransitionError::HookError)
     }
@@ -367,10 +374,15 @@ where
             &mut working_set,
         )?;
 
+        self.verify_soft_confirmation_signature(
+            current_spec,
+            soft_confirmation,
+            sequencer_public_key,
+        )?;
+
         self.end_soft_confirmation(
             current_spec,
             pre_state_root.as_ref().to_vec(),
-            sequencer_public_key,
             soft_confirmation,
             &mut working_set,
         )?;
