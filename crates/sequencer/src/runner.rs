@@ -87,7 +87,7 @@ where
     storage_manager: ProverStorageManager<Da::Spec>,
     state_root: StateRoot<C, Da::Spec, RT>,
     soft_confirmation_hash: SoftConfirmationHash,
-    sequencer_pub_key: Vec<u8>,
+    _sequencer_pub_key: Vec<u8>,
     sequencer_da_pub_key: Vec<u8>,
     fork_manager: ForkManager<'static>,
     soft_confirmation_tx: broadcast::Sender<u64>,
@@ -136,7 +136,7 @@ where
             storage_manager,
             state_root: init_params.state_root,
             soft_confirmation_hash: init_params.batch_hash,
-            sequencer_pub_key: public_keys.sequencer_public_key,
+            _sequencer_pub_key: public_keys.sequencer_public_key,
             sequencer_da_pub_key: public_keys.sequencer_da_pub_key,
             fork_manager,
             soft_confirmation_tx,
@@ -162,67 +162,72 @@ where
         tracing::subscriber::with_default(silent_subscriber, || {
             let mut working_set_to_discard = WorkingSet::new(prestate.clone());
 
-            match self.stf.begin_soft_confirmation(
+            self.stf.begin_soft_confirmation(
                 pub_key,
                 &mut working_set_to_discard,
                 &da_block_header,
                 &soft_confirmation_info,
-            ) {
-                Ok(_) => {
-                    match l2_block_mode {
-                        L2BlockMode::NotEmpty => {
-                            // Normally, transactions.mark_invalid() calls would give us the same
-                            // functionality as invalid_senders, however,
-                            // in this version of reth, mark_invalid uses transaction.hash() to mark invalid
-                            // which is not desired. This was fixed in later versions, but we can not update
-                            // to those versions because we have to lock our Rust version to 1.81.
-                            //
-                            // When a tx is rejected, its sender is added to invalid_senders set
-                            // because other transactions from the same sender now cannot be included in the block
-                            // since they are auto rejected due to the nonce gap.
-                            let mut invalid_senders = HashSet::new();
+            ).map_err(|err| {
+                    warn!(
+                    "DryRun: Failed to apply soft confirmation hook: {:?} \n reverting batch workspace",
+                    err
+                );
+                    anyhow!(
+                        "DryRun: Failed to apply begin soft confirmation hook: {:?}",
+                        err
+                    )
+            })?;
 
-                            let mut all_txs = vec![];
-                            let mut l1_fee_failed_txs = vec![];
+            match l2_block_mode {
+                L2BlockMode::NotEmpty => {
+                    // Normally, transactions.mark_invalid() calls would give us the same
+                    // functionality as invalid_senders, however,
+                    // in this version of reth, mark_invalid uses transaction.hash() to mark invalid
+                    // which is not desired. This was fixed in later versions, but we can not update
+                    // to those versions because we have to lock our Rust version to 1.81.
+                    //
+                    // When a tx is rejected, its sender is added to invalid_senders set
+                    // because other transactions from the same sender now cannot be included in the block
+                    // since they are auto rejected due to the nonce gap.
+                    let mut invalid_senders = HashSet::new();
 
-                            // using .next() instead of a for loop because its the intended
-                            // behaviour for the BestTransactions implementations
-                            // when we update reth we'll need to call transactions.mark_invalid()
-                            #[allow(clippy::while_let_on_iterator)]
-                            while let Some(evm_tx) = transactions.next() {
-                                if invalid_senders.contains(&evm_tx.transaction_id.sender) {
-                                    continue;
-                                }
+                    let mut all_txs = vec![];
+                    let mut l1_fee_failed_txs = vec![];
 
-                                let mut buf = vec![];
-                                evm_tx
-                                    .to_recovered_transaction()
-                                    .into_signed()
-                                    .encode_2718(&mut buf);
-                                let rlp_tx = RlpEvmTransaction { rlp: buf };
+                    // using .next() instead of a for loop because its the intended
+                    // behaviour for the BestTransactions implementations
+                    // when we update reth we'll need to call transactions.mark_invalid()
+                    #[allow(clippy::while_let_on_iterator)]
+                    while let Some(evm_tx) = transactions.next() {
+                        if invalid_senders.contains(&evm_tx.transaction_id.sender) {
+                            continue;
+                        }
 
-                                let call_txs = CallMessage {
-                                    txs: vec![rlp_tx.clone()],
-                                };
-                                let raw_message = <Runtime<C, Da::Spec> as EncodeCall<
-                                    citrea_evm::Evm<C>,
-                                >>::encode_call(
-                                    call_txs
-                                );
-                                let signed_blob = self
-                                    .make_blob(raw_message.clone(), &mut working_set_to_discard)?;
+                        let mut buf = vec![];
+                        evm_tx
+                            .to_recovered_transaction()
+                            .into_signed()
+                            .encode_2718(&mut buf);
+                        let rlp_tx = RlpEvmTransaction { rlp: buf };
 
-                                let signed_tx =
-                                    self.sign_tx(raw_message, &mut working_set_to_discard)?;
+                        let call_txs = CallMessage {
+                            txs: vec![rlp_tx.clone()],
+                        };
+                        let raw_message = <Runtime<C, Da::Spec> as EncodeCall<
+                            citrea_evm::Evm<C>,
+                        >>::encode_call(call_txs);
+                        let signed_blob =
+                            self.make_blob(raw_message.clone(), &mut working_set_to_discard)?;
 
-                                let txs = vec![signed_blob.clone()];
-                                let txs_new = vec![signed_tx];
+                        let signed_tx = self.sign_tx(raw_message, &mut working_set_to_discard)?;
 
-                                let mut working_set =
-                                    working_set_to_discard.checkpoint().to_revertable();
+                        let txs = vec![signed_blob.clone()];
+                        let txs_new = vec![signed_tx];
 
-                                match self.stf.apply_soft_confirmation_txs(
-                                    soft_confirmation_info.clone(),
+                        let mut working_set = working_set_to_discard.checkpoint().to_revertable();
+
+                        match self.stf.apply_soft_confirmation_txs(
+                                    &soft_confirmation_info,
                                     &txs,
                                     &txs_new,
                                     &mut working_set,
@@ -275,32 +280,20 @@ where
                                     },
                                 };
 
-                                // if no errors
-                                // we can include the transaction in the block
-                                working_set_to_discard = working_set.checkpoint().to_revertable();
-                                all_txs.push(rlp_tx);
-                            }
-                            SEQUENCER_METRICS.dry_run_execution.record(
-                                Instant::now()
-                                    .saturating_duration_since(start)
-                                    .as_secs_f64(),
-                            );
-
-                            Ok((all_txs, l1_fee_failed_txs))
-                        }
-                        L2BlockMode::Empty => Ok((vec![], vec![])),
+                        // if no errors
+                        // we can include the transaction in the block
+                        working_set_to_discard = working_set.checkpoint().to_revertable();
+                        all_txs.push(rlp_tx);
                     }
+                    SEQUENCER_METRICS.dry_run_execution.record(
+                        Instant::now()
+                            .saturating_duration_since(start)
+                            .as_secs_f64(),
+                    );
+
+                    Ok((all_txs, l1_fee_failed_txs))
                 }
-                Err(err) => {
-                    warn!(
-                    "DryRun: Failed to apply soft confirmation hook: {:?} \n reverting batch workspace",
-                    err
-                );
-                    Err(anyhow!(
-                        "DryRun: Failed to apply begin soft confirmation hook: {:?}",
-                        err
-                    ))
-                }
+                L2BlockMode::Empty => Ok((vec![], vec![])),
             }
         })
     }
@@ -414,7 +407,7 @@ where
 
             self.stf
                 .apply_soft_confirmation_txs(
-                    soft_confirmation_info,
+                    &soft_confirmation_info,
                     &txs,
                     &txs_new,
                     &mut working_set,
@@ -422,9 +415,16 @@ where
                 .expect("dry_run_transactions should have already checked this");
         }
 
+        self.stf
+            .end_soft_confirmation(soft_confirmation_info, &mut working_set)?;
+
+        // Finalize soft confirmation
+        let soft_confirmation_result =
+            self.stf
+                .finalize_soft_confirmation(active_fork_spec, working_set, prestate);
+
         // Calculate tx hashes for merkle root
         let tx_hashes = compute_tx_hashes::<C, _, Da::Spec>(&txs_new, &txs, active_fork_spec);
-
         let tx_merkle_root = compute_tx_merkle_root(&tx_hashes)?;
 
         // create the soft confirmation header
@@ -434,34 +434,24 @@ where
             da_block.header().hash().into(),
             da_block.header().txs_commitment().into(),
             self.soft_confirmation_hash,
-            // self.state_root
+            soft_confirmation_result
+                .state_root_transition
+                .final_root
+                .into(),
             l1_fee_rate,
             tx_merkle_root,
             deposit_data.clone(),
             timestamp,
         );
 
-        let mut l2_block = self.sign_soft_confirmation(active_fork_spec, header, &txs, &txs_new)?;
+        let l2_block = self.sign_soft_confirmation(active_fork_spec, header, &txs, &txs_new)?;
 
-        self.stf.verify_soft_confirmation_signature(
-            active_fork_spec,
-            &l2_block,
-            &self.sequencer_pub_key,
-        )?;
-        self.stf.end_soft_confirmation(
-            active_fork_spec,
-            self.state_root.as_ref().to_vec(),
-            &l2_block,
-            &mut working_set,
-        )?;
-
-        // Finalize soft confirmation
-        let soft_confirmation_result = self.stf.finalize_soft_confirmation(
-            active_fork_spec,
-            working_set,
-            prestate,
-            &mut l2_block,
+        debug!(
+            "soft confirmation with hash: {:?} from sequencer {:?} has been successfully applied",
+            l2_block.hash(),
+            l2_block.sequencer_pub_key(),
         );
+
         let state_root_transition = soft_confirmation_result.state_root_transition;
 
         if state_root_transition.final_root.as_ref() == self.state_root.as_ref() {

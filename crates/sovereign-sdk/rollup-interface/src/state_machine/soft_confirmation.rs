@@ -19,7 +19,7 @@ pub struct SoftConfirmationHeader {
     da_slot_hash: [u8; 32],
     da_slot_txs_commitment: [u8; 32],
     prev_hash: [u8; 32],
-    // state_root: [u8; 32],
+    state_root: [u8; 32],
     l1_fee_rate: u128,
     tx_merkle_root: [u8; 32],
     deposit_data: Vec<Vec<u8>>,
@@ -35,7 +35,7 @@ impl SoftConfirmationHeader {
         da_slot_hash: [u8; 32],
         da_slot_txs_commitment: [u8; 32],
         prev_hash: [u8; 32],
-        // state_root: [u8; 32],
+        state_root: [u8; 32],
         l1_fee_rate: u128,
         tx_merkle_root: [u8; 32],
         deposit_data: Vec<Vec<u8>>,
@@ -47,7 +47,7 @@ impl SoftConfirmationHeader {
             da_slot_hash,
             da_slot_txs_commitment,
             prev_hash,
-            // state_root,
+            state_root,
             l1_fee_rate,
             tx_merkle_root,
             deposit_data,
@@ -63,7 +63,7 @@ impl SoftConfirmationHeader {
         hasher.update(self.da_slot_hash);
         hasher.update(self.da_slot_txs_commitment);
         hasher.update(self.prev_hash);
-        // hasher.update(&self.state_root);
+        hasher.update(self.state_root);
         hasher.update(self.l1_fee_rate.to_le_bytes());
         hasher.update(self.tx_merkle_root);
         hasher.update(self.deposit_data.concat());

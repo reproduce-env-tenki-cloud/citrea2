@@ -165,7 +165,7 @@ where
     /// Apply soft confirmation transactions
     pub fn apply_soft_confirmation_txs(
         &mut self,
-        soft_confirmation_info: HookSoftConfirmationInfo,
+        soft_confirmation_info: &HookSoftConfirmationInfo,
         txs: &[Vec<u8>],
         txs_new: &[<Self as StateTransitionFunction<Da>>::Transaction],
         batch_workspace: &mut WorkingSet<C::Storage>,
@@ -215,12 +215,10 @@ where
     /// End a soft confirmation
     pub fn end_soft_confirmation(
         &mut self,
-        current_spec: SpecId,
-        pre_state_root: Vec<u8>,
-        l2_block: &L2Block<<Self as StateTransitionFunction<Da>>::Transaction>,
+        soft_confirmation_info: HookSoftConfirmationInfo,
         working_set: &mut WorkingSet<C::Storage>,
     ) -> Result<(), StateTransitionError> {
-        self.end_soft_confirmation_inner(current_spec, pre_state_root, l2_block, working_set)
+        self.end_soft_confirmation_inner(soft_confirmation_info, working_set)
             .map_err(StateTransitionError::HookError)
     }
 
@@ -230,14 +228,8 @@ where
         _current_spec: SpecId,
         working_set: WorkingSet<C::Storage>,
         pre_state: <Self as StateTransitionFunction<Da>>::PreState,
-        soft_confirmation: &mut L2Block<<Self as StateTransitionFunction<Da>>::Transaction>,
+        // soft_confirmation: &mut L2Block<<Self as StateTransitionFunction<Da>>::Transaction>,
     ) -> SoftConfirmationResult<StorageRootHash, C::Storage, <C::Storage as Storage>::Witness> {
-        native_debug!(
-            "soft confirmation with hash: {:?} from sequencer {:?} has been successfully applied",
-            soft_confirmation.hash(),
-            soft_confirmation.sequencer_pub_key(),
-        );
-
         let (state_root_transition, witness, offchain_witness, storage, state_diff) = {
             // Save checkpoint
             let mut checkpoint = working_set.checkpoint();
@@ -368,7 +360,7 @@ where
         )?;
 
         self.apply_soft_confirmation_txs(
-            soft_confirmation_info,
+            &soft_confirmation_info,
             soft_confirmation.blobs(),
             soft_confirmation.txs(),
             &mut working_set,
@@ -380,21 +372,16 @@ where
             sequencer_public_key,
         )?;
 
-        self.end_soft_confirmation(
-            current_spec,
-            pre_state_root.as_ref().to_vec(),
-            soft_confirmation,
-            &mut working_set,
-        )?;
+        self.end_soft_confirmation(soft_confirmation_info, &mut working_set)?;
 
-        Ok(
-            self.finalize_soft_confirmation(
-                current_spec,
-                working_set,
-                pre_state,
-                soft_confirmation,
-            ),
-        )
+        let res = self.finalize_soft_confirmation(current_spec, working_set, pre_state);
+
+        native_debug!(
+            "soft confirmation with hash: {:?} from sequencer {:?} has been successfully applied",
+            soft_confirmation.hash(),
+            soft_confirmation.sequencer_pub_key(),
+        );
+        Ok(res)
     }
 
     fn apply_soft_confirmations_from_sequencer_commitments(

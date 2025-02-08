@@ -111,7 +111,7 @@ where
             val.da_slot_hash,
             val.da_slot_txs_commitment,
             val.prev_hash,
-            // val.state_root.try_into().unwrap(),
+            val.state_root.try_into().unwrap(),
             val.l1_fee_rate,
             val.tx_merkle_root,
             val.deposit_data.into_iter().map(|tx| tx.tx).collect(),
