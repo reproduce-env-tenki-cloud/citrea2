@@ -433,9 +433,7 @@ where
             da_block.header().hash().into(),
             da_block.header().txs_commitment().into(),
             self.soft_confirmation_hash,
-            soft_confirmation_result
-                .state_root_transition
-                .final_root,
+            soft_confirmation_result.state_root_transition.final_root,
             l1_fee_rate,
             tx_merkle_root,
             deposit_data.clone(),
