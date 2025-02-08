@@ -435,8 +435,7 @@ where
             self.soft_confirmation_hash,
             soft_confirmation_result
                 .state_root_transition
-                .final_root
-                .into(),
+                .final_root,
             l1_fee_rate,
             tx_merkle_root,
             deposit_data.clone(),
