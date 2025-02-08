@@ -60,7 +60,7 @@ pub struct Runtime<C: Context, Da: DaSpec> {
     pub accounts: sov_accounts::Accounts<C>,
     #[cfg_attr(feature = "native", cli_skip)]
     /// The EVM module.
-    pub evm: citrea_evm::Evm<C>,
+    pub evm: citrea_evm::Evm<C, Da>,
     /// The soft confirmation rule enforcer module.
     pub soft_confirmation_rule_enforcer:
         soft_confirmation_rule_enforcer::SoftConfirmationRuleEnforcer<C, Da>,

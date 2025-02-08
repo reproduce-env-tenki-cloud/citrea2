@@ -5,6 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use sov_modules_core::{Address, Context, PublicKey, Spec};
+use sov_rollup_interface::da::DaSpec;
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::RollupAddress;
 #[cfg(feature = "native")]
@@ -62,6 +63,10 @@ impl Context for DefaultContext {
     fn l1_fee_rate(&self) -> u128 {
         self.l1_fee_rate
     }
+
+    fn get_short_header_proof_info<Da: DaSpec>(&self) -> Da::ShortHeaderProof {
+        unimplemented!()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, BorshDeserialize, BorshSerialize)]
@@ -108,6 +113,12 @@ impl Context for ZkDefaultContext {
 
     fn l1_fee_rate(&self) -> u128 {
         self.l1_fee_rate
+    }
+
+    fn get_short_header_proof_info<Da: sov_rollup_interface::da::DaSpec>(
+        &self,
+    ) -> Da::ShortHeaderProof {
+        unimplemented!()
     }
 }
 

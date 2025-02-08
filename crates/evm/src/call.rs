@@ -3,7 +3,9 @@ use core::panic;
 use reth_primitives::TransactionSignedEcRecovered;
 use revm::primitives::{BlockEnv, CfgEnv, CfgEnvWithHandlerCfg, SpecId};
 use sov_modules_api::prelude::*;
-use sov_modules_api::{native_error, CallResponse, SoftConfirmationModuleCallError, WorkingSet};
+use sov_modules_api::{
+    native_error, CallResponse, DaSpec, SoftConfirmationModuleCallError, WorkingSet,
+};
 
 use crate::conversions::ConversionError;
 use crate::evm::db::EvmDb;
@@ -28,7 +30,7 @@ pub struct CallMessage {
     pub txs: Vec<RlpEvmTransaction>,
 }
 
-impl<C: sov_modules_api::Context> Evm<C> {
+impl<C: sov_modules_api::Context, Da: DaSpec> Evm<C, Da> {
     /// Executes system events for the current block and push tx to pending_transactions.
     pub(crate) fn execute_system_events(
         &mut self,
@@ -143,6 +145,8 @@ impl<C: sov_modules_api::Context> Evm<C> {
         let cfg_env: CfgEnvWithHandlerCfg = get_cfg_env(cfg, active_evm_spec);
 
         let l1_fee_rate = context.l1_fee_rate();
+        // TODO: Use when necessary
+        let _sfp = context.get_short_header_proof_info::<Da>();
         let mut citrea_handler_ext = CitreaExternal::new(l1_fee_rate);
 
         let block_number = self.block_env.number;

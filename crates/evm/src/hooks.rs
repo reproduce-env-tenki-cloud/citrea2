@@ -4,7 +4,7 @@ use citrea_primitives::basefee::calculate_next_block_base_fee;
 use revm::primitives::{BlobExcessGasAndPrice, BlockEnv, SpecId};
 use sov_modules_api::hooks::HookSoftConfirmationInfo;
 use sov_modules_api::prelude::*;
-use sov_modules_api::{AccessoryWorkingSet, WorkingSet};
+use sov_modules_api::{AccessoryWorkingSet, DaSpec, WorkingSet};
 use sov_rollup_interface::spec::SpecId as CitreaSpecId;
 use sov_rollup_interface::zk::StorageRootHash;
 #[cfg(feature = "native")]
@@ -14,7 +14,7 @@ use crate::evm::primitive_types::Block;
 use crate::evm::system_events::SystemEvent;
 use crate::{citrea_spec_id_to_evm_spec_id, Evm};
 
-impl<C: sov_modules_api::Context> Evm<C> {
+impl<C: sov_modules_api::Context, Da: DaSpec> Evm<C, Da> {
     /// Logic executed at the beginning of the slot. Here we set the state root of the previous head.
     #[cfg_attr(
         feature = "native",

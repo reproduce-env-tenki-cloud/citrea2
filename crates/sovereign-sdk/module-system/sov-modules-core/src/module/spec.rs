@@ -5,6 +5,7 @@ use core::fmt::Debug;
 use borsh::{BorshDeserialize, BorshSerialize};
 use digest::typenum::U32;
 use digest::Digest;
+use sov_rollup_interface::da::DaSpec;
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::RollupAddress;
 
@@ -115,4 +116,7 @@ pub trait Context: Spec + Clone + Debug + PartialEq + 'static {
 
     /// The L1 fee rate applied to the soft confirmation
     fn l1_fee_rate(&self) -> u128;
+
+    /// TODO: Docs
+    fn get_short_header_proof_info<Da: DaSpec>(&self) -> Da::ShortHeaderProof;
 }

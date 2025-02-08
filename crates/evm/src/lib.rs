@@ -15,6 +15,7 @@ pub use genesis::*;
 use primitive_types::DoNotUseSealedBlock;
 #[cfg(feature = "native")]
 use primitive_types::DoNotUseTransactionSignedAndRecovered;
+use sov_modules_api::DaSpec;
 pub use system_events::SYSTEM_SIGNER;
 
 #[cfg(feature = "native")]
@@ -75,7 +76,7 @@ impl PendingTransaction {
 /// The citrea-evm module provides compatibility with the EVM.
 // #[cfg_attr(feature = "native", derive(sov_modules_api::ModuleCallJsonSchema))]
 #[derive(ModuleInfo, Clone)]
-pub struct Evm<C: sov_modules_api::Context> {
+pub struct Evm<C: sov_modules_api::Context, Da: DaSpec> {
     /// The address of the evm module.
     #[address]
     pub(crate) address: C::Address,
@@ -175,9 +176,15 @@ pub struct Evm<C: sov_modules_api::Context> {
     #[cfg(feature = "native")]
     #[state]
     pub(crate) receipts_rlp: sov_modules_api::AccessoryStateVec<Receipt, RlpCodec>,
+
+    /// Phantom state using the da type.
+    /// This is used to make sure that the state is generic over the DA type.
+    #[allow(dead_code)]
+    #[state]
+    pub(crate) phantom: sov_modules_api::AccessoryStateValue<Da::SlotHash, BcsCodec>,
 }
 
-impl<C: sov_modules_api::Context> sov_modules_api::Module for Evm<C> {
+impl<C: sov_modules_api::Context, Da: DaSpec> sov_modules_api::Module for Evm<C, Da> {
     type Context = C;
 
     type Config = EvmConfig;
@@ -198,7 +205,7 @@ impl<C: sov_modules_api::Context> sov_modules_api::Module for Evm<C> {
     }
 }
 
-impl<C: sov_modules_api::Context> Evm<C> {
+impl<C: sov_modules_api::Context, Da: DaSpec> Evm<C, Da> {
     pub(crate) fn get_db<'a>(
         &self,
         working_set: &'a mut WorkingSet<C::Storage>,
