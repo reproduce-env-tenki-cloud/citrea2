@@ -5,14 +5,16 @@ use async_trait::async_trait;
 use citrea_batch_prover::da_block_handler::L1BlockHandler as BatchProverL1BlockHandler;
 use citrea_batch_prover::CitreaBatchProver;
 use citrea_common::tasks::manager::TaskManager;
-use citrea_common::{BatchProverConfig, FullNodeConfig, LightClientProverConfig, SequencerConfig};
+use citrea_common::{
+    BatchProverConfig, FullNodeConfig, InitParams, LightClientProverConfig, SequencerConfig,
+};
 use citrea_fullnode::da_block_handler::L1BlockHandler as FullNodeL1BlockHandler;
 use citrea_fullnode::CitreaFullnode;
 use citrea_light_client_prover::da_block_handler::L1BlockHandler as LightClientProverL1BlockHandler;
 use citrea_light_client_prover::runner::CitreaLightClientProver;
 use citrea_primitives::forks::get_forks;
-use citrea_pruning::Pruner;
 use citrea_sequencer::CitreaSequencer;
+use citrea_storage_ops::pruning::PrunerService;
 use jsonrpsee::RpcModule;
 use sov_db::ledger_db::migrations::{LedgerDBMigrator, Migrations};
 use sov_db::ledger_db::{LedgerDB, SharedLedgerOps};
@@ -27,10 +29,8 @@ use sov_modules_stf_blueprint::{
 use sov_prover_storage_manager::{ProverStorageManager, SnapshotManager};
 use sov_rollup_interface::fork::ForkManager;
 use sov_rollup_interface::stf::StateTransitionFunction;
-use sov_rollup_interface::zk::StorageRootHash;
 use sov_state::storage::NativeStorage;
 use sov_state::{ArrayWitness, ProverStorage};
-use sov_stf_runner::InitParams;
 use tokio::sync::broadcast;
 use tracing::{debug, info, instrument};
 
@@ -197,14 +197,8 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         soft_confirmation_tx: broadcast::Sender<u64>,
     ) -> Result<(
         CitreaFullnode<Self::DaService, Self::NativeContext, LedgerDB, Self::NativeRuntime>,
-        FullNodeL1BlockHandler<
-            Self::NativeContext,
-            Self::Vm,
-            Self::DaService,
-            StorageRootHash,
-            LedgerDB,
-        >,
-        Option<Pruner<LedgerDB>>,
+        FullNodeL1BlockHandler<Self::NativeContext, Self::Vm, Self::DaService, LedgerDB>,
+        Option<PrunerService<LedgerDB>>,
     )>
     where
         <Self::NativeContext as Spec>::Storage: NativeStorage,
@@ -264,9 +258,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         BatchProverL1BlockHandler<
             Self::Vm,
             Self::DaService,
-            Self::ProverService,
             LedgerDB,
-            StorageRootHash,
             ArrayWitness,
             Transaction<<Self as RollupBlueprint>::NativeContext>,
         >,
@@ -338,7 +330,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         rpc_module: RpcModule<()>,
     ) -> Result<(
         CitreaLightClientProver,
-        LightClientProverL1BlockHandler<Self::Vm, Self::DaService, Self::ProverService, LedgerDB>,
+        LightClientProverL1BlockHandler<Self::Vm, Self::DaService, LedgerDB>,
         RpcModule<()>,
     )>
     where
@@ -408,15 +400,10 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         ledger_db: &LedgerDB,
         storage_manager: &mut ProverStorageManager<Self::DaSpec>,
         prover_storage: &ProverStorage<SnapshotManager>,
-    ) -> anyhow::Result<
-        InitParams<
-            StfBlueprint<Self::NativeContext, Self::DaSpec, Self::NativeRuntime>,
-            Self::DaSpec,
-        >,
-    > {
+    ) -> anyhow::Result<InitParams> {
         if let Some((number, soft_confirmation)) = ledger_db.get_head_soft_confirmation()? {
             // At least one soft confirmation was processed
-            info!("Initialize node at batch number {:?}. State root: {:?}. Last soft confirmation hash: {:?}.", number, prover_storage.get_root_hash(number.0 + 1)?.as_ref(), soft_confirmation.hash);
+            info!("Initialize node at L2 height #{}. State root: 0x{}. Last soft confirmation hash: 0x{}.", number.0, hex::encode(prover_storage.get_root_hash(number.0 + 1)?), hex::encode(soft_confirmation.hash));
 
             return Ok(InitParams {
                 state_root: prover_storage.get_root_hash(number.0 + 1)?,
@@ -442,7 +429,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         ledger_db.set_l2_genesis_state_root(&genesis_root)?;
         info!(
             "Chain initialization is done. Genesis root: 0x{}",
-            hex::encode(genesis_root.as_ref()),
+            hex::encode(genesis_root),
         );
         Ok(InitParams {
             state_root: genesis_root,

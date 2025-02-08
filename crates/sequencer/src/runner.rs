@@ -11,7 +11,7 @@ use backoff::ExponentialBackoffBuilder;
 use citrea_common::utils::{
     compute_tx_hashes, compute_tx_merkle_root, soft_confirmation_to_receipt,
 };
-use citrea_common::{RollupPublicKeys, SequencerConfig};
+use citrea_common::{InitParams, RollupPublicKeys, SequencerConfig};
 use citrea_evm::{CallMessage, RlpEvmTransaction, MIN_TRANSACTION_GAS};
 use citrea_primitives::basefee::calculate_next_block_base_fee;
 use citrea_primitives::types::SoftConfirmationHash;
@@ -42,8 +42,8 @@ use sov_rollup_interface::soft_confirmation::{
     SignedSoftConfirmationHeader, SoftConfirmationHeader,
 };
 use sov_rollup_interface::stf::StateTransitionFunction;
+use sov_rollup_interface::zk::StorageRootHash;
 use sov_state::ProverStorage;
-use sov_stf_runner::InitParams;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::sleep;
@@ -59,7 +59,6 @@ use crate::mempool::CitreaMempool;
 use crate::metrics::SEQUENCER_METRICS;
 use crate::utils::recover_raw_transaction;
 
-type StateRoot<C, Da, RT> = <StfBlueprint<C, Da, RT> as StateTransitionFunction<Da>>::StateRoot;
 type StfTransaction<C, Da, RT> =
     <StfBlueprint<C, Da, RT> as StateTransitionFunction<Da>>::Transaction;
 
@@ -85,7 +84,7 @@ where
     stf: StfBlueprint<C, Da::Spec, RT>,
     deposit_mempool: Arc<Mutex<DepositDataMempool>>,
     storage_manager: ProverStorageManager<Da::Spec>,
-    state_root: StateRoot<C, Da::Spec, RT>,
+    state_root: StorageRootHash,
     soft_confirmation_hash: SoftConfirmationHash,
     _sequencer_pub_key: Vec<u8>,
     sequencer_da_pub_key: Vec<u8>,
@@ -109,7 +108,7 @@ where
     pub fn new(
         da_service: Arc<Da>,
         config: SequencerConfig,
-        init_params: InitParams<StfBlueprint<C, Da::Spec, RT>, Da::Spec>,
+        init_params: InitParams,
         stf: StfBlueprint<C, Da::Spec, RT>,
         storage_manager: ProverStorageManager<Da::Spec>,
         public_keys: RollupPublicKeys,
@@ -896,8 +895,9 @@ where
     ) -> anyhow::Result<()> {
         debug!("We have {} missed DA blocks", missed_da_blocks_count);
         let exponential_backoff = ExponentialBackoffBuilder::new()
-            .with_initial_interval(Duration::from_millis(50))
-            .with_max_elapsed_time(Some(Duration::from_secs(1)))
+            .with_initial_interval(Duration::from_millis(200))
+            .with_max_elapsed_time(Some(Duration::from_secs(30)))
+            .with_multiplier(1.5)
             .build();
         for i in 1..=missed_da_blocks_count {
             let needed_da_block_height = last_used_l1_height + i;

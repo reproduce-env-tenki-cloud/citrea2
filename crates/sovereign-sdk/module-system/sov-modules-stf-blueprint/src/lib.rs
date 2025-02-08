@@ -228,8 +228,7 @@ where
         _current_spec: SpecId,
         working_set: WorkingSet<C::Storage>,
         pre_state: <Self as StateTransitionFunction<Da>>::PreState,
-        // soft_confirmation: &mut L2Block<<Self as StateTransitionFunction<Da>>::Transaction>,
-    ) -> SoftConfirmationResult<StorageRootHash, C::Storage, <C::Storage as Storage>::Witness> {
+    ) -> SoftConfirmationResult<C::Storage, <C::Storage as Storage>::Witness> {
         let (state_root_transition, witness, offchain_witness, storage, state_diff) = {
             // Save checkpoint
             let mut checkpoint = working_set.checkpoint();
@@ -279,7 +278,6 @@ where
     RT: Runtime<C, Da>,
 {
     type Transaction = Transaction<C>;
-    type StateRoot = StorageRootHash;
 
     type GenesisParams = GenesisParams<<RT as Genesis>::Config>;
     type PreState = C::Storage;
@@ -295,7 +293,7 @@ where
         &self,
         pre_state: Self::PreState,
         params: Self::GenesisParams,
-    ) -> (Self::StateRoot, Self::ChangeSet) {
+    ) -> (StorageRootHash, Self::ChangeSet) {
         let mut working_set = StateCheckpoint::new(pre_state.clone()).to_revertable();
 
         self.runtime.genesis(&params.runtime, &mut working_set);
@@ -328,7 +326,7 @@ where
         &mut self,
         current_spec: SpecId,
         sequencer_public_key: &[u8],
-        pre_state_root: &Self::StateRoot,
+        pre_state_root: &StorageRootHash,
         pre_state: Self::PreState,
         state_witness: Self::Witness,
         offchain_witness: Self::Witness,
@@ -336,10 +334,7 @@ where
         // nodes construct the header on their own
         slot_header: &<Da as DaSpec>::BlockHeader,
         soft_confirmation: &mut L2Block<Self::Transaction>,
-    ) -> Result<
-        SoftConfirmationResult<Self::StateRoot, Self::ChangeSet, Self::Witness>,
-        StateTransitionError,
-    > {
+    ) -> Result<SoftConfirmationResult<Self::ChangeSet, Self::Witness>, StateTransitionError> {
         let soft_confirmation_info = HookSoftConfirmationInfo::new(
             soft_confirmation,
             pre_state_root.as_ref().to_vec(),
@@ -389,14 +384,14 @@ where
         guest: &impl ZkvmGuest,
         sequencer_public_key: &[u8],
         sequencer_da_public_key: &[u8],
-        initial_state_root: &Self::StateRoot,
+        initial_state_root: &StorageRootHash,
         pre_state: Self::PreState,
         da_data: Vec<<Da as DaSpec>::BlobTransaction>,
         sequencer_commitments_range: (u32, u32),
         slot_headers: std::collections::VecDeque<Vec<<Da as DaSpec>::BlockHeader>>,
         preproven_commitment_indices: Vec<usize>,
         forks: &[Fork],
-    ) -> ApplySequencerCommitmentsOutput<Self::StateRoot> {
+    ) -> ApplySequencerCommitmentsOutput {
         let mut state_diff = CumulativeStateDiff::default();
 
         // Extract all sequencer commitments.

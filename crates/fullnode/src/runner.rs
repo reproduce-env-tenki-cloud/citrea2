@@ -9,7 +9,7 @@ use backoff::ExponentialBackoffBuilder;
 use citrea_common::cache::L1BlockCache;
 use citrea_common::da::get_da_block_at_height;
 use citrea_common::utils::{compute_tx_hashes, soft_confirmation_to_receipt};
-use citrea_common::{RollupPublicKeys, RunnerConfig};
+use citrea_common::{InitParams, RollupPublicKeys, RunnerConfig};
 use citrea_primitives::types::SoftConfirmationHash;
 use jsonrpsee::core::client::Error as JsonrpseeError;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
@@ -24,7 +24,7 @@ use sov_rollup_interface::fork::ForkManager;
 use sov_rollup_interface::rpc::SoftConfirmationResponse;
 use sov_rollup_interface::services::da::{DaService, SlotData};
 use sov_rollup_interface::stf::StateTransitionFunction;
-use sov_stf_runner::InitParams;
+use sov_rollup_interface::zk::StorageRootHash;
 use tokio::select;
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::time::{sleep, Duration};
@@ -33,7 +33,6 @@ use tracing::{debug, error, info, instrument};
 
 use crate::metrics::FULLNODE_METRICS;
 
-type StateRoot<C, Da, RT> = <StfBlueprint<C, Da, RT> as StateTransitionFunction<Da>>::StateRoot;
 type StfTransaction<C, Da, RT> =
     <StfBlueprint<C, Da, RT> as StateTransitionFunction<Da>>::Transaction;
 
@@ -50,7 +49,7 @@ where
     stf: StfBlueprint<C, Da::Spec, RT>,
     storage_manager: ProverStorageManager<Da::Spec>,
     ledger_db: DB,
-    state_root: StateRoot<C, Da::Spec, RT>,
+    state_root: StorageRootHash,
     batch_hash: SoftConfirmationHash,
     sequencer_client: HttpClient,
     sequencer_pub_key: Vec<u8>,
@@ -77,7 +76,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         runner_config: RunnerConfig,
-        init_params: InitParams<StfBlueprint<C, Da::Spec, RT>, Da::Spec>,
+        init_params: InitParams,
         stf: StfBlueprint<C, Da::Spec, RT>,
         public_keys: RollupPublicKeys,
         da_service: Arc<Da>,
@@ -291,7 +290,7 @@ where
     }
 
     /// Allows to read current state root
-    pub fn get_state_root(&self) -> &StateRoot<C, Da::Spec, RT> {
+    pub fn get_state_root(&self) -> &StorageRootHash {
         &self.state_root
     }
 }
@@ -308,10 +307,11 @@ async fn sync_l2(
         let exponential_backoff = ExponentialBackoffBuilder::new()
             .with_initial_interval(Duration::from_secs(1))
             .with_max_elapsed_time(Some(Duration::from_secs(15 * 60)))
+            .with_multiplier(1.5)
             .build();
 
         let inner_client = &sequencer_client;
-        let soft_confirmations = match retry_backoff(exponential_backoff.clone(), || async move {
+        let soft_confirmations = match retry_backoff(exponential_backoff, || async move {
             match inner_client
                 .get_soft_confirmation_range(
                     U64::from(l2_height),
