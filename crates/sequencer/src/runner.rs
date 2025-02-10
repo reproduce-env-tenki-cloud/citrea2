@@ -161,21 +161,21 @@ where
         tracing::subscriber::with_default(silent_subscriber, || {
             let mut working_set_to_discard = WorkingSet::new(prestate.clone());
 
-            self.stf.begin_soft_confirmation(
+            if let Err(err) = self.stf.begin_soft_confirmation(
                 pub_key,
                 &mut working_set_to_discard,
                 &da_block_header,
                 &soft_confirmation_info,
-            ).map_err(|err| {
-                    warn!(
+            ) {
+                warn!(
                     "DryRun: Failed to apply soft confirmation hook: {:?} \n reverting batch workspace",
                     err
                 );
-                    anyhow!(
-                        "DryRun: Failed to apply begin soft confirmation hook: {:?}",
-                        err
-                    )
-            })?;
+                bail!(
+                    "DryRun: Failed to apply begin soft confirmation hook: {:?}",
+                    err
+                )
+            }
 
             match l2_block_mode {
                 L2BlockMode::NotEmpty => {
@@ -376,20 +376,18 @@ where
         let mut working_set = WorkingSet::new(prestate.clone());
 
         // Execute the selected transactions
-        self.stf
-            .begin_soft_confirmation(
-                &pub_key,
-                &mut working_set,
-                da_block.header(),
-                &soft_confirmation_info,
-            )
-            .map_err(|err| {
-                warn!(
-                    "Failed to apply soft confirmation hook: {:?} \n reverting batch workspace",
-                    err
-                );
-                anyhow!("Failed to apply begin soft confirmation hook: {:?}", err)
-            })?;
+        if let Err(err) = self.stf.begin_soft_confirmation(
+            &pub_key,
+            &mut working_set,
+            da_block.header(),
+            &soft_confirmation_info,
+        ) {
+            warn!(
+                "Failed to apply soft confirmation hook: {:?} \n reverting batch workspace",
+                err
+            );
+            bail!("Failed to apply begin soft confirmation hook: {:?}", err)
+        };
 
         let mut txs = vec![];
         let mut txs_new = vec![];
