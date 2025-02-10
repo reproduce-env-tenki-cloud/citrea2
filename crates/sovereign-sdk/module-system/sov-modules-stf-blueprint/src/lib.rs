@@ -190,7 +190,24 @@ where
                         SoftConfirmationError::NonSerializableSovTx,
                     )
                 })?;
-                <C as Spec>::Hasher::digest(raw.as_slice()).into()
+
+                let expected_hash: [u8; 32] = <C as Spec>::Hasher::digest(raw.as_slice()).into();
+                if l2_block.hash() != expected_hash {
+                    return Err(StateTransitionError::SoftConfirmationError(
+                        SoftConfirmationError::InvalidSoftConfirmationHash,
+                    ));
+                }
+
+                return pre_fork1_verify_soft_confirmation_signature::<C>(
+                    &unsigned,
+                    &l2_header.signature,
+                    sequencer_public_key,
+                )
+                .map_err(|_| {
+                    StateTransitionError::SoftConfirmationError(
+                        SoftConfirmationError::InvalidSoftConfirmationSignature,
+                    )
+                });
             }
             SpecId::Kumquat => {
                 let unsigned = UnsignedSoftConfirmation::from(l2_block);
@@ -636,4 +653,19 @@ fn verify_soft_confirmation_signature<C: Spec>(
 
     signature.verify(&public_key, &header.hash)?;
     Ok(())
+}
+
+fn pre_fork1_verify_soft_confirmation_signature<C: Context>(
+    unsigned_soft_confirmation: &UnsignedSoftConfirmationV1,
+    signature: &[u8],
+    sequencer_public_key: &[u8],
+) -> Result<(), anyhow::Error> {
+    let message = borsh::to_vec(&unsigned_soft_confirmation).unwrap();
+
+    let signature = C::Signature::try_from(signature)?;
+
+    Ok(signature.verify(
+        &C::PublicKey::try_from(sequencer_public_key)?,
+        message.as_slice(),
+    )?)
 }
