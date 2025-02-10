@@ -1,15 +1,16 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use citrea_common::utils::compute_tx_merkle_root;
+use borsh::BorshDeserialize;
 use rocksdb::WriteBatch;
 use sov_db::ledger_db::migrations::{LedgerMigration, MigrationName, MigrationVersion};
 use sov_db::ledger_db::LedgerDB;
 use sov_db::schema::tables::SoftConfirmationByNumber;
 use sov_db::schema::types::{DbHash, StoredSoftConfirmation, StoredTransaction};
 
-#[derive(Debug, PartialEq, BorshDeserialize, BorshSerialize)]
+use crate::utils::compute_tx_merkle_root;
+
+#[derive(Debug, PartialEq, BorshDeserialize)]
 struct StoredSoftConfirmationV1 {
     pub l2_height: u64,
     pub da_slot_height: u64,
@@ -27,7 +28,7 @@ struct StoredSoftConfirmationV1 {
 }
 
 /// Add tx_merkle_root to StoredSoftConfirmation
-pub(crate) struct MigrateSoftConfirmationTxMerkleRoot;
+pub struct MigrateSoftConfirmationTxMerkleRoot;
 
 impl LedgerMigration for MigrateSoftConfirmationTxMerkleRoot {
     fn identifier(&self) -> (MigrationName, MigrationVersion) {

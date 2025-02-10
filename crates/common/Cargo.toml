@@ -15,12 +15,14 @@ resolver = "2"
 alloy-primitives = { workspace = true }
 anyhow = { workspace = true }
 backoff = { workspace = true }
+borsh = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 hyper = { workspace = true }
 jsonrpsee = { workspace = true, features = ["http-client", "server"] }
 lru = { workspace = true }
 metrics = { workspace = true }
+rocksdb = { workspace = true }
 rs_merkle = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

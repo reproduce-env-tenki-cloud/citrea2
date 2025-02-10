@@ -34,7 +34,6 @@ jsonrpsee = { workspace = true }
 metrics = { workspace = true }
 metrics-derive = { workspace = true }
 once_cell = { workspace = true, default-features = true }
-rocksdb = { workspace = true }
 rs_merkle = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
