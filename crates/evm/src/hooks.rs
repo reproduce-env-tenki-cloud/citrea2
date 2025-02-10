@@ -148,7 +148,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
                 soft_confirmation_info.l1_fee_rate(),
                 cfg,
                 new_pending_env,
-                active_evm_spec,
+                current_spec,
                 working_set,
             );
         }
