@@ -17,7 +17,6 @@ use sov_prover_storage_manager::SnapshotManager;
 use sov_rollup_interface::spec::SpecId as SovSpecId;
 use sov_state::ProverStorage;
 
-use crate::evm::DbAccount;
 use crate::primitive_types::Block;
 use crate::tests::ef_tests::models::{BlockchainTest, ForkSpec};
 use crate::tests::ef_tests::{Case, Error, Suite};
@@ -74,7 +73,7 @@ impl BlockchainTestCase {
             da_slot_hash: [0u8; 32],
             da_slot_height: 0,
             da_slot_txs_commitment: [0u8; 32],
-            pre_state_root: root.to_vec(),
+            pre_state_root: *root,
             current_spec,
             pub_key: vec![],
             deposit_data: vec![],
@@ -84,8 +83,7 @@ impl BlockchainTestCase {
         evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
 
         let dummy_address = generate_address::<DefaultContext>("dummy");
-        let context =
-            DefaultContext::new(dummy_address, l2_height, SovSpecId::Genesis, l1_fee_rate);
+        let context = DefaultContext::new(dummy_address, l2_height, current_spec, l1_fee_rate);
         let _ = evm.execute_call(txs, &context, &mut working_set);
 
         evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
@@ -247,15 +245,19 @@ impl Case for BlockchainTestCase {
                         // Validate accounts in the state against the provider's database.
                         for (&address, account) in state.iter() {
                             if let Some(account_state) =
-                                evm.accounts.get(&address, &mut working_set)
+                                evm.account_info(&address, current_spec, &mut working_set)
                             {
                                 assert_eq!(U256::from(account_state.nonce), account.nonce);
                                 assert_eq!(account_state.balance, account.balance);
                                 assert_eq!(*account_state.code_hash.unwrap(), **account.code);
-                                let db_account = DbAccount::new(address);
                                 for (key, value) in account.storage.iter() {
                                     assert_eq!(
-                                        db_account.storage.get(key, &mut working_set),
+                                        evm.storage_get(
+                                            &address,
+                                            key,
+                                            current_spec,
+                                            &mut working_set
+                                        ),
                                         Some(value).copied()
                                     );
                                 }
