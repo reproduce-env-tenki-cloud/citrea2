@@ -440,8 +440,8 @@ where
 
         debug!(
             "soft confirmation with hash: {:?} from sequencer {:?} has been successfully applied",
-            l2_block.hash(),
-            l2_block.sequencer_pub_key(),
+            hex::encode(l2_block.hash()),
+            hex::encode(l2_block.sequencer_pub_key()),
         );
 
         let state_root_transition = soft_confirmation_result.state_root_transition;
