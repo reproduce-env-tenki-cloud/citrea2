@@ -13,6 +13,13 @@ use sov_rollup_interface::soft_confirmation::L2Block;
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::stf::{SoftConfirmationReceipt, StateDiff, TransactionDigest};
 
+/// SHA-256 hash of "citrea" string
+/// Used as the default tx merkle root when the block has no transactions
+const EMPTY_TX_ROOT: [u8; 32] = [
+    0xb9, 0x38, 0x83, 0x52, 0xdd, 0xd5, 0x9e, 0x59, 0xf6, 0x7a, 0x20, 0x8c, 0xbe, 0xba, 0xb3, 0xcd,
+    0x6b, 0x23, 0xf9, 0x62, 0xa9, 0x03, 0x2e, 0xfe, 0x78, 0x58, 0xcd, 0x84, 0x01, 0x38, 0xaa, 0x27,
+];
+
 pub fn merge_state_diffs(old_diff: StateDiff, new_diff: StateDiff) -> StateDiff {
     let mut new_diff_map = HashMap::<Vec<u8>, Option<Vec<u8>>>::from_iter(old_diff);
 
@@ -121,7 +128,7 @@ pub fn soft_confirmation_to_receipt<C: Context, Tx: TransactionDigest + Clone, D
 
 pub fn compute_tx_merkle_root(tx_hashes: &[[u8; 32]]) -> anyhow::Result<[u8; 32]> {
     if tx_hashes.is_empty() {
-        return Ok([0u8; 32]);
+        return Ok(EMPTY_TX_ROOT);
     }
 
     MerkleTree::<Sha256>::from_leaves(tx_hashes)
