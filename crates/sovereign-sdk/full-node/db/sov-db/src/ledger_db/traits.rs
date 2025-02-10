@@ -19,7 +19,7 @@ pub trait SharedLedgerOps {
     fn path(&self) -> &Path;
 
     /// Put soft confirmation to db
-    fn put_soft_confirmation(
+    fn put_l2_block(
         &self,
         batch: &StoredSoftConfirmation,
         batch_number: &SoftConfirmationNumber,
@@ -49,7 +49,7 @@ pub trait SharedLedgerOps {
     fn get_l1_height_of_l1_hash(&self, hash: [u8; 32]) -> Result<Option<u64>>;
 
     /// Saves a soft confirmation status for a given L1 height
-    fn put_soft_confirmation_status(
+    fn put_l2_block_status(
         &self,
         height: SoftConfirmationNumber,
         status: sov_rollup_interface::rpc::SoftConfirmationStatus,

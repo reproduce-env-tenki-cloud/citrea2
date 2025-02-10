@@ -261,7 +261,7 @@ where
         )?;
 
         for i in start_l2_height..=end_l2_height {
-            self.ledger_db.put_soft_confirmation_status(
+            self.ledger_db.put_l2_block_status(
                 SoftConfirmationNumber(i),
                 SoftConfirmationStatus::Finalized,
             )?;
@@ -418,7 +418,7 @@ where
             let l2_start_height = commitment.l2_start_block_number;
             let l2_end_height = commitment.l2_end_block_number;
             for i in l2_start_height..=l2_end_height {
-                self.ledger_db.put_soft_confirmation_status(
+                self.ledger_db.put_l2_block_status(
                     SoftConfirmationNumber(i),
                     SoftConfirmationStatus::Proven,
                 )?;

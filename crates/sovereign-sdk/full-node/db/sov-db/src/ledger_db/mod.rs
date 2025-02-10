@@ -150,7 +150,7 @@ impl SharedLedgerOps for LedgerDB {
     }
 
     #[instrument(level = "trace", skip(self, schema_batch), err, ret)]
-    fn put_soft_confirmation(
+    fn put_l2_block(
         &self,
         batch: &StoredSoftConfirmation,
         batch_number: &SoftConfirmationNumber,
@@ -210,7 +210,7 @@ impl SharedLedgerOps for LedgerDB {
             timestamp: soft_confirmation_receipt.timestamp,
             tx_merkle_root,
         };
-        self.put_soft_confirmation(
+        self.put_l2_block(
             &soft_confirmation_to_store,
             &SoftConfirmationNumber(l2_height),
             &mut schema_batch,
@@ -257,7 +257,7 @@ impl SharedLedgerOps for LedgerDB {
 
     /// Saves a soft confirmation status for a given L1 height
     #[instrument(level = "trace", skip(self), err, ret)]
-    fn put_soft_confirmation_status(
+    fn put_l2_block_status(
         &self,
         height: SoftConfirmationNumber,
         status: sov_rollup_interface::rpc::SoftConfirmationStatus,
