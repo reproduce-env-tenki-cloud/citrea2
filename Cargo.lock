@@ -2082,6 +2082,7 @@ dependencies = [
  "serde",
  "sov-db",
  "sov-rollup-interface",
+ "thiserror",
  "tracing",
 ]
 
