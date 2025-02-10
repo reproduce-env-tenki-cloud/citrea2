@@ -172,14 +172,14 @@ where
         self.storage_manager.finalize_l2(l2_height)?;
 
         let tx_bodies = if self.include_tx_body {
-            Some(signed_soft_confirmation.blobs().to_owned())
+            Some(signed_soft_confirmation.blobs.to_vec())
         } else {
             None
         };
 
         let tx_hashes = compute_tx_hashes::<C, _, Da::Spec>(
-            signed_soft_confirmation.txs(),
-            signed_soft_confirmation.blobs(),
+            &signed_soft_confirmation.txs,
+            &signed_soft_confirmation.blobs,
             current_spec,
         );
 

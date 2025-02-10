@@ -103,8 +103,10 @@ impl SignedSoftConfirmationHeader {
 pub struct L2Block<'txs, Tx: Clone> {
     /// Header
     pub header: SignedSoftConfirmationHeader,
-    blobs: Cow<'txs, [Vec<u8>]>,
-    txs: Cow<'txs, [Tx]>,
+    /// Raw blob of txs of signed batch
+    pub blobs: Cow<'txs, [Vec<u8>]>,
+    /// Txs of signed batch
+    pub txs: Cow<'txs, [Tx]>,
 }
 
 impl<'txs, Tx: Clone> L2Block<'txs, Tx> {
@@ -150,16 +152,6 @@ impl<'txs, Tx: Clone> L2Block<'txs, Tx> {
     /// Public key of signer
     pub fn sequencer_pub_key(&self) -> &[u8] {
         self.header.pub_key.as_ref()
-    }
-
-    /// Raw blob of txs of signed batch
-    pub fn blobs(&self) -> &[Vec<u8>] {
-        &self.blobs
-    }
-
-    /// Txs of signed batch
-    pub fn txs(&self) -> &[Tx] {
-        &self.txs
     }
 
     /// Deposit data
@@ -338,8 +330,8 @@ impl<'txs, Tx: Clone> From<&'txs L2Block<'_, Tx>> for UnsignedSoftConfirmation<'
             da_slot_height: header.da_slot_height,
             da_slot_hash: header.da_slot_hash,
             da_slot_txs_commitment: header.da_slot_txs_commitment,
-            blobs: block.blobs(),
-            txs: block.txs(),
+            blobs: &block.blobs,
+            txs: &block.txs,
             deposit_data: header.deposit_data.clone(),
             l1_fee_rate: header.l1_fee_rate,
             timestamp: header.timestamp,
@@ -355,7 +347,7 @@ impl<'txs, Tx: Clone> From<&'txs L2Block<'_, Tx>> for UnsignedSoftConfirmationV1
             da_slot_height: header.da_slot_height,
             da_slot_hash: header.da_slot_hash,
             da_slot_txs_commitment: header.da_slot_txs_commitment,
-            blobs: block.blobs(),
+            blobs: &block.blobs,
             deposit_data: header.deposit_data.clone(),
             l1_fee_rate: header.l1_fee_rate,
             timestamp: header.timestamp,
@@ -573,8 +565,8 @@ impl<'txs, Tx: Clone> From<L2Block<'_, Tx>> for SignedSoftConfirmation<'txs, Tx>
             da_slot_hash: input.da_slot_hash(),
             da_slot_txs_commitment: input.da_slot_txs_commitment(),
             l1_fee_rate: input.l1_fee_rate(),
-            blobs: Cow::Owned(input.blobs().to_vec()),
-            txs: Cow::Owned(input.txs().to_vec()),
+            blobs: Cow::Owned(input.blobs.to_vec()),
+            txs: Cow::Owned(input.txs.to_vec()),
             signature: input.signature().to_vec(),
             deposit_data: input.deposit_data().to_vec(),
             pub_key: input.pub_key().to_vec(),
@@ -593,7 +585,7 @@ impl<Tx: Clone> From<L2Block<'_, Tx>> for SignedSoftConfirmationV1 {
             da_slot_hash: input.da_slot_hash(),
             da_slot_txs_commitment: input.da_slot_txs_commitment(),
             l1_fee_rate: input.l1_fee_rate(),
-            txs: input.blobs().to_vec(),
+            txs: input.blobs.to_vec(),
             signature: input.signature().to_vec(),
             deposit_data: input.deposit_data().to_vec(),
             pub_key: input.pub_key().to_vec(),

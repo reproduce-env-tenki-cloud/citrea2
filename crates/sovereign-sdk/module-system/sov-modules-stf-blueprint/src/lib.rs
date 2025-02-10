@@ -353,8 +353,8 @@ where
 
         self.apply_soft_confirmation_txs(
             &soft_confirmation_info,
-            soft_confirmation.blobs(),
-            soft_confirmation.txs(),
+            &soft_confirmation.blobs,
+            &soft_confirmation.txs,
             &mut working_set,
         )?;
 

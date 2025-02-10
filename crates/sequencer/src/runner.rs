@@ -468,7 +468,7 @@ where
         // however we need much better DA + finalization logic here
         self.storage_manager.finalize_l2(l2_height)?;
 
-        let tx_bodies = l2_block.blobs().to_owned();
+        let tx_bodies = l2_block.blobs.to_vec();
         let soft_confirmation_hash = l2_block.hash();
         let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(l2_block, tx_hashes);
 

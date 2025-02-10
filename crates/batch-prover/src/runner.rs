@@ -227,7 +227,7 @@ where
             current_l1_block.header(),
             &mut l2_block,
         )?;
-        let txs_bodies = l2_block.blobs().to_owned();
+        let txs_bodies = l2_block.blobs.to_vec();
 
         let next_state_root = soft_confirmation_result.state_root_transition.final_root;
         // Check if post state root is the same as the one in the soft confirmation
@@ -254,7 +254,7 @@ where
         self.storage_manager.finalize_l2(l2_height)?;
 
         let tx_hashes =
-            compute_tx_hashes::<C, _, Da::Spec>(l2_block.txs(), l2_block.blobs(), current_spec);
+            compute_tx_hashes::<C, _, Da::Spec>(&l2_block.txs, &l2_block.blobs, current_spec);
 
         let merkle_root = l2_block.tx_merkle_root();
         let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(l2_block, tx_hashes);
