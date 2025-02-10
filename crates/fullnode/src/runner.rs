@@ -138,11 +138,10 @@ where
             .storage_manager
             .create_storage_on_l2_height(l2_height)?;
 
-        let mut signed_soft_confirmation: L2Block<StfTransaction<C, Da::Spec, RT>> =
-            soft_confirmation
-                .clone()
-                .try_into()
-                .context("Failed to parse transactions")?;
+        let mut l2_block: L2Block<StfTransaction<C, Da::Spec, RT>> = soft_confirmation
+            .clone()
+            .try_into()
+            .context("Failed to parse transactions")?;
 
         // Register this new block with the fork manager to active
         // the new fork on the next block.
@@ -157,7 +156,7 @@ where
             Default::default(),
             Default::default(),
             current_l1_block.header(),
-            &mut signed_soft_confirmation,
+            &mut l2_block,
         )?;
 
         let next_state_root = soft_confirmation_result.state_root_transition.final_root;
@@ -172,20 +171,16 @@ where
         self.storage_manager.finalize_l2(l2_height)?;
 
         let tx_bodies = if self.include_tx_body {
-            Some(signed_soft_confirmation.blobs.to_vec())
+            Some(l2_block.blobs.to_vec())
         } else {
             None
         };
 
-        let tx_hashes = compute_tx_hashes::<C, _, Da::Spec>(
-            &signed_soft_confirmation.txs,
-            &signed_soft_confirmation.blobs,
-            current_spec,
-        );
+        let tx_hashes =
+            compute_tx_hashes::<C, _, Da::Spec>(&l2_block.txs, &l2_block.blobs, current_spec);
 
-        let tx_merkle_root = signed_soft_confirmation.tx_merkle_root();
-        let receipt =
-            soft_confirmation_to_receipt::<C, _, Da::Spec>(signed_soft_confirmation, tx_hashes);
+        let tx_merkle_root = l2_block.tx_merkle_root();
+        let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(l2_block, tx_hashes);
 
         self.ledger_db.commit_soft_confirmation(
             next_state_root.as_ref(),
