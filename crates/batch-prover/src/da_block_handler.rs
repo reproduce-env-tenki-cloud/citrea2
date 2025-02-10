@@ -312,7 +312,7 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
     l1_block_cache: &Arc<Mutex<L1BlockCache<Da>>>,
 ) -> Result<CommitmentStateTransitionData<'txs, Witness, Da, Tx>, anyhow::Error> {
     let mut state_transition_witnesses: VecDeque<Vec<(Witness, Witness)>> = VecDeque::new();
-    let mut soft_confirmations: VecDeque<Vec<L2Block<'txs, Tx>>> = VecDeque::new();
+    let mut committed_l2_blocks: VecDeque<Vec<L2Block<'txs, Tx>>> = VecDeque::new();
     let mut da_block_headers_of_soft_confirmations: VecDeque<
         Vec<<<Da as DaService>::Spec as DaSpec>::BlockHeader>,
     > = VecDeque::new();
@@ -332,7 +332,7 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
                 ));
             }
         };
-        let mut commitment_soft_confirmations = vec![];
+        let mut l2_blocks = vec![];
         let mut da_block_headers_to_push: Vec<<<Da as DaService>::Spec as DaSpec>::BlockHeader> =
             vec![];
         for soft_confirmation in soft_confirmations_in_commitment {
@@ -357,12 +357,12 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
                 };
                 da_block_headers_to_push.push(filtered_block.header().clone());
             }
-            let signed_soft_confirmation: L2Block<Tx> = soft_confirmation
+            let l2_block: L2Block<Tx> = soft_confirmation
                 .try_into()
                 .context("Failed to parse transactions")?;
-            commitment_soft_confirmations.push(signed_soft_confirmation);
+            l2_blocks.push(l2_block);
         }
-        soft_confirmations.push_back(commitment_soft_confirmations);
+        committed_l2_blocks.push_back(l2_blocks);
 
         da_block_headers_of_soft_confirmations.push_back(da_block_headers_to_push);
         for l2_height in
@@ -381,7 +381,7 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
     }
     Ok((
         state_transition_witnesses,
-        soft_confirmations,
+        committed_l2_blocks,
         da_block_headers_of_soft_confirmations,
     ))
 }
