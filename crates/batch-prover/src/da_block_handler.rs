@@ -313,7 +313,7 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
 ) -> Result<CommitmentStateTransitionData<'txs, Witness, Da, Tx>, anyhow::Error> {
     let mut state_transition_witnesses: VecDeque<Vec<(Witness, Witness)>> =
         VecDeque::with_capacity(sequencer_commitments.len());
-    let mut committed_l2_blocks: VecDeque<Vec<SignedSoftConfirmation<Tx>>> =
+    let mut committed_l2_blocks: VecDeque<Vec<L2Block<Tx>>> =
         VecDeque::with_capacity(sequencer_commitments.len());
     let mut da_block_headers_of_soft_confirmations: VecDeque<
         Vec<<<Da as DaService>::Spec as DaSpec>::BlockHeader>,
