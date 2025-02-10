@@ -51,7 +51,7 @@ fn populate_ledger(
         soft_confirmation_receipts.into_iter().zip(tx_bodies)
     {
         ledger_db
-            .commit_soft_confirmation(
+            .commit_l2_block(
                 state_root,
                 soft_confirmation_receipt,
                 Some(tx_bodies),
