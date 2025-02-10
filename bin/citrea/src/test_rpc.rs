@@ -43,7 +43,7 @@ async fn queries_test_runner(test_queries: Vec<TestExpect>, rpc_config: RpcConfi
 
 fn populate_ledger(
     ledger_db: &mut LedgerDB,
-    state_root: &[u8],
+    state_root: [u8; 32],
     soft_confirmation_receipts: Vec<SoftConfirmationReceipt<MockDaSpec>>,
     tx_bodies: Vec<Vec<Vec<u8>>>,
 ) {
@@ -79,7 +79,7 @@ fn test_helper(
             LedgerDB::with_config(&RocksdbConfig::new(tmpdir.path(), None, None)).unwrap();
         populate_ledger(
             &mut ledger_db,
-            &[1; 32],
+            [1; 32],
             soft_confirmation_receipts,
             tx_bodies,
         );

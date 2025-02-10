@@ -473,7 +473,7 @@ where
         let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(l2_block, tx_hashes);
 
         self.ledger_db.commit_l2_block(
-            next_state_root.as_ref(),
+            next_state_root,
             receipt,
             Some(tx_bodies),
             tx_merkle_root,

@@ -183,12 +183,8 @@ where
         let tx_merkle_root = l2_block.tx_merkle_root();
         let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(l2_block, tx_hashes);
 
-        self.ledger_db.commit_l2_block(
-            next_state_root.as_ref(),
-            receipt,
-            tx_bodies,
-            tx_merkle_root,
-        )?;
+        self.ledger_db
+            .commit_l2_block(next_state_root, receipt, tx_bodies, tx_merkle_root)?;
 
         self.ledger_db.extend_l2_range_of_l1_slot(
             SlotNumber(current_l1_block.header().height()),

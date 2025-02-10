@@ -163,7 +163,7 @@ impl SharedLedgerOps for LedgerDB {
     /// Commits a soft confirmation to the database by inserting its transactions and batches before
     fn commit_l2_block<DS: DaSpec>(
         &self,
-        state_root: &[u8],
+        state_root: [u8; 32],
         soft_confirmation_receipt: SoftConfirmationReceipt<DS>,
         tx_bodies: Option<Vec<Vec<u8>>>,
         tx_merkle_root: [u8; 32],
