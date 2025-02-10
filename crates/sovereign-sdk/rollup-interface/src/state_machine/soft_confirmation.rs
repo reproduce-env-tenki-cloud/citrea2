@@ -54,16 +54,16 @@ impl SoftConfirmationHeader {
     /// Compute soft confirmation header digest
     pub fn compute_digest<D: Digest>(&self) -> Output<D> {
         let mut hasher = D::new();
-        hasher.update(self.l2_height.to_le_bytes());
-        hasher.update(self.da_slot_height.to_le_bytes());
+        hasher.update(self.l2_height.to_be_bytes());
+        hasher.update(self.da_slot_height.to_be_bytes());
         hasher.update(self.da_slot_hash);
         hasher.update(self.da_slot_txs_commitment);
         hasher.update(self.prev_hash);
         hasher.update(self.state_root);
-        hasher.update(self.l1_fee_rate.to_le_bytes());
+        hasher.update(self.l1_fee_rate.to_be_bytes());
         hasher.update(self.tx_merkle_root);
         hasher.update(self.deposit_data.concat());
-        hasher.update(self.timestamp.to_le_bytes());
+        hasher.update(self.timestamp.to_be_bytes());
         hasher.finalize()
     }
 }
