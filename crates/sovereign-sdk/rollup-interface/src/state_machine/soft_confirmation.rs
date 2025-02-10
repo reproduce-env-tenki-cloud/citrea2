@@ -192,6 +192,11 @@ impl<'txs, Tx: Clone> L2Block<'txs, Tx> {
     pub fn tx_merkle_root(&self) -> [u8; 32] {
         self.header.inner.tx_merkle_root
     }
+
+    /// state root
+    pub fn state_root(&self) -> [u8; 32] {
+        self.header.inner.state_root
+    }
 }
 
 /// Contains raw transactions and information about the soft confirmation block

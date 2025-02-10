@@ -7,10 +7,10 @@ use sha2::Digest;
 use sov_db::ledger_db::{LedgerDB, SharedLedgerOps};
 use sov_db::rocks_db_config::RocksdbConfig;
 use sov_db::schema::types::StoredTransaction;
-use sov_mock_da::MockDaSpec;
-#[cfg(test)]
-use sov_modules_api::DaSpec;
-use sov_rollup_interface::stf::SoftConfirmationReceipt;
+use sov_modules_api::L2Block;
+use sov_rollup_interface::soft_confirmation::{
+    SignedSoftConfirmationHeader, SoftConfirmationHeader,
+};
 
 struct TestExpect {
     payload: serde_json::Value,
@@ -41,31 +41,14 @@ async fn queries_test_runner(test_queries: Vec<TestExpect>, rpc_config: RpcConfi
     }
 }
 
-fn populate_ledger(
-    ledger_db: &mut LedgerDB,
-    state_root: [u8; 32],
-    soft_confirmation_receipts: Vec<SoftConfirmationReceipt<MockDaSpec>>,
-    tx_bodies: Vec<Vec<Vec<u8>>>,
-) {
-    for (soft_confirmation_receipt, tx_bodies) in
-        soft_confirmation_receipts.into_iter().zip(tx_bodies)
-    {
-        ledger_db
-            .commit_l2_block(
-                state_root,
-                soft_confirmation_receipt,
-                Some(tx_bodies),
-                [0u8; 32],
-            )
-            .unwrap();
+fn populate_ledger(ledger_db: &mut LedgerDB, l2_blocks: Vec<L2Block<'_, [u8; 32]>>) {
+    for block in l2_blocks {
+        let tx_hashes = block.txs.to_vec();
+        ledger_db.commit_l2_block(block, tx_hashes, true).unwrap();
     }
 }
 
-fn test_helper(
-    test_queries: Vec<TestExpect>,
-    soft_confirmation_receipts: Vec<SoftConfirmationReceipt<MockDaSpec>>,
-    tx_bodies: Vec<Vec<Vec<u8>>>,
-) {
+fn test_helper(test_queries: Vec<TestExpect>, l2_blocks: Vec<L2Block<'_, [u8; 32]>>) {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_io()
         .enable_time()
@@ -77,12 +60,7 @@ fn test_helper(
         let tmpdir = tempfile::tempdir().unwrap();
         let mut ledger_db =
             LedgerDB::with_config(&RocksdbConfig::new(tmpdir.path(), None, None)).unwrap();
-        populate_ledger(
-            &mut ledger_db,
-            [1; 32],
-            soft_confirmation_receipts,
-            tx_bodies,
-        );
+        populate_ledger(&mut ledger_db, l2_blocks);
         let server = jsonrpsee::server::ServerBuilder::default()
             .build("127.0.0.1:0")
             .await
@@ -120,52 +98,79 @@ fn batch2_tx_receipts() -> (Vec<StoredTransaction>, Vec<Vec<u8>>) {
 fn regular_test_helper(payload: serde_json::Value, expected: &serde_json::Value) {
     let tx_bodies_1 = vec![b"tx1 body".to_vec(), b"tx2 body".to_vec()];
     let (batch_2_receipts, tx_bodies_2) = batch2_tx_receipts();
-    let soft_confirmation_receipts = vec![
-        SoftConfirmationReceipt {
-            l2_height: 1,
-            da_slot_height: 0,
-            da_slot_hash: <MockDaSpec as DaSpec>::SlotHash::from([0u8; 32]),
-            da_slot_txs_commitment: <MockDaSpec as DaSpec>::SlotHash::from([1u8; 32]),
-            soft_confirmation_signature: vec![],
-            hash: ::sha2::Sha256::digest(b"batch_receipt").into(),
-            prev_hash: ::sha2::Sha256::digest(b"prev_batch_receipt").into(),
-            tx_hashes: vec![
-                ::sha2::Sha256::digest(b"tx1").into(),
-                ::sha2::Sha256::digest(b"tx2").into(),
-            ],
-            pub_key: vec![],
-            deposit_data: vec![
-                "aaaaab".as_bytes().to_vec(),
-                "eeeeeeeeee".as_bytes().to_vec(),
-            ],
-            l1_fee_rate: 0,
-            timestamp: 0,
-        },
-        SoftConfirmationReceipt {
-            l2_height: 2,
-            da_slot_height: 1,
-            da_slot_hash: <MockDaSpec as DaSpec>::SlotHash::from([2; 32]),
-            da_slot_txs_commitment: <MockDaSpec as DaSpec>::SlotHash::from([3; 32]),
-            soft_confirmation_signature: vec![],
-            hash: ::sha2::Sha256::digest(b"batch_receipt2").into(),
-            prev_hash: ::sha2::Sha256::digest(b"prev_batch_receipt2").into(),
-            tx_hashes: batch_2_receipts.iter().map(|r| r.hash).collect(),
-            pub_key: vec![],
-            deposit_data: vec!["c44444".as_bytes().to_vec()],
-            l1_fee_rate: 0,
-            timestamp: 0,
-        },
+
+    let tx_hashes_1 = vec![
+        ::sha2::Sha256::digest(b"tx1").into(),
+        ::sha2::Sha256::digest(b"tx2").into(),
     ];
 
-    let tx_bodies = vec![tx_bodies_1, tx_bodies_2];
+    let header1 = SoftConfirmationHeader::new(
+        1,
+        0,
+        [0u8; 32],
+        [1u8; 32],
+        ::sha2::Sha256::digest(b"prev_batch_receipt").into(),
+        [1; 32],
+        0,
+        compute_tx_merkle_root(&tx_hashes_1).unwrap(),
+        vec![
+            "aaaaab".as_bytes().to_vec(),
+            "eeeeeeeeee".as_bytes().to_vec(),
+        ],
+        0,
+    );
+
+    let header2 = SoftConfirmationHeader::new(
+        2,
+        1,
+        [2; 32],
+        [3; 32],
+        ::sha2::Sha256::digest(b"prev_batch_receipt2").into(),
+        [1; 32],
+        0,
+        compute_tx_merkle_root(&batch_2_receipts.iter().map(|r| r.hash).collect::<Vec<_>>())
+            .unwrap(),
+        vec!["c44444".as_bytes().to_vec()],
+        0,
+    );
+
+    let signed_header1 = SignedSoftConfirmationHeader::new(
+        header1,
+        ::sha2::Sha256::digest(b"batch_receipt").into(),
+        vec![],
+        vec![],
+    );
+
+    let signed_header2 = SignedSoftConfirmationHeader::new(
+        header2,
+        ::sha2::Sha256::digest(b"batch_receipt2").into(),
+        vec![],
+        vec![],
+    );
+
+    let l2_blocks = vec![
+        L2Block::<[u8; 32]>::new(
+            signed_header1,
+            tx_bodies_1.clone().into(),
+            tx_hashes_1.into(),
+        ),
+        L2Block::<[u8; 32]>::new(
+            signed_header2,
+            tx_bodies_2.clone().into(),
+            batch_2_receipts
+                .iter()
+                .map(|r| r.hash)
+                .collect::<Vec<_>>()
+                .into(),
+        ),
+    ];
 
     test_helper(
         vec![TestExpect {
             payload,
             expected: expected.clone(),
         }],
-        soft_confirmation_receipts,
-        tx_bodies,
+        l2_blocks,
     )
 }
 
@@ -203,7 +208,11 @@ fn test_get_soft_confirmation() {
     // Get the first soft confirmation by number
     let payload = jsonrpc_req!("ledger_getSoftConfirmationByNumber", [1]);
 
-    let empty_tx_merkle_root = compute_tx_merkle_root(&[]).unwrap();
+    let tx_hashes = vec![
+        ::sha2::Sha256::digest(b"tx1").into(),
+        ::sha2::Sha256::digest(b"tx2").into(),
+    ];
+    let empty_tx_merkle_root = compute_tx_merkle_root(&tx_hashes).unwrap();
     let expected = jsonrpc_result!({"daSlotHeight":0,"daSlotHash":"0000000000000000000000000000000000000000000000000000000000000000","daSlotTxsCommitment":"0101010101010101010101010101010101010101010101010101010101010101","depositData": ["616161616162", "65656565656565656565"],"hash":"b5515a80204963f7db40e98af11aedb49a394b1c7e3d8b5b7a33346b8627444f","l2Height":1, "txs":["74783120626f6479", "74783220626f6479"],"prevHash":"0209d4aa08c40ed0fcb2bb6eb276481f2ad045914c3065e13e4f1657e97638b1","stateRoot":"0101010101010101010101010101010101010101010101010101010101010101","softConfirmationSignature":"","pubKey":"", "l1FeeRate":0, "timestamp": 0, "txMerkleRoot": empty_tx_merkle_root});
     regular_test_helper(payload, &expected);
 
@@ -223,9 +232,9 @@ fn test_get_soft_confirmation() {
         .collect::<Vec<String>>();
 
     let tx_hashes = batch2_tx_receipts()
-        .1
-        .into_iter()
-        .flat_map(|tx| tx.try_into().ok())
+        .0
+        .iter()
+        .map(|r| r.hash)
         .collect::<Vec<_>>();
     let tx_merkle_root = compute_tx_merkle_root(&tx_hashes).unwrap();
     let expected = jsonrpc_result!(
@@ -250,9 +259,9 @@ fn test_get_soft_confirmation() {
         .collect::<Vec<String>>();
 
     let tx_hashes = batch2_tx_receipts()
-        .1
-        .into_iter()
-        .flat_map(|tx| tx.try_into().ok())
+        .0
+        .iter()
+        .map(|r| r.hash)
         .collect::<Vec<_>>();
     let tx_merkle_root = compute_tx_merkle_root(&tx_hashes).unwrap();
     let expected = jsonrpc_result!(

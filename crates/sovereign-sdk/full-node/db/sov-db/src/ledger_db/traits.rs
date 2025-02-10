@@ -3,8 +3,9 @@ use std::path::Path;
 use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use sov_rollup_interface::da::{DaSpec, SequencerCommitment};
-use sov_rollup_interface::stf::{SoftConfirmationReceipt, StateDiff};
+use sov_rollup_interface::da::SequencerCommitment;
+use sov_rollup_interface::soft_confirmation::L2Block;
+use sov_rollup_interface::stf::StateDiff;
 use sov_rollup_interface::zk::{Proof, StorageRootHash};
 use sov_schema_db::SchemaBatch;
 
@@ -27,12 +28,11 @@ pub trait SharedLedgerOps {
     ) -> Result<()>;
 
     /// Commits a soft confirmation to the database by inserting its transactions and batches before
-    fn commit_l2_block<DS: DaSpec>(
+    fn commit_l2_block<Tx: Clone>(
         &self,
-        state_root: [u8; 32],
-        sc_receipt: SoftConfirmationReceipt<DS>,
-        tx_bodies: Option<Vec<Vec<u8>>>,
-        tx_merkle_root: [u8; 32],
+        l2_block: L2Block<'_, Tx>,
+        tx_hashes: Vec<[u8; 32]>,
+        include_tx_body: bool,
     ) -> Result<()>;
 
     /// Records the L2 height that was created as a soft confirmaiton of an L1 height

@@ -20,7 +20,7 @@ struct StoredSoftConfirmationV1 {
     pub prev_hash: DbHash,
     pub txs: Vec<StoredTransaction>,
     pub deposit_data: Vec<Vec<u8>>,
-    pub state_root: Vec<u8>,
+    pub state_root: [u8; 32],
     pub soft_confirmation_signature: Vec<u8>,
     pub pub_key: Vec<u8>,
     pub l1_fee_rate: u128,

@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use super::zk::{StorageRootHash, ZkvmGuest};
 use crate::da::DaSpec;
@@ -52,35 +52,6 @@ pub struct ApplySequencerCommitmentsOutput {
     pub last_l2_height: u64,
     /// Last soft confirmation hash
     pub final_soft_confirmation_hash: [u8; 32],
-}
-
-/// A receipt for a soft confirmation of transactions. These receipts are stored in the rollup's database
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SoftConfirmationReceipt<DS: DaSpec> {
-    /// L2 block height
-    pub l2_height: u64,
-    /// DA layer block number
-    pub da_slot_height: u64,
-    /// DA layer block hash
-    pub da_slot_hash: <DS as DaSpec>::SlotHash,
-    /// DA layer transactions commitment
-    pub da_slot_txs_commitment: <DS as DaSpec>::SlotHash,
-    /// The canonical hash of this batch
-    pub hash: [u8; 32],
-    /// The canonical hash of the previous batch
-    pub prev_hash: [u8; 32],
-    /// The receipts of all the transactions in this batch.
-    pub tx_hashes: Vec<[u8; 32]>,
-    /// Soft confirmation signature computed from borsh serialization of da_slot_height, da_slot_hash, pre_state_root, txs
-    pub soft_confirmation_signature: Vec<u8>,
-    /// Sequencer public key
-    pub pub_key: Vec<u8>,
-    /// Deposit data from the L1 chain
-    pub deposit_data: Vec<Vec<u8>>,
-    /// Base layer fee rate sats/wei etc. per byte.
-    pub l1_fee_rate: u128,
-    /// Sequencer's block timestamp
-    pub timestamp: u64,
 }
 
 /// A diff of the state, represented as a list of key-value pairs.

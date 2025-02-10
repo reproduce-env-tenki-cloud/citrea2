@@ -9,9 +9,8 @@ use sov_modules_api::{Context, Spec};
 use sov_rollup_interface::da::{DaSpec, SequencerCommitment};
 use sov_rollup_interface::digest::Digest;
 use sov_rollup_interface::rpc::SoftConfirmationStatus;
-use sov_rollup_interface::soft_confirmation::L2Block;
 use sov_rollup_interface::spec::SpecId;
-use sov_rollup_interface::stf::{SoftConfirmationReceipt, StateDiff, TransactionDigest};
+use sov_rollup_interface::stf::{StateDiff, TransactionDigest};
 
 /// SHA-256 hash of "citrea" string
 /// Used as the default tx merkle root when the block has no transactions
@@ -103,26 +102,6 @@ pub fn compute_tx_hashes<C: Context, Tx: TransactionDigest + Clone, DS: DaSpec>(
             .iter()
             .map(|raw_tx| <C as Spec>::Hasher::digest(raw_tx).into())
             .collect()
-    }
-}
-
-pub fn soft_confirmation_to_receipt<C: Context, Tx: TransactionDigest + Clone, DS: DaSpec>(
-    soft_confirmation: L2Block<Tx>,
-    tx_hashes: Vec<[u8; 32]>,
-) -> SoftConfirmationReceipt<DS> {
-    SoftConfirmationReceipt {
-        l2_height: soft_confirmation.l2_height(),
-        hash: soft_confirmation.hash(),
-        prev_hash: soft_confirmation.prev_hash(),
-        da_slot_height: soft_confirmation.da_slot_height(),
-        da_slot_hash: soft_confirmation.da_slot_hash().into(),
-        da_slot_txs_commitment: soft_confirmation.da_slot_txs_commitment().into(),
-        l1_fee_rate: soft_confirmation.l1_fee_rate(),
-        tx_hashes,
-        deposit_data: soft_confirmation.deposit_data().to_vec(),
-        timestamp: soft_confirmation.timestamp(),
-        soft_confirmation_signature: soft_confirmation.signature().to_vec(),
-        pub_key: soft_confirmation.pub_key().to_vec(),
     }
 }
 

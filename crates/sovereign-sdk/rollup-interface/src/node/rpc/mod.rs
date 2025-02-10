@@ -68,7 +68,7 @@ pub struct SoftConfirmationResponse {
     pub txs: Option<Vec<HexTx>>,
     /// State root of the soft confirmation.
     #[serde(with = "hex::serde")]
-    pub state_root: Vec<u8>,
+    pub state_root: [u8; 32],
     /// Signature of the batch
     #[serde(with = "hex::serde")]
     pub soft_confirmation_signature: Vec<u8>,
@@ -107,7 +107,7 @@ where
             val.da_slot_hash,
             val.da_slot_txs_commitment,
             val.prev_hash,
-            val.state_root.try_into().unwrap(),
+            val.state_root,
             val.l1_fee_rate,
             val.tx_merkle_root,
             val.deposit_data.into_iter().map(|tx| tx.tx).collect(),

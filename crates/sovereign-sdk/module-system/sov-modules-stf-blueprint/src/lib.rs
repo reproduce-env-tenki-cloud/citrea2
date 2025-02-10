@@ -370,9 +370,10 @@ where
 
         native_debug!(
             "soft confirmation with hash: {:?} from sequencer {:?} has been successfully applied",
-            soft_confirmation.hash(),
-            soft_confirmation.sequencer_pub_key(),
+            hex::encode(soft_confirmation.hash()),
+            hex::encode(soft_confirmation.sequencer_pub_key()),
         );
+
         Ok(res)
     }
 

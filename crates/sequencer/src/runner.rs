@@ -8,9 +8,7 @@ use alloy_primitives::{Address, Bytes, TxHash};
 use anyhow::{anyhow, bail};
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
-use citrea_common::utils::{
-    compute_tx_hashes, compute_tx_merkle_root, soft_confirmation_to_receipt,
-};
+use citrea_common::utils::{compute_tx_hashes, compute_tx_merkle_root};
 use citrea_common::{InitParams, RollupPublicKeys, SequencerConfig};
 use citrea_evm::{CallMessage, RlpEvmTransaction, MIN_TRANSACTION_GAS};
 use citrea_primitives::basefee::calculate_next_block_base_fee;
@@ -468,16 +466,9 @@ where
         // however we need much better DA + finalization logic here
         self.storage_manager.finalize_l2(l2_height)?;
 
-        let tx_bodies = l2_block.blobs.to_vec();
         let soft_confirmation_hash = l2_block.hash();
-        let receipt = soft_confirmation_to_receipt::<C, _, Da::Spec>(l2_block, tx_hashes);
 
-        self.ledger_db.commit_l2_block(
-            next_state_root,
-            receipt,
-            Some(tx_bodies),
-            tx_merkle_root,
-        )?;
+        self.ledger_db.commit_l2_block(l2_block, tx_hashes, true)?;
 
         // connect L1 and L2 height
         self.ledger_db.extend_l2_range_of_l1_slot(

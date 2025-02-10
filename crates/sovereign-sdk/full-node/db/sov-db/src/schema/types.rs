@@ -17,7 +17,7 @@ use sov_rollup_interface::zk::batch_proof::output::CumulativeStateDiff;
 use sov_rollup_interface::zk::light_client_proof::output::{
     BatchProofInfo, LightClientCircuitOutput,
 };
-use sov_rollup_interface::zk::Proof;
+use sov_rollup_interface::zk::{Proof, StorageRootHash};
 
 /// A cheaply cloneable bytes abstraction for use within the trust boundary of the node
 /// (i.e. when interfacing with the database). Serializes and deserializes more efficiently,
@@ -316,7 +316,7 @@ pub struct StoredSoftConfirmation {
     /// Deposit data coming from the L1 chain
     pub deposit_data: Vec<Vec<u8>>,
     /// State root
-    pub state_root: Vec<u8>,
+    pub state_root: StorageRootHash,
     /// Sequencer signature
     pub soft_confirmation_signature: Vec<u8>,
     /// Sequencer public key
@@ -349,7 +349,7 @@ where
             val.da_slot_hash,
             val.da_slot_txs_commitment,
             val.prev_hash,
-            val.state_root.try_into().unwrap(),
+            val.state_root,
             val.l1_fee_rate,
             val.tx_merkle_root,
             val.deposit_data,
