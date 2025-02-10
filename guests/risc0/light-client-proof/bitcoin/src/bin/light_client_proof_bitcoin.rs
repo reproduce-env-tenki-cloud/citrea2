@@ -21,7 +21,7 @@ const NETWORK: Network = match option_env!("CITREA_NETWORK") {
 const L2_GENESIS_ROOT: [u8; 32] = {
     let hex_root = match NETWORK {
         Network::Mainnet => "0000000000000000000000000000000000000000000000000000000000000000",
-        Network::Testnet => "0a1db64d55fe6f130504c804ae7a004bb7f221bc802a3ea68b7f64595e27d725",
+        Network::Testnet => "58a10034aa034f1f675312fac7233375337a6b532fc598b560deb428a45f7b01",
         Network::Devnet => "a0849432201a14882f01eab2b806c465c231d140f9d632a6f7a0df50fd927606",
         Network::Nightly | Network::TestNetworkWithForks => match option_env!("L2_GENESIS_ROOT") {
             Some(hex_root) => hex_root,
@@ -57,7 +57,7 @@ const INITIAL_BATCH_PROOF_METHOD_IDS: &[(u64, [u32; 8])] = {
             (
                 5546000,
                 decode_to_u32_array(
-                    "50757c7c24e165267d92794e59aca4e57758f3ac87cd20c512894aed4b87d4ff",
+                    "14d26c6b8cd8553c5613b359c8b313a08a2a17b0174a3471d32fd7c1323e6279",
                 ),
             ),
         ],
