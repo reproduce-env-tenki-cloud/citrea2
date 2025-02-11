@@ -345,10 +345,10 @@ where
         // the header hash does not need to be verified here because the full
         // nodes construct the header on their own
         slot_header: &<Da as DaSpec>::BlockHeader,
-        soft_confirmation: &mut L2Block<Self::Transaction>,
+        l2_block: &mut L2Block<Self::Transaction>,
     ) -> Result<SoftConfirmationResult<Self::ChangeSet, Self::Witness>, StateTransitionError> {
         let soft_confirmation_info =
-            HookSoftConfirmationInfo::new(soft_confirmation, *pre_state_root, current_spec);
+            HookSoftConfirmationInfo::new(l2_block, *pre_state_root, current_spec);
 
         let checkpoint =
             StateCheckpoint::with_witness(pre_state.clone(), state_witness, offchain_witness);
@@ -365,16 +365,12 @@ where
 
         self.apply_soft_confirmation_txs(
             &soft_confirmation_info,
-            &soft_confirmation.blobs,
-            &soft_confirmation.txs,
+            &l2_block.blobs,
+            &l2_block.txs,
             &mut working_set,
         )?;
 
-        self.verify_soft_confirmation_signature(
-            current_spec,
-            soft_confirmation,
-            sequencer_public_key,
-        )?;
+        self.verify_soft_confirmation_signature(current_spec, l2_block, sequencer_public_key)?;
 
         self.end_soft_confirmation(soft_confirmation_info, &mut working_set)?;
 
@@ -382,8 +378,8 @@ where
 
         native_debug!(
             "soft confirmation with hash: {:?} from sequencer {:?} has been successfully applied",
-            hex::encode(soft_confirmation.hash()),
-            hex::encode(soft_confirmation.sequencer_pub_key()),
+            hex::encode(l2_block.hash()),
+            hex::encode(l2_block.sequencer_pub_key()),
         );
 
         Ok(res)
@@ -503,16 +499,15 @@ where
             let mut soft_confirmation_hashes = Vec::with_capacity(state_change_count as usize);
 
             for _ in 0..state_change_count {
-                let (mut soft_confirmation, state_witness, offchain_witness) = guest
-                    .read_from_host::<(
-                        L2Block<Self::Transaction>,
-                        <C::Storage as Storage>::Witness,
-                        <C::Storage as Storage>::Witness,
-                    )>();
+                let (mut l2_block, state_witness, offchain_witness) = guest.read_from_host::<(
+                    L2Block<Self::Transaction>,
+                    <C::Storage as Storage>::Witness,
+                    <C::Storage as Storage>::Witness,
+                )>();
 
                 if let Some(hash) = prev_soft_confirmation_hash {
                     assert_eq!(
-                        soft_confirmation.prev_hash(),
+                        l2_block.prev_hash(),
                         hash,
                         "Soft confirmation previous hash must match the hash of the block before"
                     );
@@ -520,10 +515,9 @@ where
 
                 // the soft confirmations DA hash must equal to da hash in index_headers
                 // if it's not matching, and if it's not matching the next one, then state transition is invalid.
-                if soft_confirmation.da_slot_hash() == da_block_headers[index_headers].hash().into()
-                {
+                if l2_block.da_slot_hash() == da_block_headers[index_headers].hash().into() {
                     assert_eq!(
-                        soft_confirmation.da_slot_height(),
+                        l2_block.da_slot_height(),
                         da_block_headers[index_headers].height(),
                         "Soft confirmation DA slot height must match DA block header height"
                     );
@@ -554,20 +548,20 @@ where
 
                     // if the next one is not matching, then the state transition is invalid.
                     assert_eq!(
-                        soft_confirmation.da_slot_hash(),
+                        l2_block.da_slot_hash(),
                         da_block_headers[index_headers].hash().into(),
                         "Soft confirmation DA slot hash must match DA block header hash"
                     );
 
                     assert_eq!(
-                        soft_confirmation.da_slot_height(),
+                        l2_block.da_slot_height(),
                         da_block_headers[index_headers].height(),
                         "Soft confirmation DA slot height must match DA block header height"
                     );
                 }
 
                 assert_eq!(
-                    soft_confirmation.l2_height(),
+                    l2_block.l2_height(),
                     l2_height,
                     "Soft confirmation heights not sequential"
                 );
@@ -587,7 +581,7 @@ where
                         state_witness,
                         offchain_witness,
                         &da_block_headers[index_headers],
-                        &mut soft_confirmation,
+                        &mut l2_block,
                     )
                     // TODO: this can be just ignoring the failing seq. com.
                     // We can count a failed soft confirmation as a valid state transition.
@@ -600,9 +594,9 @@ where
 
                 l2_height += 1;
 
-                prev_soft_confirmation_hash = Some(soft_confirmation.hash());
+                prev_soft_confirmation_hash = Some(l2_block.hash());
 
-                soft_confirmation_hashes.push(soft_confirmation.hash());
+                soft_confirmation_hashes.push(l2_block.hash());
             }
 
             assert_eq!(

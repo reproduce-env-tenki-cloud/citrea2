@@ -66,7 +66,7 @@ where
                 pre_state,
                 da_txs,
                 data.sequencer_commitments_range,
-                data.da_block_headers_of_soft_confirmations,
+                data.da_block_headers_of_l2_blocks,
                 data.preproven_commitments.clone(),
                 forks,
             );

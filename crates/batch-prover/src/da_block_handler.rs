@@ -315,7 +315,7 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
         VecDeque::with_capacity(sequencer_commitments.len());
     let mut committed_l2_blocks: VecDeque<Vec<L2Block<Tx>>> =
         VecDeque::with_capacity(sequencer_commitments.len());
-    let mut da_block_headers_of_soft_confirmations: VecDeque<
+    let mut da_block_headers_of_l2_blocks: VecDeque<
         Vec<<<Da as DaService>::Spec as DaSpec>::BlockHeader>,
     > = VecDeque::with_capacity(sequencer_commitments.len());
     for sequencer_commitment in sequencer_commitments.iter() {
@@ -369,7 +369,7 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
         }
         committed_l2_blocks.push_back(l2_blocks);
 
-        da_block_headers_of_soft_confirmations.push_back(da_block_headers_to_push);
+        da_block_headers_of_l2_blocks.push_back(da_block_headers_to_push);
         for l2_height in
             sequencer_commitment.l2_start_block_number..=sequencer_commitment.l2_end_block_number
         {
@@ -387,7 +387,7 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
     Ok((
         state_transition_witnesses,
         committed_l2_blocks,
-        da_block_headers_of_soft_confirmations,
+        da_block_headers_of_l2_blocks,
     ))
 }
 

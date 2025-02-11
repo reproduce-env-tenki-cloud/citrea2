@@ -40,12 +40,12 @@ pub struct BatchProofCircuitInput<'txs, Witness, Da: DaSpec, Tx: Clone> {
     pub completeness_proof: Da::CompletenessProof,
     /// Pre-proven commitments L2 ranges which also exist in the current L1 `da_data`.
     pub preproven_commitments: Vec<usize>,
-    /// The soft confirmations that are inside the sequencer commitments.
-    pub soft_confirmations: VecDeque<Vec<L2Block<'txs, Tx>>>,
+    /// The L2 blocks that are inside the sequencer commitments.
+    pub l2_blocks: VecDeque<Vec<L2Block<'txs, Tx>>>,
     /// Corresponding witness for the soft confirmations.
     pub state_transition_witnesses: VecDeque<Vec<(Witness, Witness)>>,
-    /// DA block headers the soft confirmations was constructed on.
-    pub da_block_headers_of_soft_confirmations: VecDeque<Vec<Da::BlockHeader>>,
+    /// DA block headers the L2 block was constructed on.
+    pub da_block_headers_of_l2_blocks: VecDeque<Vec<Da::BlockHeader>>,
     /// Sequencer soft confirmation public key.
     /// **DO NOT USE THIS FIELD IN POST FORK1 GUEST**
     pub sequencer_public_key: Vec<u8>,
@@ -70,14 +70,11 @@ where
         BatchProofCircuitInputV2Part1<Da>,
         BatchProofCircuitInputV2Part2<'txs, Witness, Tx>,
     ) {
-        assert_eq!(
-            self.soft_confirmations.len(),
-            self.state_transition_witnesses.len()
-        );
-        let mut x = VecDeque::with_capacity(self.soft_confirmations.len());
+        assert_eq!(self.l2_blocks.len(), self.state_transition_witnesses.len());
+        let mut x = VecDeque::with_capacity(self.l2_blocks.len());
 
         for (confirmations, witnesses) in self
-            .soft_confirmations
+            .l2_blocks
             .into_iter()
             .zip(self.state_transition_witnesses)
         {
@@ -104,7 +101,7 @@ where
                 inclusion_proof: self.inclusion_proof,
                 completeness_proof: self.completeness_proof,
                 preproven_commitments: self.preproven_commitments,
-                da_block_headers_of_soft_confirmations: self.da_block_headers_of_soft_confirmations,
+                da_block_headers_of_l2_blocks: self.da_block_headers_of_l2_blocks,
                 sequencer_commitments_range: self.sequencer_commitments_range,
             },
             BatchProofCircuitInputV2Part2(x),
@@ -118,14 +115,11 @@ where
         BatchProofCircuitInputV3Part1<Da>,
         BatchProofCircuitInputV3Part2<'txs, Witness, Tx>,
     ) {
-        assert_eq!(
-            self.soft_confirmations.len(),
-            self.state_transition_witnesses.len()
-        );
-        let mut x = VecDeque::with_capacity(self.soft_confirmations.len());
+        assert_eq!(self.l2_blocks.len(), self.state_transition_witnesses.len());
+        let mut x = VecDeque::with_capacity(self.l2_blocks.len());
 
         for (confirmations, witnesses) in self
-            .soft_confirmations
+            .l2_blocks
             .into_iter()
             .zip(self.state_transition_witnesses)
         {
@@ -151,7 +145,7 @@ where
                 inclusion_proof: self.inclusion_proof,
                 completeness_proof: self.completeness_proof,
                 preproven_commitments: self.preproven_commitments,
-                da_block_headers_of_soft_confirmations: self.da_block_headers_of_soft_confirmations,
+                da_block_headers_of_l2_blocks: self.da_block_headers_of_l2_blocks,
                 sequencer_commitments_range: self.sequencer_commitments_range,
             },
             BatchProofCircuitInputV3Part2(x),
