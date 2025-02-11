@@ -272,42 +272,6 @@ impl<'txs, Tx: BorshSerialize> UnsignedSoftConfirmation<'txs, Tx> {
             timestamp,
         }
     }
-    /// L2 block height
-    pub fn l2_height(&self) -> u64 {
-        self.l2_height
-    }
-    /// DA block to build on
-    pub fn da_slot_height(&self) -> u64 {
-        self.da_slot_height
-    }
-    /// DA block hash
-    pub fn da_slot_hash(&self) -> [u8; 32] {
-        self.da_slot_hash
-    }
-    /// DA block transactions commitment
-    pub fn da_slot_txs_commitment(&self) -> [u8; 32] {
-        self.da_slot_txs_commitment
-    }
-    /// Raw blobs of transactions.
-    pub fn blobs(&self) -> &[Vec<u8>] {
-        self.blobs
-    }
-    /// Transactions.
-    pub fn txs(&self) -> &[Tx] {
-        self.txs
-    }
-    /// Deposit data from L1 chain
-    pub fn deposit_data(&self) -> Vec<Vec<u8>> {
-        self.deposit_data.clone()
-    }
-    /// Base layer fee rate sats/wei etc. per byte.
-    pub fn l1_fee_rate(&self) -> u128 {
-        self.l1_fee_rate
-    }
-    /// Sequencer block timestamp
-    pub fn timestamp(&self) -> u64 {
-        self.timestamp
-    }
     /// Compute digest for the whole UnsignedSoftConfirmation struct
     pub fn compute_digest<D: Digest>(&self) -> Output<D> {
         let mut hasher = D::new();
@@ -440,86 +404,6 @@ impl<'txs, Tx: Clone> SignedSoftConfirmation<'txs, Tx> {
             pub_key,
             timestamp,
         }
-    }
-
-    /// L2 block height
-    pub fn l2_height(&self) -> u64 {
-        self.l2_height
-    }
-
-    /// Hash of the signed batch
-    pub fn hash(&self) -> [u8; 32] {
-        self.hash
-    }
-
-    /// Hash of the previous signed batch
-    pub fn prev_hash(&self) -> [u8; 32] {
-        self.prev_hash
-    }
-
-    /// DA block this soft confirmation was given for
-    pub fn da_slot_height(&self) -> u64 {
-        self.da_slot_height
-    }
-
-    /// DA block to build on
-    pub fn da_slot_hash(&self) -> [u8; 32] {
-        self.da_slot_hash
-    }
-
-    /// DA block transactions commitment
-    pub fn da_slot_txs_commitment(&self) -> [u8; 32] {
-        self.da_slot_txs_commitment
-    }
-
-    /// Public key of signer
-    pub fn sequencer_pub_key(&self) -> &[u8] {
-        self.pub_key.as_ref()
-    }
-
-    /// Raw blob of txs of signed batch
-    pub fn blobs(&self) -> &[Vec<u8>] {
-        &self.blobs
-    }
-
-    /// Txs of signed batch
-    pub fn txs(&self) -> &[Tx] {
-        &self.txs
-    }
-
-    /// Deposit data
-    pub fn deposit_data(&self) -> &[Vec<u8>] {
-        self.deposit_data.as_slice()
-    }
-
-    /// Signature of the sequencer
-    pub fn signature(&self) -> &[u8] {
-        self.signature.as_slice()
-    }
-
-    /// L1 fee rate
-    pub fn l1_fee_rate(&self) -> u128 {
-        self.l1_fee_rate
-    }
-
-    /// Public key of sequencer
-    pub fn pub_key(&self) -> &[u8] {
-        self.pub_key.as_slice()
-    }
-
-    /// Sets l1 fee rate
-    pub fn set_l1_fee_rate(&mut self, l1_fee_rate: u128) {
-        self.l1_fee_rate = l1_fee_rate;
-    }
-
-    /// Sets da slot hash
-    pub fn set_da_slot_hash(&mut self, da_slot_hash: [u8; 32]) {
-        self.da_slot_hash = da_slot_hash;
-    }
-
-    /// Sequencer block timestamp
-    pub fn timestamp(&self) -> u64 {
-        self.timestamp
     }
 }
 
