@@ -6,7 +6,8 @@ use rocksdb::WriteBatch;
 use sov_db::ledger_db::migrations::{LedgerMigration, MigrationName, MigrationVersion};
 use sov_db::ledger_db::LedgerDB;
 use sov_db::schema::tables::SoftConfirmationByNumber;
-use sov_db::schema::types::{DbHash, StoredSoftConfirmation, StoredTransaction};
+use sov_db::schema::types::soft_confirmation::{StoredSoftConfirmation, StoredTransaction};
+use sov_db::schema::types::DbHash;
 
 use crate::utils::compute_tx_merkle_root;
 

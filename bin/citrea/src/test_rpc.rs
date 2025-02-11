@@ -6,7 +6,7 @@ use reqwest::header::CONTENT_TYPE;
 use sha2::Digest;
 use sov_db::ledger_db::{LedgerDB, SharedLedgerOps};
 use sov_db::rocks_db_config::RocksdbConfig;
-use sov_db::schema::types::StoredTransaction;
+use sov_db::schema::types::soft_confirmation::StoredTransaction;
 use sov_modules_api::L2Block;
 use sov_rollup_interface::soft_confirmation::{
     SignedSoftConfirmationHeader, SoftConfirmationHeader,
