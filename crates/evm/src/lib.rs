@@ -226,7 +226,7 @@ impl<C: sov_modules_api::Context, Da: DaSpec> Evm<C, Da> {
         &'a self,
         working_set: &'a mut WorkingSet<C::Storage>,
         citrea_spec: CitreaSpecId,
-    ) -> EvmDb<'a, C> {
+    ) -> EvmDb<'a, C, Da> {
         EvmDb::new(self, working_set, citrea_spec)
     }
 }

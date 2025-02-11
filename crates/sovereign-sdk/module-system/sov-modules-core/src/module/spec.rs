@@ -118,5 +118,7 @@ pub trait Context: Spec + Clone + Debug + PartialEq + 'static {
     fn l1_fee_rate(&self) -> u128;
 
     /// TODO: Docs
-    fn get_short_header_proof_info<Da: DaSpec>(&self) -> Da::ShortHeaderProof;
+    fn get_short_header_proof_info<Da: sov_rollup_interface::da::DaSpec>(
+        &self,
+    ) -> Da::ShortHeaderProof;
 }

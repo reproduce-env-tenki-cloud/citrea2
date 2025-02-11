@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use alloy_primitives::{keccak256, Address, B256};
 use revm::primitives::{AccountInfo as ReVmAccountInfo, Bytecode, SpecId as EvmSpecId, U256};
 use revm::Database;
-use sov_modules_api::{SpecId as CitreaSpecId, StateMapAccessor, WorkingSet};
+use sov_modules_api::{DaSpec, SpecId as CitreaSpecId, StateMapAccessor, WorkingSet};
 
 #[cfg(feature = "native")]
 use super::AccountInfo;
@@ -26,16 +26,16 @@ impl std::fmt::Display for DBError {
     }
 }
 
-pub(crate) struct EvmDb<'a, C: sov_modules_api::Context> {
-    pub(crate) evm: &'a Evm<C>,
+pub(crate) struct EvmDb<'a, C: sov_modules_api::Context, Da: DaSpec> {
+    pub(crate) evm: &'a Evm<C, Da>,
     pub(crate) working_set: &'a mut WorkingSet<C::Storage>,
     pub(crate) citrea_spec: CitreaSpecId,
     pub(crate) evm_spec: EvmSpecId,
 }
 
-impl<'a, C: sov_modules_api::Context> EvmDb<'a, C> {
+impl<'a, C: sov_modules_api::Context, Da: DaSpec> EvmDb<'a, C, Da> {
     pub(crate) fn new(
-        evm: &'a Evm<C>,
+        evm: &'a Evm<C, Da>,
         working_set: &'a mut WorkingSet<C::Storage>,
         citrea_spec: CitreaSpecId,
     ) -> Self {
@@ -89,7 +89,7 @@ impl<'a, C: sov_modules_api::Context> EvmDb<'a, C> {
     }
 }
 
-impl<'a, C: sov_modules_api::Context> Database for EvmDb<'a, C> {
+impl<'a, C: sov_modules_api::Context, Da: DaSpec> Database for EvmDb<'a, C, Da> {
     type Error = DBError;
 
     fn basic(&mut self, address: Address) -> Result<Option<ReVmAccountInfo>, Self::Error> {

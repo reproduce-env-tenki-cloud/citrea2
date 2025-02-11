@@ -16,15 +16,17 @@ mod tracing_utils;
 
 #[cfg(feature = "native")]
 use revm::primitives::BlockEnv;
+#[cfg(feature = "native")]
+use sov_modules_api::DaSpec;
 pub(crate) use tracing_utils::*;
 
 use crate::db::EvmDb;
 
 #[cfg(feature = "native")]
 /// Applies all instances [`AccountOverride`] to the [`EvmDb`].
-pub(crate) fn apply_state_overrides<C: sov_modules_api::Context>(
+pub(crate) fn apply_state_overrides<C: sov_modules_api::Context, Da: DaSpec>(
     state_overrides: HashMap<Address, AccountOverride, alloy_primitives::map::FbBuildHasher<20>>,
-    db: &mut EvmDb<C>,
+    db: &mut EvmDb<C, Da>,
 ) -> EthResult<()> {
     for (address, account_overrides) in state_overrides {
         apply_account_override(address, account_overrides, db)?;
@@ -35,10 +37,10 @@ pub(crate) fn apply_state_overrides<C: sov_modules_api::Context>(
 
 #[cfg(feature = "native")]
 /// Applies a single [`AccountOverride`] to the [`EvmDb`].
-pub(crate) fn apply_account_override<C: sov_modules_api::Context>(
+pub(crate) fn apply_account_override<C: sov_modules_api::Context, Da: DaSpec>(
     account: Address,
     account_override: AccountOverride,
-    db: &mut EvmDb<C>,
+    db: &mut EvmDb<C, Da>,
 ) -> EthResult<()> {
     // we need to fetch the account via the `DatabaseRef` to not update the state of the account,
     // which is modified via `Database::basic_ref`
@@ -77,10 +79,10 @@ pub(crate) fn apply_account_override<C: sov_modules_api::Context>(
 
 #[cfg(feature = "native")]
 /// Applies all instances of [`BlockOverride`] to the [`EvmDb`].
-pub(crate) fn apply_block_overrides<C: sov_modules_api::Context>(
+pub(crate) fn apply_block_overrides<C: sov_modules_api::Context, Da: DaSpec>(
     block_env: &mut BlockEnv,
     block_overrides: &mut BlockOverrides,
-    db: &mut EvmDb<C>,
+    db: &mut EvmDb<C, Da>,
 ) {
     use alloy_primitives::U256;
 

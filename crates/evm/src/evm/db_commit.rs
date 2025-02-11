@@ -3,12 +3,12 @@ use std::collections::BTreeMap;
 use alloy_primitives::{Address, U256};
 use revm::primitives::{Account, AccountInfo, HashMap, SpecId};
 use revm::DatabaseCommit;
-use sov_modules_api::{StateMapAccessor, StateVecAccessor};
+use sov_modules_api::{DaSpec, StateMapAccessor, StateVecAccessor};
 
 use super::db::EvmDb;
 use super::{AccountInfo as DbAccountInfo, DbAccount};
 
-impl<'a, C: sov_modules_api::Context> DatabaseCommit for EvmDb<'a, C> {
+impl<'a, C: sov_modules_api::Context, Da: DaSpec> DatabaseCommit for EvmDb<'a, C, Da> {
     fn commit(&mut self, changes: HashMap<Address, Account>) {
         // DO NOT REMOVE THIS LINE UNTIL REVM HAS BTREEMAP VERSION. WE MUST ENFORCE THE SAME ORDER.
         let changes = changes.into_iter().collect::<BTreeMap<_, _>>();

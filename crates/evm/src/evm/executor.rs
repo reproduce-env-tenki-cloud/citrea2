@@ -94,6 +94,15 @@ pub(crate) fn execute_multiple_tx<
             trace_span!("Processing tx", i = _i, signer = %tx.signer(), tx_hash = %tx.hash())
                 .entered();
 
+        // TODO: Figure out how to get short header proof
+        // let short = short_provider.get(hash);
+
+        // let (calculated_hash, wtxid_root, depth) =   short.verify();
+
+        // if calculated_hash != hash {
+        //     return Err(SoftConfirmationModuleCallError::EvmInvalidShortHeaderProof);
+        // }
+
         if tx.signer() == SYSTEM_SIGNER {
             native_error!("System transaction found in user txs");
             return Err(SoftConfirmationModuleCallError::EvmMisplacedSystemTx);
