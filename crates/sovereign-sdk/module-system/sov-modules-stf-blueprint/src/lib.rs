@@ -1,7 +1,9 @@
 #![deny(missing_docs)]
 #![doc = include_str!("../README.md")]
 
-use borsh::BorshDeserialize;
+use anyhow::bail;
+use borsh::{BorshDeserialize, BorshSerialize};
+use citrea_common::utils::{compute_tx_hashes, compute_tx_merkle_root};
 use itertools::Itertools;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::MerkleTree;
@@ -24,7 +26,7 @@ use sov_rollup_interface::soft_confirmation::{
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::stf::{
     ApplySequencerCommitmentsOutput, SoftConfirmationError, SoftConfirmationResult,
-    StateTransitionError, StateTransitionFunction,
+    StateTransitionError, StateTransitionFunction, TransactionDigest,
 };
 use sov_rollup_interface::zk::batch_proof::output::CumulativeStateDiff;
 use sov_rollup_interface::zk::{StorageRootHash, ZkvmGuest};
@@ -180,6 +182,16 @@ where
         sequencer_public_key: &[u8],
     ) -> Result<(), StateTransitionError> {
         let l2_header = &l2_block.header;
+
+        verify_tx_merkle_root::<C, <Self as StateTransitionFunction<Da>>::Transaction>(
+            current_spec,
+            l2_block,
+        )
+        .map_err(|_| {
+            StateTransitionError::SoftConfirmationError(
+                SoftConfirmationError::InvalidateTxMerkleRoot,
+            )
+        })?;
 
         match current_spec {
             SpecId::Genesis => {
@@ -630,7 +642,7 @@ where
 fn verify_soft_confirmation_signature<C: Spec>(
     header: &SignedSoftConfirmationHeader,
     sequencer_public_key: &[u8],
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     let signature = C::Signature::try_from(&header.signature)?;
     let public_key = C::PublicKey::try_from(sequencer_public_key)?;
 
@@ -642,10 +654,22 @@ fn verify_genesis_signature<C: Context>(
     message: &[u8],
     signature: &[u8],
     sequencer_public_key: &[u8],
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     let signature = C::Signature::try_from(signature)?;
     let public_key = C::PublicKey::try_from(sequencer_public_key)?;
 
     signature.verify(&public_key, message)?;
+    Ok(())
+}
+
+fn verify_tx_merkle_root<C: Context, Tx: Clone + BorshSerialize + TransactionDigest>(
+    current_spec: SpecId,
+    l2_block: &L2Block<'_, Tx>,
+) -> anyhow::Result<()> {
+    let tx_hashes = compute_tx_hashes::<C, _>(&l2_block.txs, current_spec);
+    let tx_merkle_root = compute_tx_merkle_root(&tx_hashes)?;
+    if tx_merkle_root != l2_block.tx_merkle_root() {
+        bail!("Wrong tx merkle root");
+    }
     Ok(())
 }

@@ -257,7 +257,7 @@ where
 
         self.storage_manager.finalize_l2(l2_height)?;
 
-        let tx_hashes = compute_tx_hashes::<C, _, Da::Spec>(&l2_block.txs, current_spec);
+        let tx_hashes = compute_tx_hashes::<C, _>(&l2_block.txs, current_spec);
 
         self.ledger_db
             .commit_l2_block(l2_block, tx_hashes, tx_bodies)?;

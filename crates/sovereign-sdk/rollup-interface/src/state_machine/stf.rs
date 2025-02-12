@@ -208,6 +208,8 @@ pub enum SoftConfirmationError {
     InvalidSovTxSignature,
     /// The soft confirmation includes a sov-tx that can not be runtime decoded
     SovTxCantBeRuntimeDecoded,
+    /// The soft confirmation includes an invalid tx merkle root
+    InvalidateTxMerkleRoot,
     /// Any other error that can occur during the application of a soft confirmation
     /// These can come from runtime hooks etc.
     Other(String),
@@ -299,6 +301,9 @@ impl std::fmt::Display for SoftConfirmationError {
             SoftConfirmationError::InvalidSovTxSignature => write!(f, "Invalid sov tx signature"),
             SoftConfirmationError::SovTxCantBeRuntimeDecoded => {
                 write!(f, "Sov tx can't be runtime decoded")
+            }
+            SoftConfirmationError::InvalidateTxMerkleRoot => {
+                write!(f, "Invalid tx merkle root")
             }
         }
     }

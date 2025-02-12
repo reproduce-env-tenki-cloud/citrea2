@@ -7,7 +7,7 @@ use rs_merkle::MerkleTree;
 use sov_db::ledger_db::SharedLedgerOps;
 use sov_db::schema::types::SoftConfirmationNumber;
 use sov_modules_api::{Context, Spec};
-use sov_rollup_interface::da::{DaSpec, SequencerCommitment};
+use sov_rollup_interface::da::SequencerCommitment;
 use sov_rollup_interface::digest::Digest;
 use sov_rollup_interface::rpc::SoftConfirmationStatus;
 use sov_rollup_interface::spec::SpecId;
@@ -89,7 +89,7 @@ pub fn check_l2_block_exists<DB: SharedLedgerOps>(ledger_db: &DB, l2_height: u64
     head_l2_height >= l2_height
 }
 
-pub fn compute_tx_hashes<C: Context, Tx: TransactionDigest + Clone + BorshSerialize, DS: DaSpec>(
+pub fn compute_tx_hashes<C: Context, Tx: TransactionDigest + Clone + BorshSerialize>(
     txs: &[Tx],
     current_spec: SpecId,
 ) -> Vec<[u8; 32]> {
