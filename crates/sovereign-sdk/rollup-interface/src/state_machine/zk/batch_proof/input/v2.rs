@@ -11,7 +11,7 @@ use crate::zk::StorageRootHash;
 /// Second part of the Kumquat elf input
 /// This is going to be read per-need basis to not go out of memory
 /// in the zkvm
-pub struct BatchProofCircuitInputV2Part2<'txs, Witness, Tx: Clone>(
+pub struct BatchProofCircuitInputV2Part2<'txs, Witness, Tx: Clone + BorshSerialize>(
     pub VecDeque<Vec<(SignedSoftConfirmation<'txs, Tx>, Witness, Witness)>>,
 );
 

@@ -23,7 +23,7 @@ pub mod v3;
 // StateTransitionFunction, DA, and Zkvm traits.
 /// Data required to verify a state transition.
 /// This is more like a glue type to create V1/V2 batch proof circuit inputs later in the program
-pub struct BatchProofCircuitInput<'txs, Witness, Da: DaSpec, Tx: Clone> {
+pub struct BatchProofCircuitInput<'txs, Witness, Da: DaSpec, Tx: Clone + BorshSerialize> {
     /// The state root before the state transition
     pub initial_state_root: StorageRootHash,
     /// The state root after the state transition
@@ -60,7 +60,7 @@ pub struct BatchProofCircuitInput<'txs, Witness, Da: DaSpec, Tx: Clone> {
 impl<'txs, Witness, Da, Tx> BatchProofCircuitInput<'txs, Witness, Da, Tx>
 where
     Da: DaSpec,
-    Tx: Clone,
+    Tx: Clone + BorshSerialize,
     Witness: Serialize + DeserializeOwned,
 {
     /// Into Kumquat expected inputs

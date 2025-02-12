@@ -63,7 +63,7 @@ where
     Da: DaService,
     DB: BatchProverLedgerOps,
     Witness: DeserializeOwned,
-    Tx: Clone + BorshDeserialize + 'txs,
+    Tx: Clone + BorshDeserialize + 'txs + BorshSerialize,
 {
     let l1_height = l1_block.header().height();
 
@@ -296,7 +296,7 @@ pub(crate) fn state_transition_already_proven<Witness, Da, Tx>(
 where
     Da: DaService,
     Witness: Default + BorshDeserialize + Serialize + DeserializeOwned,
-    Tx: Clone,
+    Tx: Clone + BorshSerialize,
 {
     for proof in proofs {
         let (initial_state_root, sequencer_commitments_range) = match &proof.proof_output {

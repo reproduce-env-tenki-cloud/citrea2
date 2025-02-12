@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::Context as _;
+use borsh::BorshSerialize;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::MerkleTree;
 use sov_db::ledger_db::SharedLedgerOps;
@@ -88,9 +89,8 @@ pub fn check_l2_block_exists<DB: SharedLedgerOps>(ledger_db: &DB, l2_height: u64
     head_l2_height >= l2_height
 }
 
-pub fn compute_tx_hashes<C: Context, Tx: TransactionDigest + Clone, DS: DaSpec>(
+pub fn compute_tx_hashes<C: Context, Tx: TransactionDigest + Clone + BorshSerialize, DS: DaSpec>(
     txs: &[Tx],
-    blobs: &[Vec<u8>],
     current_spec: SpecId,
 ) -> Vec<[u8; 32]> {
     if current_spec >= SpecId::Kumquat {
@@ -98,9 +98,11 @@ pub fn compute_tx_hashes<C: Context, Tx: TransactionDigest + Clone, DS: DaSpec>(
             .map(|tx| tx.compute_digest::<<C as Spec>::Hasher>().into())
             .collect()
     } else {
-        blobs
-            .iter()
-            .map(|raw_tx| <C as Spec>::Hasher::digest(raw_tx).into())
+        txs.iter()
+            .map(|tx| {
+                let serialized = borsh::to_vec(tx).expect("Tx serialization shouldn't fail");
+                <C as Spec>::Hasher::digest(&serialized).into()
+            })
             .collect()
     }
 }

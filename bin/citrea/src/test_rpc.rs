@@ -44,7 +44,9 @@ async fn queries_test_runner(test_queries: Vec<TestExpect>, rpc_config: RpcConfi
 fn populate_ledger(ledger_db: &mut LedgerDB, l2_blocks: Vec<L2Block<'_, [u8; 32]>>) {
     for block in l2_blocks {
         let tx_hashes = block.txs.to_vec();
-        ledger_db.commit_l2_block(block, tx_hashes, true).unwrap();
+        ledger_db
+            .commit_l2_block(block.clone(), tx_hashes, Some(block.compute_blobs()))
+            .unwrap();
     }
 }
 
@@ -96,8 +98,7 @@ fn batch2_tx_receipts() -> (Vec<StoredTransaction>, Vec<Vec<u8>>) {
 }
 
 fn regular_test_helper(payload: serde_json::Value, expected: &serde_json::Value) {
-    let tx_bodies_1 = vec![b"tx1 body".to_vec(), b"tx2 body".to_vec()];
-    let (batch_2_receipts, tx_bodies_2) = batch2_tx_receipts();
+    let (batch_2_receipts, _) = batch2_tx_receipts();
 
     let tx_hashes_1 = vec![
         ::sha2::Sha256::digest(b"tx1").into(),
@@ -149,14 +150,9 @@ fn regular_test_helper(payload: serde_json::Value, expected: &serde_json::Value)
     );
 
     let l2_blocks = vec![
-        L2Block::<[u8; 32]>::new(
-            signed_header1,
-            tx_bodies_1.clone().into(),
-            tx_hashes_1.into(),
-        ),
+        L2Block::<[u8; 32]>::new(signed_header1, tx_hashes_1.into()),
         L2Block::<[u8; 32]>::new(
             signed_header2,
-            tx_bodies_2.clone().into(),
             batch_2_receipts
                 .iter()
                 .map(|r| r.hash)

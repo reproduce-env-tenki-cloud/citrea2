@@ -87,7 +87,7 @@ pub struct SoftConfirmationResponse {
 
 impl<'txs, Tx> TryFrom<SoftConfirmationResponse> for L2Block<'txs, Tx>
 where
-    Tx: Clone + BorshDeserialize,
+    Tx: Clone + BorshDeserialize + BorshSerialize,
 {
     type Error = borsh::io::Error;
     fn try_from(val: SoftConfirmationResponse) -> Result<Self, Self::Error> {
@@ -120,15 +120,7 @@ where
             val.pub_key,
         );
 
-        let res = L2Block::new(
-            signed_header,
-            val.txs
-                .unwrap_or_default()
-                .into_iter()
-                .map(|tx| tx.tx)
-                .collect(),
-            parsed_txs.into(),
-        );
+        let res = L2Block::new(signed_header, parsed_txs.into());
         Ok(res)
     }
 }

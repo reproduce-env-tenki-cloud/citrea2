@@ -87,7 +87,7 @@ pub struct HookSoftConfirmationInfo {
 }
 
 impl HookSoftConfirmationInfo {
-    pub fn new<Tx: Clone>(
+    pub fn new<Tx: Clone + BorshSerialize>(
         l2_block: &L2Block<Tx>,
         pre_state_root: StorageRootHash,
         current_spec: SpecId,

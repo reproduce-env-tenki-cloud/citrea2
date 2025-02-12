@@ -139,6 +139,10 @@ where
             .storage_manager
             .create_storage_on_l2_height(l2_height)?;
 
+        let tx_bodies = soft_confirmation
+            .txs
+            .clone()
+            .map(|txs| txs.into_iter().map(|tx| tx.tx).collect::<Vec<_>>());
         let mut l2_block: L2Block<StfTransaction<C, Da::Spec, RT>> = soft_confirmation
             .clone()
             .try_into()
@@ -171,11 +175,15 @@ where
 
         self.storage_manager.finalize_l2(l2_height)?;
 
-        let tx_hashes =
-            compute_tx_hashes::<C, _, Da::Spec>(&l2_block.txs, &l2_block.blobs, current_spec);
+        let tx_hashes = compute_tx_hashes::<C, _, Da::Spec>(&l2_block.txs, current_spec);
+        let tx_bodies = if self.include_tx_body {
+            tx_bodies
+        } else {
+            None
+        };
 
         self.ledger_db
-            .commit_l2_block(l2_block, tx_hashes, self.include_tx_body)?;
+            .commit_l2_block(l2_block, tx_hashes, tx_bodies)?;
 
         self.ledger_db.extend_l2_range_of_l1_slot(
             SlotNumber(current_l1_block.header().height()),

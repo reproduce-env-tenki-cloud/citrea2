@@ -95,7 +95,7 @@ impl<'txs, Witness, Da, Tx> From<BatchProofCircuitInput<'txs, Witness, Da, Tx>>
     for BatchProofCircuitInputV1<Witness, Da>
 where
     Da: DaSpec,
-    Tx: Clone,
+    Tx: Clone + BorshSerialize,
     Witness: Serialize + DeserializeOwned,
 {
     fn from(input: BatchProofCircuitInput<'txs, Witness, Da, Tx>) -> Self {

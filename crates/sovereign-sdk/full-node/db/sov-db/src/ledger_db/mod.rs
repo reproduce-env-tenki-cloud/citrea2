@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use borsh::BorshSerialize;
 use rocksdb::WriteBatch;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -165,16 +166,15 @@ impl SharedLedgerOps for LedgerDB {
     }
 
     /// Commits a soft confirmation to the database by inserting its transactions and batches before
-    fn commit_l2_block<Tx: Clone>(
+    fn commit_l2_block<Tx: Clone + BorshSerialize>(
         &self,
         l2_block: L2Block<'_, Tx>,
         tx_hashes: Vec<[u8; 32]>,
-        include_tx_body: bool,
+        tx_bodies: Option<Vec<Vec<u8>>>,
     ) -> Result<(), anyhow::Error> {
         let mut schema_batch = SchemaBatch::new();
 
-        let txs = if include_tx_body {
-            let tx_bodies = l2_block.blobs.to_vec();
+        let txs = if let Some(tx_bodies) = tx_bodies {
             assert_eq!(
                 tx_bodies.len(),
                 tx_hashes.len(),
