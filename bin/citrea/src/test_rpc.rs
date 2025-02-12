@@ -214,7 +214,7 @@ fn test_get_soft_confirmation() {
         ::sha2::Sha256::digest(b"tx2").into(),
     ];
     let empty_tx_merkle_root = compute_tx_merkle_root(&tx_hashes).unwrap();
-    let expected = jsonrpc_result!({"daSlotHeight":0,"daSlotHash":"0000000000000000000000000000000000000000000000000000000000000000","daSlotTxsCommitment":"0101010101010101010101010101010101010101010101010101010101010101","depositData": ["616161616162", "65656565656565656565"],"hash":"b5515a80204963f7db40e98af11aedb49a394b1c7e3d8b5b7a33346b8627444f","l2Height":1, "txs":["74783120626f6479", "74783220626f6479"],"prevHash":"0209d4aa08c40ed0fcb2bb6eb276481f2ad045914c3065e13e4f1657e97638b1","stateRoot":"0101010101010101010101010101010101010101010101010101010101010101","softConfirmationSignature":"","pubKey":"", "l1FeeRate":0, "timestamp": 0, "txMerkleRoot": empty_tx_merkle_root});
+    let expected = jsonrpc_result!({"daSlotHeight":0,"daSlotHash":"0000000000000000000000000000000000000000000000000000000000000000","daSlotTxsCommitment":"0101010101010101010101010101010101010101010101010101010101010101","depositData": ["616161616162", "65656565656565656565"],"hash":"b5515a80204963f7db40e98af11aedb49a394b1c7e3d8b5b7a33346b8627444f","l2Height":1, "txs":["709b55bd3da0f5a838125bd0ee20c5bfdd7caba173912d4281cae816b79a201b", "27ca64c092a959c7edc525ed45e845b1de6a7590d173fd2fad9133c8a779a1e3"],"prevHash":"0209d4aa08c40ed0fcb2bb6eb276481f2ad045914c3065e13e4f1657e97638b1","stateRoot":"0101010101010101010101010101010101010101010101010101010101010101","softConfirmationSignature":"","pubKey":"", "l1FeeRate":0, "timestamp": 0, "txMerkleRoot": empty_tx_merkle_root});
     regular_test_helper(payload, &expected);
 
     // Get the first soft confirmation by hash
@@ -227,9 +227,9 @@ fn test_get_soft_confirmation() {
     // Get the second soft confirmation by number
     let payload = jsonrpc_req!("ledger_getSoftConfirmationByNumber", [2]);
     let txs = batch2_tx_receipts()
-        .1
+        .0
         .into_iter()
-        .map(|body| body.encode_hex::<String>())
+        .map(|r| borsh::to_vec(&r.hash).unwrap().encode_hex::<String>())
         .collect::<Vec<String>>();
 
     let tx_hashes = batch2_tx_receipts()
@@ -254,9 +254,9 @@ fn test_get_soft_confirmation() {
     let payload = jsonrpc_req!("ledger_getSoftConfirmationRange", [1, 2]);
 
     let txs = batch2_tx_receipts()
-        .1
+        .0
         .into_iter()
-        .map(|body| body.encode_hex::<String>())
+        .map(|r| borsh::to_vec(&r.hash).unwrap().encode_hex::<String>())
         .collect::<Vec<String>>();
 
     let tx_hashes = batch2_tx_receipts()
@@ -267,7 +267,7 @@ fn test_get_soft_confirmation() {
     let tx_merkle_root = compute_tx_merkle_root(&tx_hashes).unwrap();
     let expected = jsonrpc_result!(
         [
-            {"daSlotHeight":0,"daSlotHash":"0000000000000000000000000000000000000000000000000000000000000000","daSlotTxsCommitment":"0101010101010101010101010101010101010101010101010101010101010101","depositData": ["616161616162", "65656565656565656565"],"hash":"b5515a80204963f7db40e98af11aedb49a394b1c7e3d8b5b7a33346b8627444f","l2Height":1,"txs":["74783120626f6479", "74783220626f6479"],"prevHash":"0209d4aa08c40ed0fcb2bb6eb276481f2ad045914c3065e13e4f1657e97638b1", "stateRoot":"0101010101010101010101010101010101010101010101010101010101010101","softConfirmationSignature":"","pubKey":"","l1FeeRate":0, "timestamp": 0, "txMerkleRoot": empty_tx_merkle_root},
+            {"daSlotHeight":0,"daSlotHash":"0000000000000000000000000000000000000000000000000000000000000000","daSlotTxsCommitment":"0101010101010101010101010101010101010101010101010101010101010101","depositData": ["616161616162", "65656565656565656565"],"hash":"b5515a80204963f7db40e98af11aedb49a394b1c7e3d8b5b7a33346b8627444f","l2Height":1,"txs":["709b55bd3da0f5a838125bd0ee20c5bfdd7caba173912d4281cae816b79a201b", "27ca64c092a959c7edc525ed45e845b1de6a7590d173fd2fad9133c8a779a1e3"],"prevHash":"0209d4aa08c40ed0fcb2bb6eb276481f2ad045914c3065e13e4f1657e97638b1", "stateRoot":"0101010101010101010101010101010101010101010101010101010101010101","softConfirmationSignature":"","pubKey":"","l1FeeRate":0, "timestamp": 0, "txMerkleRoot": empty_tx_merkle_root},
             {"daSlotHeight":1,"daSlotHash":"0202020202020202020202020202020202020202020202020202020202020202","daSlotTxsCommitment":"0303030303030303030303030303030303030303030303030303030303030303","depositData": ["633434343434"],"hash":"f85fe0cb36fdaeca571c896ed476b49bb3c8eff00d935293a8967e1e9a62071e","l2Height":2,"txs": txs, "prevHash": "11ec8b9896aa1f400cc1dbd1b0ab3dcc97f2025b3d309b70ec249f687a807d1d", "stateRoot":"0101010101010101010101010101010101010101010101010101010101010101","softConfirmationSignature":"","pubKey":"","l1FeeRate":0, "timestamp": 0, "txMerkleRoot": tx_merkle_root}
         ]
     );
