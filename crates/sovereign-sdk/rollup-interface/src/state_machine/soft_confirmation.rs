@@ -194,7 +194,7 @@ impl<'txs, Tx: Clone + BorshSerialize> L2Block<'txs, Tx> {
 
     /// Expensive
     /// compute Borsh serialized txs
-    pub fn compute_blobs(&self) -> Vec<Vec<u8>> {
+    fn compute_blobs(&self) -> Vec<Vec<u8>> {
         self.txs
             .iter()
             .map(|tx| borsh::to_vec(tx).expect("Tx serialization shouldn't fail"))

@@ -44,8 +44,13 @@ async fn queries_test_runner(test_queries: Vec<TestExpect>, rpc_config: RpcConfi
 fn populate_ledger(ledger_db: &mut LedgerDB, l2_blocks: Vec<L2Block<'_, [u8; 32]>>) {
     for block in l2_blocks {
         let tx_hashes = block.txs.to_vec();
+        let tx_bodies = block
+            .txs
+            .iter()
+            .map(|tx| borsh::to_vec(tx).expect("Tx serialization shouldn't fail"))
+            .collect();
         ledger_db
-            .commit_l2_block(block.clone(), tx_hashes, Some(block.compute_blobs()))
+            .commit_l2_block(block.clone(), tx_hashes, Some(tx_bodies))
             .unwrap();
     }
 }
