@@ -166,14 +166,14 @@ where
     pub fn apply_soft_confirmation_txs(
         &mut self,
         soft_confirmation_info: &HookSoftConfirmationInfo,
-        txs_new: &[<Self as StateTransitionFunction<Da>>::Transaction],
+        txs: &[<Self as StateTransitionFunction<Da>>::Transaction],
         batch_workspace: &mut WorkingSet<C::Storage>,
     ) -> Result<(), StateTransitionError> {
-        self.apply_sov_txs_inner(soft_confirmation_info, txs_new, batch_workspace)
+        self.apply_sov_txs_inner(soft_confirmation_info, txs, batch_workspace)
     }
 
     /// Verify l2_block hash and signature
-    pub fn verify_soft_confirmation_signature(
+    pub fn verify_soft_confirmation(
         &self,
         current_spec: SpecId,
         l2_block: &L2Block<<Self as StateTransitionFunction<Da>>::Transaction>,
@@ -364,7 +364,7 @@ where
 
         self.apply_soft_confirmation_txs(&soft_confirmation_info, &l2_block.txs, &mut working_set)?;
 
-        self.verify_soft_confirmation_signature(current_spec, l2_block, sequencer_public_key)?;
+        self.verify_soft_confirmation(current_spec, l2_block, sequencer_public_key)?;
 
         self.end_soft_confirmation(soft_confirmation_info, &mut working_set)?;
 

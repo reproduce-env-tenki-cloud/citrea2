@@ -53,10 +53,10 @@ where
     pub fn apply_sov_txs_inner(
         &mut self,
         soft_confirmation_info: &HookSoftConfirmationInfo,
-        txs_new: &[<Self as StateTransitionFunction<Da>>::Transaction],
+        txs: &[<Self as StateTransitionFunction<Da>>::Transaction],
         sc_workspace: &mut WorkingSet<C::Storage>,
     ) -> Result<(), StateTransitionError> {
-        for tx in txs_new {
+        for tx in txs {
             self.apply_sov_tx_inner(soft_confirmation_info, tx, sc_workspace)?;
         }
         Ok(())

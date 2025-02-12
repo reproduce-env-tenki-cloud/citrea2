@@ -216,13 +216,13 @@ where
 
                         let signed_tx = self.sign_tx(raw_message, &mut working_set_to_discard)?;
 
-                        let txs_new = vec![signed_tx];
+                        let txs = vec![signed_tx];
 
                         let mut working_set = working_set_to_discard.checkpoint().to_revertable();
 
                         match self.stf.apply_soft_confirmation_txs(
                                     &soft_confirmation_info,
-                                    &txs_new,
+                                    &txs,
                                     &mut working_set,
                                 ) {
                                     Ok(result) => result,
@@ -383,8 +383,8 @@ where
             bail!("Failed to apply begin soft confirmation hook: {:?}", err)
         };
 
+        let mut blobs = vec![];
         let mut txs = vec![];
-        let mut txs_new = vec![];
 
         let evm_txs_count = txs_to_run.len();
         if evm_txs_count > 0 {
@@ -393,11 +393,11 @@ where
                 <Runtime<C, Da::Spec> as EncodeCall<citrea_evm::Evm<C>>>::encode_call(call_txs);
             let signed_blob = self.make_blob(raw_message.clone(), &mut working_set)?;
             let signed_tx = self.sign_tx(raw_message, &mut working_set)?;
-            txs.push(signed_blob);
-            txs_new.push(signed_tx);
+            blobs.push(signed_blob);
+            txs.push(signed_tx);
 
             self.stf
-                .apply_soft_confirmation_txs(&soft_confirmation_info, &txs_new, &mut working_set)
+                .apply_soft_confirmation_txs(&soft_confirmation_info, &txs, &mut working_set)
                 .expect("dry_run_transactions should have already checked this");
         }
 
@@ -410,7 +410,7 @@ where
                 .finalize_soft_confirmation(active_fork_spec, working_set, prestate);
 
         // Calculate tx hashes for merkle root
-        let tx_hashes = compute_tx_hashes::<C, _, Da::Spec>(&txs_new, active_fork_spec);
+        let tx_hashes = compute_tx_hashes::<C, _, Da::Spec>(&txs, active_fork_spec);
         let tx_merkle_root = compute_tx_merkle_root(&tx_hashes)?;
 
         // create the soft confirmation header
@@ -427,7 +427,7 @@ where
             timestamp,
         );
 
-        let l2_block = self.sign_soft_confirmation(active_fork_spec, header, &txs, &txs_new)?;
+        let l2_block = self.sign_soft_confirmation(active_fork_spec, header, &blobs, &txs)?;
 
         debug!(
             "soft confirmation with hash: {:?} from sequencer {:?} has been successfully applied",
@@ -460,7 +460,7 @@ where
         let soft_confirmation_hash = l2_block.hash();
 
         self.ledger_db
-            .commit_l2_block(l2_block, tx_hashes, Some(txs))?;
+            .commit_l2_block(l2_block, tx_hashes, Some(blobs))?;
 
         // connect L1 and L2 height
         self.ledger_db.extend_l2_range_of_l1_slot(
