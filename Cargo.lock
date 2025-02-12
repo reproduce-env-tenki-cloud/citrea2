@@ -7990,7 +7990,7 @@ version = "0.6.0"
 dependencies = [
  "anyhow",
  "borsh",
- "citrea-common",
+ "citrea-primitives",
  "hex",
  "itertools 0.13.0",
  "jmt",

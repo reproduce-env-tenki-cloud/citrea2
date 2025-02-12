@@ -1,9 +1,8 @@
 #![deny(missing_docs)]
 #![doc = include_str!("../README.md")]
 
-use anyhow::bail;
 use borsh::{BorshDeserialize, BorshSerialize};
-use citrea_common::utils::{compute_tx_hashes, compute_tx_merkle_root};
+use citrea_primitives::EMPTY_TX_ROOT;
 use itertools::Itertools;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::MerkleTree;
@@ -662,14 +661,39 @@ fn verify_genesis_signature<C: Context>(
     Ok(())
 }
 
-fn verify_tx_merkle_root<C: Context, Tx: Clone + BorshSerialize + TransactionDigest>(
+fn verify_tx_merkle_root<C: Context + Spec, Tx: Clone + BorshSerialize + TransactionDigest>(
     current_spec: SpecId,
     l2_block: &L2Block<'_, Tx>,
-) -> anyhow::Result<()> {
-    let tx_hashes = compute_tx_hashes::<C, _>(&l2_block.txs, current_spec);
-    let tx_merkle_root = compute_tx_merkle_root(&tx_hashes)?;
+) -> Result<(), StateTransitionError> {
+    let tx_hashes: Vec<[u8; 32]> = if current_spec >= SpecId::Kumquat {
+        l2_block
+            .txs
+            .iter()
+            .map(|tx| tx.compute_digest::<<C as Spec>::Hasher>().into())
+            .collect()
+    } else {
+        l2_block
+            .txs
+            .iter()
+            .map(|tx| {
+                let serialized = borsh::to_vec(tx).expect("Tx serialization shouldn't fail");
+                <C as Spec>::Hasher::digest(&serialized).into()
+            })
+            .collect()
+    };
+
+    let tx_merkle_root = if tx_hashes.is_empty() {
+        EMPTY_TX_ROOT
+    } else {
+        MerkleTree::<Sha256>::from_leaves(&tx_hashes)
+            .root()
+            .expect("Couldn't compute merkle root")
+    };
+
     if tx_merkle_root != l2_block.tx_merkle_root() {
-        bail!("Wrong tx merkle root");
+        return Err(StateTransitionError::SoftConfirmationError(
+            SoftConfirmationError::InvalidateTxMerkleRoot,
+        ));
     }
     Ok(())
 }

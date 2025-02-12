@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::Context as _;
 use borsh::BorshSerialize;
+use citrea_primitives::EMPTY_TX_ROOT;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::MerkleTree;
 use sov_db::ledger_db::SharedLedgerOps;
@@ -12,13 +13,6 @@ use sov_rollup_interface::digest::Digest;
 use sov_rollup_interface::rpc::SoftConfirmationStatus;
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::stf::{StateDiff, TransactionDigest};
-
-/// SHA-256 hash of "citrea" string
-/// Used as the default tx merkle root when the block has no transactions
-const EMPTY_TX_ROOT: [u8; 32] = [
-    0xb9, 0x38, 0x83, 0x52, 0xdd, 0xd5, 0x9e, 0x59, 0xf6, 0x7a, 0x20, 0x8c, 0xbe, 0xba, 0xb3, 0xcd,
-    0x6b, 0x23, 0xf9, 0x62, 0xa9, 0x03, 0x2e, 0xfe, 0x78, 0x58, 0xcd, 0x84, 0x01, 0x38, 0xaa, 0x27,
-];
 
 pub fn merge_state_diffs(old_diff: StateDiff, new_diff: StateDiff) -> StateDiff {
     let mut new_diff_map = HashMap::<Vec<u8>, Option<Vec<u8>>>::from_iter(old_diff);

@@ -28,7 +28,7 @@ sov-rollup-interface = { path = "../../rollup-interface" }
 sov-state = { path = "../sov-state" }
 
 # Citrea deps
-citrea-common = { path = "../../../../crates/common" }
+citrea-primitives = { path = "../../../../crates/primitives" }
 
 [features]
 default = []
