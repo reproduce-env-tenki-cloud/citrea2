@@ -321,7 +321,7 @@ impl<'txs, Tx: Clone + BorshSerialize> From<&'txs L2Block<'_, Tx>> for UnsignedS
             da_slot_height: header.da_slot_height,
             da_slot_hash: header.da_slot_hash,
             da_slot_txs_commitment: header.da_slot_txs_commitment,
-            blobs: block.compute_blobs().into(),
+            blobs: block.compute_blobs(),
             deposit_data: header.deposit_data.clone(),
             l1_fee_rate: header.l1_fee_rate,
             timestamp: header.timestamp,
