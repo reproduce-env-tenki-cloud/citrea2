@@ -474,11 +474,11 @@ where
         // There is a chance of your "relevant transaction" being replayed on da layer, if the da layer does not have
         // a publickey-nonce check. To prevent from these attacks stopping our proving, we need to have a way to input the
         // the commitments we will ignore. This does not break any trust assumptions, as the zk circuit checks the
-        // state transitions. So the prover can not leave out any commitments, beacuse it would break the state root checks
+        // state transitions. So the prover can not leave out any commitments, because it would break the state root checks
         // done by the zk circuit.
         //
         // If there is limitations on da on for the size of a single transaction (all blockchains have this), then
-        // it's a good idea to allow proving of a single sequencer commitment at a time. Because more sequencer commmitments being
+        // it's a good idea to allow proving of a single sequencer commitment at a time. Because more sequencer commitments being
         // processed means there will be a bigger state diff. But sometimes it's efficient to
         // prove multiple commitments at a time. So we need to have a way to input the range of commitments we are proving.
         //
