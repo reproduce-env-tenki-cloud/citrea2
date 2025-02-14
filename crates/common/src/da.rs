@@ -6,11 +6,13 @@ use alloy_primitives::U64;
 use anyhow::anyhow;
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
+use futures::executor::block_on;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use metrics::Histogram;
 use sov_db::ledger_db::{LedgerDB, SharedLedgerOps};
 use sov_ledger_rpc::LedgerRpcClient;
-use sov_rollup_interface::da::{BlockHeaderTrait, SequencerCommitment};
+use sov_modules_api::DaSpec;
+use sov_rollup_interface::da::{BlockHeaderTrait, SequencerCommitment, ShortHeaderProofProvider};
 use sov_rollup_interface::services::da::{DaService, SlotData};
 use sov_rollup_interface::zk::Proof;
 use tokio::sync::Mutex;
@@ -182,4 +184,43 @@ pub async fn get_start_l1_height<Da>(
         }
     };
     Ok(height + 1)
+}
+
+pub struct NativeShortHeaderProofProviderService<Da: DaService> {
+    pub da_service: Arc<Da>,
+}
+
+impl<Da: DaService> NativeShortHeaderProofProviderService<Da> {
+    pub fn new(da_service: Arc<Da>) -> Self {
+        Self { da_service }
+    }
+}
+
+impl<Da: DaService> ShortHeaderProofProvider<<Da as DaService>::Spec>
+    for NativeShortHeaderProofProviderService<Da>
+{
+    fn get_short_header_proof_by_l1_hash(
+        &self,
+        block_hash: [u8; 32],
+    ) -> <<Da as DaService>::Spec as DaSpec>::ShortHeaderProof {
+        // let block = self.da_service.get_block_at(block_height)?;
+
+        let block = block_on(self.da_service.get_block_by_hash(block_hash.into())).unwrap();
+        let shp = Da::block_to_short_header_proof(block);
+        shp
+    }
+}
+pub struct ZkShortHeaderProofProviderService {}
+
+impl ZkShortHeaderProofProviderService {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl<Da: DaSpec> ShortHeaderProofProvider<Da> for ZkShortHeaderProofProviderService {
+    fn get_short_header_proof_by_l1_hash(&self, block_hash: [u8; 32]) -> Da::ShortHeaderProof {
+        // TODO: Implement getter for Zkvm
+        unimplemented!()
+    }
 }

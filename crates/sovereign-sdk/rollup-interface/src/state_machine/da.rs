@@ -464,3 +464,11 @@ impl Time {
         self.nanos
     }
 }
+
+/// Short Header Proof Provider
+/// This trait is used to get the short header proof by the l1 hash
+/// for full nodes and provers to verify sequencer set block info system transaction parameters
+pub trait ShortHeaderProofProvider<Da: DaSpec> {
+    /// Returns short header proof by the l1 hash
+    fn get_short_header_proof_by_l1_hash(&self, l1_hash: [u8; 32]) -> Da::ShortHeaderProof;
+}

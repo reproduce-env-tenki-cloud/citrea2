@@ -4,8 +4,9 @@ use revm::primitives::{
 };
 use revm::{self, Context, Database, DatabaseCommit, EvmContext};
 use sov_modules_api::{
-    native_error, native_trace, SoftConfirmationModuleCallError, SpecId as CitreaSpecId,
+    native_error, native_trace, DaSpec, SoftConfirmationModuleCallError, SpecId as CitreaSpecId,
 };
+use sov_rollup_interface::da::{ShortHeaderProofProvider, VerifableShortHeaderProof};
 #[cfg(feature = "native")]
 use tracing::trace_span;
 
@@ -73,13 +74,19 @@ where
 
 /// Will fail on the first error.
 /// Rendering the soft confirmation invalid
-pub(crate) fn execute_multiple_tx<C: sov_modules_api::Context, EXT: CitreaExternalExt>(
-    db: EvmDb<C>,
+pub(crate) fn execute_multiple_tx<
+    C: sov_modules_api::Context,
+    EXT: CitreaExternalExt,
+    Da: DaSpec,
+    SHP: ShortHeaderProofProvider<Da>,
+>(
+    db: EvmDb<C, Da>,
     block_env: BlockEnv,
     txs: &[TransactionSignedEcRecovered],
     config_env: CfgEnvWithHandlerCfg,
     ext: &mut EXT,
     prev_gas_used: u64,
+    shp_service: &SHP,
 ) -> Result<Vec<ExecutionResult>, SoftConfirmationModuleCallError> {
     if txs.is_empty() {
         return Ok(vec![]);
@@ -107,6 +114,9 @@ pub(crate) fn execute_multiple_tx<C: sov_modules_api::Context, EXT: CitreaExtern
         // if calculated_hash != hash {
         //     return Err(SoftConfirmationModuleCallError::EvmInvalidShortHeaderProof);
         // }
+        let shp = shp_service.get_short_header_proof_by_l1_hash([0u8; 32]);
+        // TODO: DO error handling here
+        shp.verify().unwrap();
 
         if tx.signer() == SYSTEM_SIGNER {
             native_error!("System transaction found in user txs");
@@ -152,8 +162,12 @@ pub(crate) fn execute_multiple_tx<C: sov_modules_api::Context, EXT: CitreaExtern
     Ok(tx_results)
 }
 
-pub(crate) fn execute_system_txs<C: sov_modules_api::Context, EXT: CitreaExternalExt>(
-    db: EvmDb<C>,
+pub(crate) fn execute_system_txs<
+    C: sov_modules_api::Context,
+    EXT: CitreaExternalExt,
+    Da: DaSpec,
+>(
+    db: EvmDb<C, Da>,
     block_env: BlockEnv,
     system_txs: &[TransactionSignedEcRecovered],
     config_env: CfgEnvWithHandlerCfg,

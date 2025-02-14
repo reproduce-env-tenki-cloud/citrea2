@@ -4,6 +4,7 @@ use borsh::BorshDeserialize;
 use sov_modules_api::hooks::HookSoftConfirmationInfo;
 use sov_modules_api::transaction::{PreFork2Transaction, Transaction};
 use sov_modules_api::{native_debug, native_error, Context, DaSpec, SpecId, WorkingSet};
+use sov_rollup_interface::da::ShortHeaderProofProvider;
 use sov_rollup_interface::soft_confirmation::SignedSoftConfirmation;
 use sov_rollup_interface::stf::{
     SoftConfirmationError, SoftConfirmationHookError, StateTransitionError, StateTransitionFunction,
@@ -59,10 +60,11 @@ where
         txs: &[Vec<u8>],
         txs_new: &[<Self as StateTransitionFunction<Da>>::Transaction],
         sc_workspace: &mut WorkingSet<C::Storage>,
+        shp_provider: &impl ShortHeaderProofProvider<Da>,
     ) -> Result<(), StateTransitionError> {
         if soft_confirmation_info.current_spec >= SpecId::Kumquat {
             for tx in txs_new {
-                self.apply_sov_tx_inner(&soft_confirmation_info, tx, sc_workspace)?;
+                self.apply_sov_tx_inner(&soft_confirmation_info, tx, sc_workspace, shp_provider)?;
             }
         } else {
             for raw_tx in txs {
@@ -75,7 +77,12 @@ where
                         )
                     })?;
 
-                self.apply_sov_tx_inner(&soft_confirmation_info, &tx.into(), sc_workspace)?;
+                self.apply_sov_tx_inner(
+                    &soft_confirmation_info,
+                    &tx.into(),
+                    sc_workspace,
+                    shp_provider,
+                )?;
             }
         };
 
@@ -87,6 +94,7 @@ where
         soft_confirmation_info: &HookSoftConfirmationInfo,
         tx: &Transaction,
         sc_workspace: &mut WorkingSet<C::Storage>,
+        shp_provider: &impl ShortHeaderProofProvider<Da>,
     ) -> Result<(), StateTransitionError> {
         let current_spec = soft_confirmation_info.current_spec();
 
@@ -118,7 +126,7 @@ where
 
         let _ = self
             .runtime
-            .dispatch_call(msg, sc_workspace, &ctx)
+            .dispatch_call(msg, sc_workspace, &ctx, shp_provider)
             .map_err(StateTransitionError::ModuleCallError)?;
 
         self.runtime

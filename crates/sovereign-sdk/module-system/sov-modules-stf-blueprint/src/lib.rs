@@ -18,7 +18,7 @@ use sov_modules_api::{
     native_debug, BasicAddress, BlobReaderTrait, Context, DaSpec, DispatchCall, Genesis, Signature,
     Spec, StateCheckpoint, UnsignedSoftConfirmation, WorkingSet,
 };
-use sov_rollup_interface::da::DaDataBatchProof;
+use sov_rollup_interface::da::{DaDataBatchProof, ShortHeaderProofProvider};
 use sov_rollup_interface::fork::ForkManager;
 use sov_rollup_interface::soft_confirmation::{SignedSoftConfirmation, UnsignedSoftConfirmationV1};
 use sov_rollup_interface::spec::SpecId;
@@ -169,8 +169,15 @@ where
         txs: &[Vec<u8>],
         txs_new: &[<Self as StateTransitionFunction<Da>>::Transaction],
         batch_workspace: &mut WorkingSet<C::Storage>,
+        shp_provider: &impl ShortHeaderProofProvider<Da>,
     ) -> Result<(), StateTransitionError> {
-        self.apply_sov_txs_inner(soft_confirmation_info, txs, txs_new, batch_workspace)
+        self.apply_sov_txs_inner(
+            soft_confirmation_info,
+            txs,
+            txs_new,
+            batch_workspace,
+            shp_provider,
+        )
     }
 
     /// End a soft confirmation
@@ -393,6 +400,7 @@ where
         // nodes construct the header on their own
         slot_header: &<Da as DaSpec>::BlockHeader,
         soft_confirmation: &mut SignedSoftConfirmation<Self::Transaction>,
+        shp_provider: &impl ShortHeaderProofProvider<Da>,
     ) -> Result<SoftConfirmationResult<Self::ChangeSet, Self::Witness>, StateTransitionError> {
         let soft_confirmation_info =
             HookSoftConfirmationInfo::new(soft_confirmation, *pre_state_root, current_spec);
@@ -415,6 +423,7 @@ where
             soft_confirmation.blobs(),
             soft_confirmation.txs(),
             &mut working_set,
+            shp_provider,
         )?;
 
         self.end_soft_confirmation(
@@ -448,6 +457,7 @@ where
         slot_headers: std::collections::VecDeque<Vec<<Da as DaSpec>::BlockHeader>>,
         preproven_commitment_indices: Vec<usize>,
         forks: &[Fork],
+        shp_provider: &impl ShortHeaderProofProvider<Da>,
     ) -> ApplySequencerCommitmentsOutput {
         let mut state_diff = CumulativeStateDiff::default();
 
@@ -680,6 +690,7 @@ where
                         offchain_witness,
                         &da_block_headers[index_headers],
                         &mut soft_confirmation,
+                        shp_provider,
                     )
                     // TODO: this can be just ignoring the failing seq. com.
                     // We can count a failed soft confirmation as a valid state transition.

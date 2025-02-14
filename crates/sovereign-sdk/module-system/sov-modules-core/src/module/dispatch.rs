@@ -1,13 +1,14 @@
 //! Runtime call message definitions.
 
 use borsh::io;
+use sov_rollup_interface::da::DaSpec;
 use sov_rollup_interface::stf::SoftConfirmationModuleCallError;
 
 use crate::module::{CallResponse, Context, Spec};
 use crate::storage::WorkingSet;
 
 /// A trait that needs to be implemented for any call message.
-pub trait DispatchCall: Send + Sync {
+pub trait DispatchCall<Da: DaSpec>: Send + Sync {
     /// The context of the call
     type Context: Context;
 
@@ -23,6 +24,7 @@ pub trait DispatchCall: Send + Sync {
         message: Self::Decodable,
         working_set: &mut WorkingSet<<Self::Context as Spec>::Storage>,
         context: &Self::Context,
+        shp_provider: &impl sov_rollup_interface::da::ShortHeaderProofProvider<Da>,
     ) -> Result<CallResponse, SoftConfirmationModuleCallError>;
 
     /// Returns an address of the dispatched module.

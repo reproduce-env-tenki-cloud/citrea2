@@ -216,6 +216,7 @@ impl<C: sov_modules_api::Context, Da: DaSpec> sov_modules_api::Module for Evm<C,
         msg: Self::CallMessage,
         context: &Self::Context,
         working_set: &mut WorkingSet<C::Storage>,
+        shp_provider: &impl sov_rollup_interface::da::ShortHeaderProofProvider<Da>,
     ) -> Result<sov_modules_api::CallResponse, SoftConfirmationModuleCallError> {
         self.execute_call(msg.txs, context, working_set)
     }

@@ -2160,6 +2160,7 @@ version = "0.6.0"
 dependencies = [
  "anyhow",
  "borsh",
+ "citrea-common",
  "citrea-evm",
  "jsonrpsee",
  "serde",

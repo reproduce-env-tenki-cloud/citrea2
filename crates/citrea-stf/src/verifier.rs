@@ -1,3 +1,4 @@
+use citrea_common::da::ZkShortHeaderProofProviderService;
 use sov_modules_api::da::BlockHeaderTrait;
 use sov_modules_api::fork::Fork;
 use sov_rollup_interface::da::{DaNamespace, DaVerifier};
@@ -51,6 +52,8 @@ where
             DaNamespace::ToBatchProver,
         )?;
 
+        let shp_provider = ZkShortHeaderProofProviderService::new();
+
         println!("going into apply_soft_confirmations_from_sequencer_commitments");
         let ApplySequencerCommitmentsOutput {
             final_state_root,
@@ -71,6 +74,7 @@ where
                 data.da_block_headers_of_soft_confirmations,
                 data.preproven_commitments.clone(),
                 forks,
+                &shp_provider,
             );
 
         println!("out of apply_soft_confirmations_from_sequencer_commitments");

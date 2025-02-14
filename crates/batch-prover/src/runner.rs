@@ -8,7 +8,7 @@ use anyhow::{bail, Context as _};
 use backoff::exponential::ExponentialBackoffBuilder;
 use backoff::future::retry as retry_backoff;
 use citrea_common::cache::L1BlockCache;
-use citrea_common::da::get_da_block_at_height;
+use citrea_common::da::{get_da_block_at_height, NativeShortHeaderProofProviderService};
 use citrea_common::utils::soft_confirmation_to_receipt;
 use citrea_common::{InitParams, RollupPublicKeys, RunnerConfig};
 use citrea_primitives::types::SoftConfirmationHash;
@@ -256,6 +256,8 @@ where
                 )
             };
 
+        let shp_provider = NativeShortHeaderProofProviderService::new(self.da_service.clone());
+
         let soft_confirmation_result = if current_spec >= SpecId::Fork2 {
             self.stf.apply_soft_confirmation(
                 current_spec,
@@ -266,6 +268,7 @@ where
                 Default::default(),
                 current_l1_block.header(),
                 &mut signed_soft_confirmation,
+                &shp_provider,
             )?
         } else {
             self.stf.apply_soft_confirmation(
@@ -277,6 +280,7 @@ where
                 Default::default(),
                 current_l1_block.header(),
                 &mut signed_soft_confirmation,
+                &shp_provider,
             )?
         };
 

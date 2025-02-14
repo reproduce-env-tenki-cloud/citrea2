@@ -30,7 +30,7 @@ impl<'a> StructDef<'a> {
 
             quote::quote!(
                 #enum_ident::#name(message)=>{
-                    ::sov_modules_api::Module::call(&mut self.#name, message, context, working_set)
+                    ::sov_modules_api::Module::call(&mut self.#name, message, context, working_set, shp_provider)
                 },
             )
         });
@@ -53,8 +53,8 @@ impl<'a> StructDef<'a> {
         let ty_generics = &self.type_generics;
         let call_enum = self.enum_ident(CALL);
 
-        quote::quote! {
-            impl #impl_generics ::sov_modules_api::DispatchCall for #ident #type_generics #where_clause {
+        let keko = quote::quote! {
+            impl #impl_generics ::sov_modules_api::DispatchCall<Da: DaSpec> for #ident #type_generics #where_clause {
                 type Context = #generic_param;
                 type Decodable = #call_enum #ty_generics;
 
@@ -68,6 +68,7 @@ impl<'a> StructDef<'a> {
                     decodable: Self::Decodable,
                     working_set: &mut ::sov_modules_api::WorkingSet<<Self::Context as Spec>::Storage>,
                     context: &Self::Context,
+                    shp_provider: &impl ::sov_rollup_interface::da::ShortHeaderProofProvider<Da>,
                 ) -> ::core::result::Result<::sov_modules_api::CallResponse, ::sov_modules_api::SoftConfirmationModuleCallError> {
 
                     match decodable {
@@ -83,7 +84,11 @@ impl<'a> StructDef<'a> {
                 }
 
             }
-        }
+        };
+
+        println!("keko: {:?}", keko);
+
+        keko
     }
 }
 

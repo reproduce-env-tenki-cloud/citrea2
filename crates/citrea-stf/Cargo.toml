@@ -26,6 +26,7 @@ sov-modules-stf-blueprint = { path = "../sovereign-sdk/module-system/sov-modules
 sov-rollup-interface = { path = "../sovereign-sdk/rollup-interface" }
 sov-state = { path = "../sovereign-sdk/module-system/sov-state", optional = true }
 
+citrea-common = { path = "../common" }
 citrea-evm = { path = "../evm" }
 soft-confirmation-rule-enforcer = { path = "../soft-confirmation-rule-enforcer" }
 

@@ -7,7 +7,10 @@ use anyhow::{bail, Context as _};
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
 use citrea_common::cache::L1BlockCache;
-use citrea_common::da::get_da_block_at_height;
+use citrea_common::da::{
+    get_da_block_at_height, NativeShortHeaderProofProviderService,
+    ZkShortHeaderProofProviderService,
+};
 use citrea_common::utils::soft_confirmation_to_receipt;
 use citrea_common::{InitParams, RollupPublicKeys, RunnerConfig};
 use citrea_primitives::types::SoftConfirmationHash;
@@ -148,6 +151,8 @@ where
 
         let current_spec = self.fork_manager.active_fork().spec_id;
 
+        let shp_provider = NativeShortHeaderProofProviderService::new(self.da_service.clone());
+
         let mut signed_soft_confirmation: SignedSoftConfirmation<StfTransaction<C, Da::Spec, RT>> =
             // TODO: Should this be >= Fork2?
             if current_spec >= SpecId::Kumquat {
@@ -199,6 +204,7 @@ where
                 Default::default(),
                 current_l1_block.header(),
                 &mut signed_soft_confirmation,
+                &shp_provider,
             )?
         } else {
             self.stf.apply_soft_confirmation(
@@ -210,6 +216,7 @@ where
                 Default::default(),
                 current_l1_block.header(),
                 &mut signed_soft_confirmation,
+                &shp_provider,
             )?
         };
 

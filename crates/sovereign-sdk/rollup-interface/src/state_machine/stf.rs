@@ -10,6 +10,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use super::da::ShortHeaderProofProvider;
 use super::zk::{StorageRootHash, ZkvmGuest};
 use crate::da::DaSpec;
 use crate::fork::Fork;
@@ -195,6 +196,7 @@ pub trait StateTransitionFunction<Da: DaSpec> {
         offchain_witness: Self::Witness,
         slot_header: &Da::BlockHeader,
         soft_confirmation: &mut SignedSoftConfirmation<Self::Transaction>,
+        shp_provider: &impl ShortHeaderProofProvider<Da>,
     ) -> Result<SoftConfirmationResult<Self::ChangeSet, Self::Witness>, StateTransitionError>;
 
     /// Runs a vector of Soft Confirmations
@@ -203,6 +205,7 @@ pub trait StateTransitionFunction<Da: DaSpec> {
     #[allow(clippy::type_complexity)]
     #[allow(clippy::too_many_arguments)]
     fn apply_soft_confirmations_from_sequencer_commitments(
+        // TODO:: Just give ZkShotHeaderProviderService here, then inside pass it to apply_soft_confirmation, it works as it has the same interface
         &mut self,
         guest: &impl ZkvmGuest,
         sequencer_public_key: &[u8],
@@ -215,6 +218,7 @@ pub trait StateTransitionFunction<Da: DaSpec> {
         slot_headers: VecDeque<Vec<Da::BlockHeader>>,
         preproven_commitment_indicies: Vec<usize>,
         forks: &[Fork],
+        shp_provider: &impl ShortHeaderProofProvider<Da>,
     ) -> ApplySequencerCommitmentsOutput;
 }
 
