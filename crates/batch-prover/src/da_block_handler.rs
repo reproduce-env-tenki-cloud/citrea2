@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context as _};
 use borsh::{BorshDeserialize, BorshSerialize};
+use citrea_common::backup::BackupManager;
 use citrea_common::cache::L1BlockCache;
 use citrea_common::da::{get_da_block_at_height, sync_l1};
 use citrea_common::utils::merge_state_diffs;
@@ -60,6 +61,7 @@ where
     pending_l1_blocks: VecDeque<<Da as DaService>::FilteredBlock>,
     _witness: PhantomData<Witness>,
     _tx: PhantomData<Tx>,
+    backup_manager: Arc<BackupManager>,
 }
 
 impl<Vm, Da, DB, Witness, Tx> L1BlockHandler<Vm, Da, DB, Witness, Tx>
@@ -82,6 +84,7 @@ where
         elfs_by_spec: HashMap<SpecId, Vec<u8>>,
         skip_submission_until_l1: u64,
         l1_block_cache: Arc<Mutex<L1BlockCache<Da>>>,
+        backup_manager: Arc<BackupManager>,
     ) -> Self {
         Self {
             prover_config,
@@ -97,6 +100,7 @@ where
             pending_l1_blocks: VecDeque::new(),
             _witness: PhantomData,
             _tx: PhantomData,
+            backup_manager,
         }
     }
 
@@ -122,6 +126,7 @@ where
         );
         tokio::pin!(l1_sync_worker);
 
+        let backup_manager = self.backup_manager.clone();
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         interval.tick().await;
         loop {
@@ -136,6 +141,7 @@ where
                     self.pending_l1_blocks.push_back(l1_block);
                 },
                 _ = interval.tick() => {
+                    let _l1_guard = backup_manager.start_l1_processing().await;
                     if let Err(e) = self.process_l1_block().await {
                         error!("Could not process L1 block and generate proof: {:?}", e);
                     }

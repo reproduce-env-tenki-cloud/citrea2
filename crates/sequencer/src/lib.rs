@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use citrea_common::backup::BackupManager;
 pub use citrea_common::SequencerConfig;
 use citrea_common::{InitParams, RollupPublicKeys};
 use db_provider::DbProvider;
@@ -43,6 +44,7 @@ pub fn build_services<C, Da, DB, RT>(
     soft_confirmation_tx: broadcast::Sender<u64>,
     fork_manager: ForkManager<'static>,
     rpc_module: RpcModule<()>,
+    backup_manager: Arc<BackupManager>,
 ) -> Result<(CitreaSequencer<C, Da, DB, RT>, RpcModule<()>)>
 where
     C: Context + Spec<Storage = ProverStorage<SnapshotManager>>,
@@ -82,6 +84,7 @@ where
         deposit_mempool,
         fork_manager,
         soft_confirmation_tx,
+        backup_manager,
         l2_force_block_rx,
     )
     .unwrap();

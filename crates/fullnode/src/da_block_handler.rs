@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use citrea_common::backup::BackupManager;
 use citrea_common::cache::L1BlockCache;
 use citrea_common::da::{extract_sequencer_commitments, extract_zk_proofs, sync_l1};
 use citrea_common::error::SyncError;
@@ -46,6 +47,7 @@ where
     l1_block_cache: Arc<Mutex<L1BlockCache<Da>>>,
     pending_l1_blocks: VecDeque<<Da as DaService>::FilteredBlock>,
     _context: PhantomData<C>,
+    backup_manager: Arc<BackupManager>,
 }
 
 impl<C, Vm, Da, DB> L1BlockHandler<C, Vm, Da, DB>
@@ -64,6 +66,7 @@ where
         prover_da_pub_key: Vec<u8>,
         code_commitments_by_spec: HashMap<SpecId, Vm::CodeCommitment>,
         l1_block_cache: Arc<Mutex<L1BlockCache<Da>>>,
+        backup_manager: Arc<BackupManager>,
     ) -> Self {
         Self {
             ledger_db,
@@ -75,6 +78,7 @@ where
             l1_block_cache,
             pending_l1_blocks: VecDeque::new(),
             _context: PhantomData,
+            backup_manager,
         }
     }
 
@@ -111,6 +115,7 @@ where
     }
 
     async fn process_l1_block(&mut self) {
+        let _l1_lock = self.backup_manager.start_l1_processing().await;
         if self.pending_l1_blocks.is_empty() {
             return;
         }

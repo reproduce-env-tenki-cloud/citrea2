@@ -1884,6 +1884,7 @@ name = "citrea-cli"
 version = "0.6.0"
 dependencies = [
  "anyhow",
+ "citrea-common",
  "citrea-storage-ops",
  "clap",
  "sov-db",
@@ -1899,6 +1900,7 @@ version = "0.6.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
+ "async-trait",
  "backoff",
  "citrea-primitives",
  "citrea-storage-ops",
@@ -1908,6 +1910,7 @@ dependencies = [
  "jsonrpsee",
  "lru",
  "metrics",
+ "rocksdb",
  "serde",
  "serde_json",
  "sov-db",
@@ -1915,6 +1918,7 @@ dependencies = [
  "sov-mock-da",
  "sov-modules-api",
  "sov-rollup-interface",
+ "sov-schema-db",
  "tempfile",
  "tokio",
  "tokio-util",
