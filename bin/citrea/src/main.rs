@@ -1,5 +1,6 @@
 use core::fmt::Debug as DebugTrait;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context as _};
@@ -7,11 +8,13 @@ use bitcoin_da::service::BitcoinServiceConfig;
 use citrea::{
     initialize_logging, BitcoinRollup, CitreaRollupBlueprint, Dependencies, MockDemoRollup, Storage,
 };
+use citrea_common::backup::BackupManager;
 use citrea_common::da::get_start_l1_height;
 use citrea_common::rpc::server::start_rpc_server;
 use citrea_common::{from_toml_path, FromEnv, FullNodeConfig};
 use citrea_light_client_prover::da_block_handler::StartVariant;
 use citrea_stf::genesis_config::GenesisPaths;
+use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use clap::Parser;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use metrics_util::MetricKindMask;
@@ -92,18 +95,14 @@ async fn main() -> anyhow::Result<()> {
 #[instrument(level = "trace", skip_all, err)]
 async fn start_rollup<S, DaC>(
     network: Network,
-    runtime_genesis_paths: &<<S as RollupBlueprint>::NativeRuntime as sov_modules_stf_blueprint::Runtime<
-        <S as RollupBlueprint>::NativeContext,
-        <S as RollupBlueprint>::DaSpec,
-    >>::GenesisPaths,
+    runtime_genesis_paths: &<CitreaRuntime<DefaultContext, <S as RollupBlueprint>::DaSpec> as sov_modules_stf_blueprint::Runtime<DefaultContext, <S as RollupBlueprint>::DaSpec>>::GenesisPaths,
     rollup_config_path: Option<String>,
     node_type: NodeType,
 ) -> Result<(), anyhow::Error>
 where
     DaC: serde::de::DeserializeOwned + DebugTrait + Clone + FromEnv + Send + Sync + 'static,
     S: CitreaRollupBlueprint<DaConfig = DaC>,
-    <<S as RollupBlueprint>::NativeContext as Spec>::Storage: NativeStorage,
-    <S as RollupBlueprint>::NativeRuntime: 'static,
+    <DefaultContext as Spec>::Storage: NativeStorage,
 {
     let rollup_config: FullNodeConfig<DaC> = match rollup_config_path {
         Some(path) => from_toml_path(path)
@@ -132,6 +131,12 @@ where
     }
 
     let rollup_blueprint = S::new(network);
+
+    let backup_manager = Arc::new(BackupManager::new(
+        node_type.to_string(),
+        rollup_config.storage.backup_path.clone(),
+        Default::default(),
+    ));
 
     // Based on the node's type, execute migrations before constructing an instance of LedgerDB
     // so that avoid locking the DB.
@@ -181,7 +186,7 @@ where
         ledger_db,
         storage_manager,
         prover_storage,
-    } = rollup_blueprint.setup_storage(&rollup_config, &rocksdb_config)?;
+    } = rollup_blueprint.setup_storage(&rollup_config, &rocksdb_config, &backup_manager)?;
 
     let Dependencies {
         da_service,
@@ -212,6 +217,7 @@ where
         da_service.clone(),
         sequencer_client_url,
         soft_confirmation_rx,
+        &backup_manager,
     )?;
 
     match node_type {
@@ -227,6 +233,7 @@ where
                     prover_storage,
                     soft_confirmation_channel.0,
                     rpc_module,
+                    backup_manager,
                 )
                 .expect("Could not start sequencer");
 
@@ -256,6 +263,7 @@ where
                     prover_storage,
                     soft_confirmation_channel.0,
                     rpc_module,
+                    backup_manager,
                 )
                 .await
                 .expect("Could not start batch prover");
@@ -301,6 +309,7 @@ where
                     da_service,
                     ledger_db,
                     rpc_module,
+                    backup_manager,
                 )
                 .await
                 .expect("Could not start light client prover");
@@ -335,6 +344,7 @@ where
                     storage_manager,
                     prover_storage,
                     soft_confirmation_channel.0,
+                    backup_manager,
                 )
                 .await
                 .expect("Could not start full-node");
