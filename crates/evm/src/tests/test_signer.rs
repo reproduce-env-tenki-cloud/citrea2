@@ -1,15 +1,15 @@
+use alloy_consensus::{TxEip1559 as RethTxEip1559, TxEip4844 as RethTxEip4844};
+use alloy_eips::eip2718::Encodable2718;
+use alloy_primitives::{Address, Bytes as RethBytes, TxKind, B256, U256};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use reth_primitives::{
-    Address, Bytes as RethBytes, Transaction as RethTransaction, TxEip1559 as RethTxEip1559,
-    TxEip4844 as RethTxEip4844, TxKind, B256, U256,
-};
+use reth_primitives::Transaction as RethTransaction;
+use reth_rpc_eth_types::SignError;
 use secp256k1::{PublicKey, SecretKey};
 
 use crate::evm::RlpEvmTransaction;
 use crate::signer::DevSigner;
 use crate::tests::DEFAULT_CHAIN_ID;
-use crate::SignError;
 
 /// ETH transactions signer used in tests.
 pub(crate) struct TestSigner {
@@ -73,10 +73,37 @@ impl TestSigner {
 
         let reth_tx = RethTransaction::Eip1559(reth_tx);
         let signed = self.signer.sign_transaction(reth_tx, self.address)?;
+        let mut buf = vec![];
+        signed.encode_2718(&mut buf);
+        Ok(RlpEvmTransaction { rlp: buf })
+    }
 
-        Ok(RlpEvmTransaction {
-            rlp: signed.envelope_encoded().to_vec(),
-        })
+    /// Signs default Eip1559 transaction with to, data, gas limit and nonce overridden.
+    pub(crate) fn sign_default_transaction_with_fee_and_gas_limit(
+        &self,
+        to: TxKind,
+        data: Vec<u8>,
+        nonce: u64,
+        value: u128,
+        max_fee_per_gas: u128,
+        gas_limit: u64,
+    ) -> Result<RlpEvmTransaction, SignError> {
+        let reth_tx = RethTxEip1559 {
+            to,
+            input: RethBytes::from(data),
+            nonce,
+            value: U256::from(value),
+            chain_id: DEFAULT_CHAIN_ID,
+            gas_limit,
+            max_fee_per_gas,
+            ..Default::default()
+        };
+
+        let reth_tx = RethTransaction::Eip1559(reth_tx);
+        let signed = self.signer.sign_transaction(reth_tx, self.address)?;
+        let mut buf = vec![];
+        signed.encode_2718(&mut buf);
+        Ok(RlpEvmTransaction { rlp: buf })
     }
 
     /// Signs default Eip1559 transaction with to, data and nonce overridden.
@@ -103,10 +130,9 @@ impl TestSigner {
 
         let reth_tx = RethTransaction::Eip1559(reth_tx);
         let signed = self.signer.sign_transaction(reth_tx, self.address)?;
-
-        Ok(RlpEvmTransaction {
-            rlp: signed.envelope_encoded().to_vec(),
-        })
+        let mut buf = vec![];
+        signed.encode_2718(&mut buf);
+        Ok(RlpEvmTransaction { rlp: buf })
     }
 
     pub(crate) fn sign_blob_transaction(
@@ -128,9 +154,8 @@ impl TestSigner {
 
         let reth_tx = RethTransaction::Eip4844(reth_tx);
         let signed = self.signer.sign_transaction(reth_tx, self.address)?;
-
-        Ok(RlpEvmTransaction {
-            rlp: signed.envelope_encoded().to_vec(),
-        })
+        let mut buf = vec![];
+        signed.encode_2718(&mut buf);
+        Ok(RlpEvmTransaction { rlp: buf })
     }
 }

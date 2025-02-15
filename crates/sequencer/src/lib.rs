@@ -1,62 +1,95 @@
+use std::sync::Arc;
+
+use anyhow::Result;
+use citrea_common::backup::BackupManager;
+pub use citrea_common::SequencerConfig;
+use citrea_common::{InitParams, RollupPublicKeys};
+use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
+use db_provider::DbProvider;
+use deposit_data_mempool::DepositDataMempool;
+use jsonrpsee::RpcModule;
+use mempool::CitreaMempool;
+use parking_lot::Mutex;
+pub use rpc::SequencerRpcClient;
+pub use runner::CitreaSequencer;
+use sov_db::ledger_db::SequencerLedgerOps;
+use sov_modules_stf_blueprint::StfBlueprint;
+use sov_prover_storage_manager::{ProverStorageManager, SnapshotManager};
+use sov_rollup_interface::fork::ForkManager;
+use sov_rollup_interface::services::da::DaService;
+use sov_state::ProverStorage;
+use tokio::sync::broadcast;
+use tokio::sync::mpsc::unbounded_channel;
+
 mod commitment;
 pub mod db_migrations;
 mod db_provider;
 mod deposit_data_mempool;
 mod mempool;
-mod rpc;
+mod metrics;
+pub mod rpc;
 mod runner;
 mod utils;
 
-use std::net::SocketAddr;
-
-pub use citrea_common::{SequencerConfig, SequencerMempoolConfig};
-pub use rpc::SequencerRpcClient;
-pub use runner::CitreaSequencer;
-use sov_db::ledger_db::LedgerDB;
-use sov_modules_rollup_blueprint::RollupBlueprint;
-use sov_modules_stf_blueprint::StfBlueprint;
-use tokio::sync::oneshot;
-use tracing::{instrument, Instrument};
-
-/// Sequencer stf runner
-pub struct Sequencer<S: RollupBlueprint> {
-    /// The State Transition Runner of Sequencer.
-    #[allow(clippy::type_complexity)]
-    pub runner: CitreaSequencer<
-        S::NativeContext,
-        S::DaService,
-        S::StorageManager,
-        StfBlueprint<S::NativeContext, S::DaSpec, S::NativeRuntime>,
-        LedgerDB,
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+pub fn build_services<Da, DB>(
+    sequencer_config: SequencerConfig,
+    init_params: InitParams,
+    native_stf: StfBlueprint<
+        DefaultContext,
+        <Da as DaService>::Spec,
+        CitreaRuntime<DefaultContext, <Da as DaService>::Spec>,
     >,
-    /// Rpc methods for the rollup.
-    pub rpc_methods: jsonrpsee::RpcModule<()>,
-}
+    public_keys: RollupPublicKeys,
+    da_service: Arc<Da>,
+    ledger_db: DB,
+    storage_manager: ProverStorageManager<Da::Spec>,
+    prover_storage: ProverStorage<SnapshotManager>,
+    soft_confirmation_tx: broadcast::Sender<u64>,
+    fork_manager: ForkManager<'static>,
+    rpc_module: RpcModule<()>,
+    backup_manager: Arc<BackupManager>,
+) -> Result<(CitreaSequencer<Da, DB>, RpcModule<()>)>
+where
+    Da: DaService,
+    DB: SequencerLedgerOps + Send + Sync + Clone + 'static,
+{
+    let (l2_force_block_tx, l2_force_block_rx) = unbounded_channel();
+    // used as client of reth's mempool
+    let db_provider = DbProvider::new(prover_storage.clone());
+    let mempool = Arc::new(CitreaMempool::new(
+        db_provider.clone(),
+        sequencer_config.mempool_conf.clone(),
+    )?);
+    let deposit_mempool = Arc::new(Mutex::new(DepositDataMempool::new()));
 
-impl<S: RollupBlueprint> Sequencer<S> {
-    /// Runs the sequencer.
-    #[instrument(
-        name = "Sequencer",
-        level = "info",
-        skip_all,
-        err,
-        ret(level = "error")
-    )]
-    pub async fn run(self) -> Result<(), anyhow::Error> {
-        self.run_and_report_rpc_port(None).await
-    }
+    let rpc_context = rpc::create_rpc_context(
+        mempool.clone(),
+        deposit_mempool.clone(),
+        l2_force_block_tx,
+        prover_storage.clone(),
+        ledger_db.clone(),
+        sequencer_config.test_mode,
+    );
+    let rpc_module = rpc::register_rpc_methods::<DB>(rpc_context, rpc_module)?;
 
-    /// Runs the sequencer.
-    pub async fn run_and_report_rpc_port(
-        self,
-        channel: Option<oneshot::Sender<SocketAddr>>,
-    ) -> Result<(), anyhow::Error> {
-        let mut seq = self.runner;
-        seq.start_rpc_server(channel, self.rpc_methods)
-            .instrument(tracing::Span::current())
-            .await
-            .unwrap();
-        seq.run().await?;
-        Ok(())
-    }
+    let seq = CitreaSequencer::new(
+        da_service,
+        sequencer_config,
+        init_params,
+        native_stf,
+        storage_manager,
+        public_keys,
+        ledger_db,
+        db_provider,
+        mempool,
+        deposit_mempool,
+        fork_manager,
+        soft_confirmation_tx,
+        backup_manager,
+        l2_force_block_rx,
+    )
+    .unwrap();
+
+    Ok((seq, rpc_module))
 }

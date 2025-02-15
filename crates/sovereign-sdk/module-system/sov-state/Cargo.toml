@@ -13,12 +13,11 @@ resolver = "2"
 
 [dependencies]
 alloy-primitives = { workspace = true, features = ["serde"] }
+alloy-rlp = { workspace = true }
 anyhow = { workspace = true }
-arbitrary = { workspace = true, optional = true }
 borsh = { workspace = true, features = ["rc", "bytes"] }
+bytes = { workspace = true }
 bcs = { workspace = true }
-proptest = { workspace = true, optional = true }
-proptest-derive = { workspace = true, optional = true }
 serde = { workspace = true, features = ["rc"] }
 sov-rollup-interface = { path = "../../rollup-interface" }
 sov-modules-core = { path = "../sov-modules-core" }
@@ -31,11 +30,5 @@ tempfile = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-arbitrary = [
-    "dep:arbitrary",
-    "dep:proptest",
-    "dep:proptest-derive",
-    "sov-modules-core/arbitrary",
-]
 default = []
 native = ["sov-db"]

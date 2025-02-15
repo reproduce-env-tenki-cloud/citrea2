@@ -1,9 +1,10 @@
 use std::iter::FusedIterator;
 use std::marker::PhantomData;
+use std::time::Instant;
 
 use anyhow::Result;
+use metrics::histogram;
 
-use crate::metrics::{SCHEMADB_ITER_BYTES, SCHEMADB_ITER_LATENCY_SECONDS};
 use crate::schema::{KeyDecoder, Schema, ValueCodec};
 use crate::{SchemaKey, SchemaValue};
 
@@ -29,8 +30,11 @@ pub trait SeekKeyEncoder<S: Schema>: Sized {
     fn encode_seek_key(&self) -> crate::schema::Result<Vec<u8>>;
 }
 
-pub(crate) enum ScanDirection {
+/// The direction which is used with the iterator
+pub enum ScanDirection {
+    /// Going forward
     Forward,
+    /// Going backward
     Backward,
 }
 
@@ -82,23 +86,8 @@ where
         Ok(())
     }
 
-    /// Reverses iterator direction.
-    pub fn rev(self) -> Self {
-        let new_direction = match self.direction {
-            ScanDirection::Forward => ScanDirection::Backward,
-            ScanDirection::Backward => ScanDirection::Forward,
-        };
-        SchemaIterator {
-            db_iter: self.db_iter,
-            direction: new_direction,
-            phantom: Default::default(),
-        }
-    }
-
     fn next_impl(&mut self) -> Result<Option<IteratorOutput<S::Key, S::Value>>> {
-        let _timer = SCHEMADB_ITER_LATENCY_SECONDS
-            .with_label_values(&[S::COLUMN_FAMILY_NAME])
-            .start_timer();
+        let start = Instant::now();
 
         if !self.db_iter.valid() {
             self.db_iter.status()?;
@@ -108,9 +97,9 @@ where
         let raw_key = self.db_iter.key().expect("db_iter.key() failed.");
         let raw_value = self.db_iter.value().expect("db_iter.value() failed.");
         let value_size_bytes = raw_value.len();
-        SCHEMADB_ITER_BYTES
-            .with_label_values(&[S::COLUMN_FAMILY_NAME])
-            .observe((raw_key.len() + raw_value.len()) as f64);
+
+        histogram!("schemadb_iter_bytes", "cf_name" => S::COLUMN_FAMILY_NAME)
+            .record((raw_key.len() + raw_value.len()) as f64);
 
         let key = <S::Key as KeyDecoder<S>>::decode_key(raw_key)?;
         let value = <S::Value as ValueCodec<S>>::decode_value(raw_value)?;
@@ -119,6 +108,12 @@ where
             ScanDirection::Forward => self.db_iter.next(),
             ScanDirection::Backward => self.db_iter.prev(),
         }
+
+        histogram!("schemadb_iter_latency_seconds", "cf_name" => S::COLUMN_FAMILY_NAME).record(
+            Instant::now()
+                .saturating_duration_since(start)
+                .as_secs_f64(),
+        );
 
         Ok(Some(IteratorOutput {
             key,

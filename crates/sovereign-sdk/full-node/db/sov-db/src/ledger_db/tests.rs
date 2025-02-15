@@ -7,7 +7,7 @@ use super::migrations::{LedgerDBMigrator, LedgerMigration, MigrationName, Migrat
 use super::LedgerDB;
 use crate::ledger_db::{SharedLedgerOps, TestLedgerOps};
 use crate::rocks_db_config::RocksdbConfig;
-use crate::schema::tables::TestTableOld;
+use crate::schema::tables::{TestTableOld, LEDGER_TABLES};
 
 pub fn successful_migrations() -> &'static Vec<Box<dyn LedgerMigration + Send + Sync + 'static>> {
     static MIGRATIONS: OnceLock<Vec<Box<dyn LedgerMigration + Send + Sync + 'static>>> =
@@ -27,7 +27,11 @@ impl LedgerMigration for OldToNewMigration {
         ("OldToNew".to_owned(), 1)
     }
 
-    fn execute(&self, ledger_db: sov_rollup_interface::RefCount<LedgerDB>) -> anyhow::Result<()> {
+    fn execute(
+        &self,
+        ledger_db: sov_rollup_interface::RefCount<LedgerDB>,
+        _tables_to_drop: &mut Vec<String>,
+    ) -> anyhow::Result<()> {
         let Some(values) = ledger_db.db.get::<TestTableOld>(&())? else {
             return Ok(());
         };
@@ -47,7 +51,11 @@ impl LedgerMigration for FailedOldToNewMigration {
         ("OldToNew".to_owned(), 1)
     }
 
-    fn execute(&self, _ledger_db: sov_rollup_interface::RefCount<LedgerDB>) -> anyhow::Result<()> {
+    fn execute(
+        &self,
+        _ledger_db: sov_rollup_interface::RefCount<LedgerDB>,
+        _tables_to_drop: &mut Vec<String>,
+    ) -> anyhow::Result<()> {
         Err(anyhow!("Could not fetch data"))
     }
 }
@@ -58,7 +66,7 @@ fn test_successful_migrations() {
 
     // Write some data to the pre-migrations version of the database.
     let ledger_db =
-        LedgerDB::with_config(&RocksdbConfig::new(ledger_db_path.path(), None)).unwrap();
+        LedgerDB::with_config(&RocksdbConfig::new(ledger_db_path.path(), None, None)).unwrap();
 
     let mut schema_batch = SchemaBatch::new();
     schema_batch
@@ -69,11 +77,16 @@ fn test_successful_migrations() {
 
     // Run migrations
     let ledger_db_migrator = LedgerDBMigrator::new(ledger_db_path.path(), successful_migrations());
-    assert!(matches!(ledger_db_migrator.migrate(None), Ok(())));
+    let ledger_tables = LEDGER_TABLES.iter().map(|x| x.to_string()).collect();
+
+    assert!(matches!(
+        ledger_db_migrator.migrate(None, ledger_tables),
+        Ok(())
+    ));
 
     // This instance is post-migrations DB.
     let ledger_db =
-        LedgerDB::with_config(&RocksdbConfig::new(ledger_db_path.path(), None)).unwrap();
+        LedgerDB::with_config(&RocksdbConfig::new(ledger_db_path.path(), None, None)).unwrap();
 
     // Check for:
     // 1. The new values are there
@@ -102,7 +115,7 @@ fn test_failed_migrations() {
 
     // Write some data to the pre-migrations version of the database.
     let ledger_db =
-        LedgerDB::with_config(&RocksdbConfig::new(ledger_db_path.path(), None)).unwrap();
+        LedgerDB::with_config(&RocksdbConfig::new(ledger_db_path.path(), None, None)).unwrap();
 
     let mut schema_batch = SchemaBatch::new();
     schema_batch
@@ -113,10 +126,11 @@ fn test_failed_migrations() {
 
     // Run migrations
     let ledger_db_migrator = LedgerDBMigrator::new(ledger_db_path.path(), failed_migrations());
-    assert!(ledger_db_migrator.migrate(None).is_err());
+    let ledger_tables = LEDGER_TABLES.iter().map(|x| x.to_string()).collect();
+    assert!(ledger_db_migrator.migrate(None, ledger_tables).is_err());
 
     let ledger_db =
-        LedgerDB::with_config(&RocksdbConfig::new(ledger_db_path.path(), None)).unwrap();
+        LedgerDB::with_config(&RocksdbConfig::new(ledger_db_path.path(), None, None)).unwrap();
     let executed_migrations = ledger_db.get_executed_migrations().unwrap();
     assert_eq!(executed_migrations.len(), 0);
 }

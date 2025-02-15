@@ -1,10 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use sov_db::ledger_db::SharedLedgerOps;
-use sov_db::schema::types::BatchNumber;
-use sov_rollup_interface::da::SequencerCommitment;
+use sov_db::schema::types::SoftConfirmationNumber;
+use sov_modules_api::{Context, Spec};
+use sov_rollup_interface::da::{DaSpec, SequencerCommitment};
+use sov_rollup_interface::digest::Digest;
 use sov_rollup_interface::rpc::SoftConfirmationStatus;
-use sov_rollup_interface::stf::StateDiff;
+use sov_rollup_interface::soft_confirmation::SignedSoftConfirmation;
+use sov_rollup_interface::spec::SpecId;
+use sov_rollup_interface::stf::{SoftConfirmationReceipt, StateDiff, TransactionDigest};
 
 pub fn merge_state_diffs(old_diff: StateDiff, new_diff: StateDiff) -> StateDiff {
     let mut new_diff_map = HashMap::<Vec<u8>, Option<Vec<u8>>>::from_iter(old_diff);
@@ -46,8 +50,9 @@ fn filter_out_commitments_by_status<DB: SharedLedgerOps>(
         visited_l2_ranges.insert(current_range);
 
         // Check if the commitment was previously finalized.
-        let Some(status) = ledger_db
-            .get_soft_confirmation_status(BatchNumber(sequencer_commitment.l2_end_block_number))?
+        let Some(status) = ledger_db.get_soft_confirmation_status(SoftConfirmationNumber(
+            sequencer_commitment.l2_end_block_number,
+        ))?
         else {
             filtered.push(sequencer_commitment.clone());
             continue;
@@ -63,17 +68,47 @@ fn filter_out_commitments_by_status<DB: SharedLedgerOps>(
     Ok((filtered, skipped_commitments))
 }
 
-pub fn check_l2_range_exists<DB: SharedLedgerOps>(
-    ledger_db: &DB,
-    first_l2_height_of_l1: u64,
-    last_l2_height_of_l1: u64,
-) -> bool {
-    if let Ok(range) = ledger_db.get_soft_confirmation_range(
-        &(BatchNumber(first_l2_height_of_l1)..=BatchNumber(last_l2_height_of_l1)),
-    ) {
-        if (range.len() as u64) >= (last_l2_height_of_l1 - first_l2_height_of_l1 + 1) {
-            return true;
-        }
+pub fn check_l2_block_exists<DB: SharedLedgerOps>(ledger_db: &DB, l2_height: u64) -> bool {
+    let Some(head_l2_height) = ledger_db
+        .get_head_soft_confirmation_height()
+        .expect("Ledger db read must not fail")
+    else {
+        return false;
+    };
+
+    head_l2_height >= l2_height
+}
+
+pub fn soft_confirmation_to_receipt<C: Context, Tx: TransactionDigest + Clone, DS: DaSpec>(
+    soft_confirmation: SignedSoftConfirmation<'_, Tx>,
+    current_spec: SpecId,
+) -> SoftConfirmationReceipt<DS> {
+    let tx_hashes = if current_spec >= SpecId::Kumquat {
+        soft_confirmation
+            .txs()
+            .iter()
+            .map(|tx| tx.compute_digest::<<C as Spec>::Hasher>().into())
+            .collect()
+    } else {
+        soft_confirmation
+            .blobs()
+            .iter()
+            .map(|raw_tx| <C as Spec>::Hasher::digest(raw_tx).into())
+            .collect()
+    };
+
+    SoftConfirmationReceipt {
+        l2_height: soft_confirmation.l2_height(),
+        hash: soft_confirmation.hash(),
+        prev_hash: soft_confirmation.prev_hash(),
+        da_slot_height: soft_confirmation.da_slot_height(),
+        da_slot_hash: soft_confirmation.da_slot_hash().into(),
+        da_slot_txs_commitment: soft_confirmation.da_slot_txs_commitment().into(),
+        l1_fee_rate: soft_confirmation.l1_fee_rate(),
+        tx_hashes,
+        deposit_data: soft_confirmation.deposit_data().to_vec(),
+        timestamp: soft_confirmation.timestamp(),
+        soft_confirmation_signature: soft_confirmation.signature().to_vec(),
+        pub_key: soft_confirmation.pub_key().to_vec(),
     }
-    false
 }

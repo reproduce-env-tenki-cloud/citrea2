@@ -20,20 +20,16 @@ sov-rollup-interface = { path = "../../../rollup-interface", features = ["native
 sov-schema-db = { path = "../sov-schema-db" }
 
 # External
+alloy-primitives = { workspace = true, features=["serde"] }
 anyhow = { workspace = true, default-features = true }
-arbitrary = { workspace = true, optional = true }
 bincode = { workspace = true }
 borsh = { workspace = true, default-features = true, features = ["bytes", "rc"] }
 byteorder = { workspace = true, default-features = true }
-hex = { workspace = true }
 num_cpus = { workspace = true }
-proptest = { workspace = true, optional = true, default-features = true }
-proptest-derive = { workspace = true, optional = true }
 rlimit = { workspace = true }
 rocksdb = { workspace = true }
 serde = { workspace = true, default-features = true, features = ["rc"] }
 tempfile = { workspace = true }
-tokio = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
@@ -42,12 +38,7 @@ rand = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
 
-[features]
-arbitrary = [
-  "dep:arbitrary",
-  "dep:proptest",
-  "dep:proptest-derive",
-]
+
 
 [[bench]]
 name = "state_db_single_snapshot"

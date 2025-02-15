@@ -1,16 +1,16 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-#[cfg(feature = "local")]
+use alloy_rpc_types_trace::geth::{
+    CallConfig, CallFrame, FourByteFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig,
+    GethDebugTracerType, GethDebugTracingOptions, GethTrace, NoopFrame, TraceResult,
+};
 use citrea_evm::Evm;
-use jsonrpsee::types::{ErrorObjectOwned, ParamsSequence};
+use citrea_primitives::forks::fork_from_block_number;
+use jsonrpsee::types::ErrorObjectOwned;
 use jsonrpsee::{PendingSubscriptionSink, SubscriptionMessage};
 use reth_primitives::BlockNumberOrTag;
 use reth_rpc_eth_types::error::EthApiError;
-use reth_rpc_types::trace::geth::{
-    CallConfig, CallFrame, FourByteFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig,
-    GethDebugTracerType, GethDebugTracingOptions, GethTrace, NoopFrame,
-};
 use sov_modules_api::WorkingSet;
 use sov_rollup_interface::services::da::DaService;
 use tracing::error;
@@ -18,25 +18,12 @@ use tracing::error;
 use crate::ethereum::Ethereum;
 
 pub async fn handle_debug_trace_chain<C: sov_modules_api::Context, Da: DaService>(
-    mut params: ParamsSequence<'_>,
+    start_block: BlockNumberOrTag,
+    end_block: BlockNumberOrTag,
+    opts: Option<GethDebugTracingOptions>,
     pending: PendingSubscriptionSink,
     ethereum: Arc<Ethereum<C, Da>>,
 ) {
-    let start_block: BlockNumberOrTag = match params.next() {
-        Ok(v) => v,
-        Err(err) => {
-            pending.reject(err).await;
-            return;
-        }
-    };
-    let end_block: BlockNumberOrTag = match params.next() {
-        Ok(v) => v,
-        Err(err) => {
-            pending.reject(err).await;
-            return;
-        }
-    };
-
     // start block is exclusive, hence latest is not supported
     let BlockNumberOrTag::Number(start_block) = start_block else {
         pending.reject(EthApiError::Unsupported(
@@ -45,7 +32,7 @@ pub async fn handle_debug_trace_chain<C: sov_modules_api::Context, Da: DaService
         return;
     };
 
-    let mut working_set = WorkingSet::<C>::new(ethereum.storage.clone());
+    let mut working_set = WorkingSet::new(ethereum.storage.clone());
     let evm = Evm::<C>::default();
     let latest_block_number: u64 = evm
         .block_number(&mut working_set)
@@ -54,7 +41,9 @@ pub async fn handle_debug_trace_chain<C: sov_modules_api::Context, Da: DaService
     let end_block = match end_block {
         BlockNumberOrTag::Number(end_block) => {
             if end_block > latest_block_number {
-                pending.reject(EthApiError::UnknownBlockNumber).await;
+                pending
+                    .reject(EthApiError::HeaderNotFound(end_block.into()))
+                    .await;
                 return;
             }
             end_block
@@ -75,14 +64,6 @@ pub async fn handle_debug_trace_chain<C: sov_modules_api::Context, Da: DaService
         return;
     }
 
-    let opts: Option<GethDebugTracingOptions> = match params.optional_next() {
-        Ok(v) => v,
-        Err(err) => {
-            pending.reject(err).await;
-            return;
-        }
-    };
-
     let subscription = pending.accept().await.unwrap();
 
     // This task will be fetching and sending to the subscription sink the list of traces
@@ -90,7 +71,7 @@ pub async fn handle_debug_trace_chain<C: sov_modules_api::Context, Da: DaService
     // not need to be managed by the SubscriptionManager.
     tokio::spawn(async move {
         for block_number in start_block + 1..=end_block {
-            let mut working_set = WorkingSet::<C>::new(ethereum.storage.clone());
+            let mut working_set = WorkingSet::new(ethereum.storage.clone());
             let traces = debug_trace_by_block_number(
                 block_number,
                 None,
@@ -136,13 +117,18 @@ pub fn debug_trace_by_block_number<C: sov_modules_api::Context, Da: DaService>(
     trace_idx: Option<usize>,
     ethereum: &Ethereum<C, Da>,
     evm: &Evm<C>,
-    working_set: &mut WorkingSet<C>,
+    working_set: &mut WorkingSet<C::Storage>,
     opts: Option<GethDebugTracingOptions>,
-) -> Result<Vec<GethTrace>, ErrorObjectOwned> {
+) -> Result<Vec<TraceResult>, ErrorObjectOwned> {
     // If opts is None or if opts.tracer is None, then do not check cache or insert cache, just perform the operation
     if opts.as_ref().map_or(true, |o| o.tracer.is_none()) {
-        let traces =
-            evm.trace_block_transactions_by_number(block_number, opts, trace_idx, working_set)?;
+        let traces = evm.trace_block_transactions_by_number(
+            block_number,
+            opts,
+            trace_idx,
+            working_set,
+            fork_from_block_number,
+        )?;
         return match trace_idx {
             Some(idx) => Ok(vec![traces[idx].clone()]),
             None => Ok(traces),
@@ -170,6 +156,7 @@ pub fn debug_trace_by_block_number<C: sov_modules_api::Context, Da: DaService>(
         Some(cache_options),
         None,
         working_set,
+        fork_from_block_number,
     )?;
     ethereum
         .trace_cache
@@ -207,10 +194,10 @@ fn remove_logs_from_call_frame(call_frame: &mut Vec<CallFrame>) {
 }
 
 fn get_traces_with_requested_tracer_and_config(
-    traces: Vec<GethTrace>,
+    traces: Vec<TraceResult>,
     tracer: GethDebugTracerType,
     tracer_config: GethDebugTracerConfig,
-) -> Result<Vec<GethTrace>, EthApiError> {
+) -> Result<Vec<TraceResult>, EthApiError> {
     // This can be only CallConfig or PreStateConfig if it is not CallConfig return Error for now
 
     let mut new_traces = vec![];
@@ -235,10 +222,17 @@ fn get_traces_with_requested_tracer_and_config(
                         }
                         _ => {
                             traces.into_iter().for_each(|trace| {
-                                if let GethTrace::CallTracer(call_frame) = trace {
+                                if let TraceResult::Success {
+                                    result: GethTrace::CallTracer(call_frame),
+                                    tx_hash,
+                                } = trace
+                                {
                                     let new_call_frame =
                                         apply_call_config(call_frame.clone(), call_config);
-                                    new_traces.push(GethTrace::CallTracer(new_call_frame));
+                                    new_traces.push(TraceResult::new_success(
+                                        GethTrace::CallTracer(new_call_frame),
+                                        tx_hash,
+                                    ));
                                 }
                             });
                         }
@@ -247,17 +241,25 @@ fn get_traces_with_requested_tracer_and_config(
                 }
                 GethDebugBuiltInTracerType::FourByteTracer => {
                     traces.into_iter().for_each(|trace| {
-                        if let GethTrace::CallTracer(call_frame) = trace {
+                        if let TraceResult::Success {
+                            result: GethTrace::CallTracer(call_frame),
+                            tx_hash,
+                        } = trace
+                        {
                             let four_byte_frame =
                                 convert_call_trace_into_4byte_frame(vec![call_frame]);
-                            new_traces.push(GethTrace::FourByteTracer(four_byte_frame));
+                            new_traces.push(TraceResult::new_success(
+                                GethTrace::FourByteTracer(four_byte_frame),
+                                tx_hash,
+                            ));
                         }
                     });
                     Ok(new_traces)
                 }
-                GethDebugBuiltInTracerType::NoopTracer => {
-                    Ok(vec![GethTrace::NoopTracer(NoopFrame::default())])
-                }
+                GethDebugBuiltInTracerType::NoopTracer => Ok(vec![TraceResult::new_success(
+                    GethTrace::NoopTracer(NoopFrame::default()),
+                    None,
+                )]),
                 _ => Err(EthApiError::Unsupported("This tracer is not supported")),
             }
         }

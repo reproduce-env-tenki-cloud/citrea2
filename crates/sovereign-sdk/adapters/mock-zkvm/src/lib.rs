@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 use std::io::Write;
-use std::sync::{Arc, Condvar, Mutex, RwLock};
+use std::sync::{mpsc, Arc, Mutex, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -75,44 +75,17 @@ impl MockProof {
 
     /// Tries to deserialize a proof from a byte slice.
     pub fn decode(input: &[u8]) -> Result<Self, anyhow::Error> {
-        Ok(Self::try_from_slice(input).unwrap())
+        Self::try_from_slice(input).map_err(|e| anyhow::anyhow!(e))
     }
 }
 
-#[derive(Clone)]
-struct Notifier {
-    notified: Arc<Mutex<bool>>,
-    cond: Arc<Condvar>,
-}
-
-impl Default for Notifier {
-    fn default() -> Self {
-        Self {
-            notified: Arc::new(Mutex::new(false)),
-            cond: Default::default(),
-        }
-    }
-}
-
-impl Notifier {
-    fn wait(&self) {
-        let mut notified = self.notified.lock().unwrap();
-        while !*notified {
-            notified = self.cond.wait(notified).unwrap();
-        }
-    }
-
-    fn notify(&self) {
-        let mut notified = self.notified.lock().unwrap();
-        *notified = true;
-        self.cond.notify_all();
-    }
-}
-
-/// A mock implementing the zkVM trait.
+/// MockZkvm is a mock struct which implements Zkvm and ZkvmHost traits.
+/// It has the capability to behave as if multiple proofs are running
+/// and exposes method `finish_next_proof` to emulate finishing behavior
+/// of a single proof. It is useful for testing parallel proving.
 #[derive(Clone)]
 pub struct MockZkvm {
-    worker_thread_notifier: Notifier,
+    waiting_tasks: Arc<Mutex<VecDeque<mpsc::Sender<()>>>>,
     committed_data: VecDeque<Vec<u8>>,
     is_valid: bool,
 }
@@ -124,19 +97,25 @@ impl Default for MockZkvm {
 }
 
 impl MockZkvm {
-    /// Creates a new MockZkvm
+    /// Create new instance of `MockZkvm`
     pub fn new() -> Self {
         Self {
-            worker_thread_notifier: Default::default(),
+            waiting_tasks: Default::default(),
             committed_data: Default::default(),
             is_valid: Default::default(),
         }
     }
 
-    /// Simulates zk proof generation.
-    pub fn make_proof(&self) {
-        // We notify the worket thread.
-        self.worker_thread_notifier.notify();
+    /// Notifies the next proof in FIFO order to emulate finishing behavior.
+    /// Returns whether there was any proof in the queue.
+    pub fn finish_next_proof(&self) -> bool {
+        let mut tasks = self.waiting_tasks.lock().unwrap();
+        if let Some(chan) = tasks.pop_front() {
+            chan.send(()).unwrap();
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -148,26 +127,42 @@ impl sov_rollup_interface::zk::Zkvm for MockZkvm {
     fn verify(
         serialized_proof: &[u8],
         code_commitment: &Self::CodeCommitment,
-    ) -> Result<Vec<u8>, Self::Error> {
+    ) -> Result<(), Self::Error> {
         let proof = MockProof::decode(serialized_proof)?;
         anyhow::ensure!(
             proof.program_id.matches(code_commitment),
             "Proof failed to verify against requested code commitment"
         );
         anyhow::ensure!(proof.is_valid, "Proof is not valid");
-        Ok(serialized_proof[33..].to_vec())
+        Ok(())
     }
 
     fn extract_raw_output(serialized_proof: &[u8]) -> Result<Vec<u8>, Self::Error> {
         Ok(serialized_proof[33..].to_vec())
     }
 
-    fn verify_and_extract_output<T: BorshDeserialize>(
+    fn deserialize_output<T: BorshDeserialize>(journal: &[u8]) -> Result<T, Self::Error> {
+        let mock_journal = MockJournal::try_from_slice(journal).unwrap();
+        match mock_journal {
+            MockJournal::Verifiable(journal) => Ok(T::try_from_slice(&journal)?),
+            MockJournal::Unverifiable(journal) => Ok(T::try_from_slice(&journal)?),
+        }
+    }
+
+    fn verify_and_deserialize_output<T: BorshDeserialize>(
         serialized_proof: &[u8],
         code_commitment: &Self::CodeCommitment,
     ) -> Result<T, Self::Error> {
-        let output = Self::verify(serialized_proof, code_commitment)?;
+        Self::verify(serialized_proof, code_commitment)?;
+        let output = serialized_proof[33..].to_vec();
         Ok(T::deserialize(&mut &*output)?)
+    }
+
+    fn verify_expected_to_fail(
+        _serialized_proof: &[u8],
+        _code_commitment: &Self::CodeCommitment,
+    ) -> Result<(), Self::Error> {
+        unimplemented!("Function not designed for zkVM hosts");
     }
 }
 
@@ -181,7 +176,8 @@ impl sov_rollup_interface::zk::ZkvmHost for MockZkvm {
         };
 
         let data = borsh::to_vec(&proof_info).unwrap();
-        self.committed_data.push_back(data)
+
+        self.committed_data.push_back(data);
     }
 
     fn add_assumption(&mut self, _receipt_buf: Vec<u8>) {
@@ -195,15 +191,26 @@ impl sov_rollup_interface::zk::ZkvmHost for MockZkvm {
         }
     }
 
-    fn run(&mut self, _with_proof: bool) -> Result<sov_rollup_interface::zk::Proof, anyhow::Error> {
-        self.worker_thread_notifier.wait();
+    fn run(
+        &mut self,
+        _elf: Vec<u8>,
+        _with_proof: bool,
+        _: bool,
+    ) -> Result<sov_rollup_interface::zk::Proof, anyhow::Error> {
+        let (tx, rx) = mpsc::channel();
+
+        let mut tasks = self.waiting_tasks.lock().unwrap();
+        tasks.push_back(tx);
+        drop(tasks);
+
+        // Block until finish signal arrives
+        rx.recv().unwrap();
+
         Ok(self.committed_data.pop_front().unwrap_or_default())
     }
 
-    fn extract_output<Da: sov_rollup_interface::da::DaSpec, T: BorshDeserialize>(
-        proof: &Proof,
-    ) -> Result<T, Self::Error> {
-        let data: ProofInfo = bincode::deserialize(proof)?;
+    fn extract_output<T: BorshDeserialize>(proof: &Proof) -> Result<T, Self::Error> {
+        let data: ProofInfo = borsh::from_slice(proof)?;
 
         T::try_from_slice(&data.hint).map_err(Into::into)
     }
@@ -237,19 +244,28 @@ impl sov_rollup_interface::zk::Zkvm for MockZkGuest {
 
     type Error = anyhow::Error;
 
-    fn verify(
-        journal: &[u8],
-        _code_commitment: &Self::CodeCommitment,
-    ) -> Result<Vec<u8>, Self::Error> {
-        Ok(journal.to_vec())
+    fn verify(journal: &[u8], _code_commitment: &Self::CodeCommitment) -> Result<(), Self::Error> {
+        let mock_journal = MockJournal::try_from_slice(journal).unwrap();
+        match mock_journal {
+            MockJournal::Verifiable(_) => Ok(()),
+            MockJournal::Unverifiable(_) => Err(anyhow::anyhow!("Journal is unverifiable")),
+        }
     }
 
     fn extract_raw_output(serialized_proof: &[u8]) -> Result<Vec<u8>, Self::Error> {
-        let mock_proof = MockProof::decode(serialized_proof).unwrap();
+        let mock_proof = MockProof::decode(serialized_proof)?;
         Ok(mock_proof.log)
     }
 
-    fn verify_and_extract_output<T: BorshDeserialize>(
+    fn deserialize_output<T: BorshDeserialize>(journal: &[u8]) -> Result<T, Self::Error> {
+        let mock_journal = MockJournal::try_from_slice(journal).unwrap();
+        match mock_journal {
+            MockJournal::Verifiable(journal) => Ok(T::try_from_slice(&journal)?),
+            MockJournal::Unverifiable(journal) => Ok(T::try_from_slice(&journal)?),
+        }
+    }
+
+    fn verify_and_deserialize_output<T: BorshDeserialize>(
         journal: &[u8],
         _code_commitment: &Self::CodeCommitment,
     ) -> Result<T, Self::Error> {
@@ -258,6 +274,17 @@ impl sov_rollup_interface::zk::Zkvm for MockZkGuest {
             MockJournal::Verifiable(journal) => Ok(T::try_from_slice(&journal)?),
             MockJournal::Unverifiable(_) => Err(anyhow::anyhow!("Journal is unverifiable")),
         }
+    }
+
+    /// For mock zk vm guest, there is no difference between a proof that is expected to fail
+    /// and a proof that is expected to pass.
+    fn verify_expected_to_fail(
+        serialized_proof: &[u8],
+        code_commitment: &Self::CodeCommitment,
+    ) -> Result<(), Self::Error> {
+        let journal = Self::extract_raw_output(serialized_proof)?;
+
+        Self::verify(journal.as_slice(), code_commitment)
     }
 }
 

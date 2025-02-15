@@ -1,5 +1,5 @@
 use alloy_eips::eip1559::BaseFeeParams;
-use reth_primitives::{address, Address, B256, U256};
+use alloy_primitives::{address, Address, B256, U256};
 use revm::primitives::bitvec::view::BitViewSized;
 use revm::primitives::specification::SpecId;
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ pub(crate) mod system_events;
 #[cfg(feature = "native")]
 pub(crate) mod call;
 #[cfg(feature = "native")]
-pub(crate) mod error;
+pub(crate) mod compat;
 
 #[cfg(all(test, feature = "native"))]
 mod tests;
@@ -48,37 +48,43 @@ pub const DBACCOUNT_STORAGE_PREFIX: [u8; 6] = *b"Evm/s/";
 /// Prefix for Storage module for evm::Account::keys
 pub const DBACCOUNT_KEYS_PREFIX: [u8; 6] = *b"Evm/k/";
 
-// Stores information about an EVM account
+/// Stores information about an EVM account
 #[derive(Default, Deserialize, Serialize, Debug, PartialEq, Clone)]
-pub(crate) struct AccountInfo {
-    pub(crate) balance: U256,
-    pub(crate) nonce: u64,
-    pub(crate) code_hash: Option<B256>,
+pub struct AccountInfo {
+    /// Balance
+    pub balance: U256,
+    /// Nonce
+    pub nonce: u64,
+    /// Code hash
+    pub code_hash: Option<B256>,
 }
 
 /// Stores information about an EVM account and a corresponding account state.
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
-pub(crate) struct DbAccount {
-    pub(crate) storage: StateMap<U256, U256, BcsCodec>,
-    pub(crate) keys: StateVec<U256, BcsCodec>,
+pub struct DbAccount {
+    /// Storage
+    pub storage: StateMap<U256, U256, BcsCodec>,
+    /// Keys
+    pub keys: StateVec<U256, BcsCodec>,
 }
 
 impl DbAccount {
-    pub fn new(address: Address) -> Self {
+    /// Create a new DbAccount
+    pub fn new(address: &Address) -> Self {
         Self {
             storage: StateMap::with_codec(Self::create_storage_prefix(address), BcsCodec {}),
             keys: StateVec::with_codec(Self::create_keys_prefix(address), BcsCodec {}),
         }
     }
 
-    fn create_storage_prefix(address: Address) -> Prefix {
+    fn create_storage_prefix(address: &Address) -> Prefix {
         let mut prefix = [0u8; 26];
         prefix[0..6].copy_from_slice(&DBACCOUNT_STORAGE_PREFIX);
         prefix[6..].copy_from_slice(address.as_raw_slice());
         Prefix::new(prefix.to_vec())
     }
 
-    fn create_keys_prefix(address: Address) -> Prefix {
+    fn create_keys_prefix(address: &Address) -> Prefix {
         let mut prefix = [0u8; 26];
         prefix[0..6].copy_from_slice(&DBACCOUNT_KEYS_PREFIX);
         prefix[6..].copy_from_slice(address.as_raw_slice());

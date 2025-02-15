@@ -11,40 +11,31 @@ repository.workspace = true
 [dependencies]
 # Citrea Deps
 citrea-common = { path = "../common" }
-citrea-primitives = { path = "../primitives", features = ["native"] }
-citrea-pruning = { path = "../pruning" }
-sequencer-client = { path = "../sequencer-client" }
+citrea-primitives = { path = "../primitives" }
+citrea-stf = { path = "../citrea-stf" }
+citrea-storage-ops = { path = "../storage-ops" }
 
 # Sov SDK deps
 sov-db = { path = "../sovereign-sdk/full-node/db/sov-db" }
+sov-ledger-rpc = { path = "../sovereign-sdk/full-node/sov-ledger-rpc", features = ["client"] }
 sov-modules-api = { path = "../sovereign-sdk/module-system/sov-modules-api", default-features = false }
-sov-modules-rollup-blueprint = { path = "../sovereign-sdk/module-system/sov-modules-rollup-blueprint" }
 sov-modules-stf-blueprint = { path = "../sovereign-sdk/module-system/sov-modules-stf-blueprint", features = ["native"] }
+sov-prover-storage-manager = { path = "../sovereign-sdk/full-node/sov-prover-storage-manager" }
 sov-rollup-interface = { path = "../sovereign-sdk/rollup-interface" }
-sov-stf-runner = { path = "../sovereign-sdk/full-node/sov-stf-runner" }
+sov-state = { path = "../sovereign-sdk/module-system/sov-state" }
 
 # 3rd-party deps
+alloy-primitives = { workspace = true }
 anyhow = { workspace = true }
 backoff = { workspace = true }
+bincode = { workspace = true }
 borsh = { workspace = true }
-futures = { workspace = true }
 hex = { workspace = true }
 jsonrpsee = { workspace = true }
-rand = { workspace = true }
+metrics = { workspace = true }
+metrics-derive = { workspace = true }
+once_cell = { workspace = true, default-features = true }
 rs_merkle = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
-tower = { workspace = true }
 tracing = { workspace = true }
-
-[dev-dependencies]
-sha2 = { workspace = true }
-tempfile = { workspace = true }
-
-citrea-primitives = { path = "../primitives", features = ["testing"] }
-sov-mock-da = { path = "../sovereign-sdk/adapters/mock-da", features = ["native"] }
-sov-mock-zkvm = { path = "../sovereign-sdk/adapters/mock-zkvm" }
-sov-prover-storage-manager = { path = "../sovereign-sdk/full-node/sov-prover-storage-manager", features = ["test-utils"] }
-sov-state = { path = "../sovereign-sdk/module-system/sov-state", features = ["native"] }

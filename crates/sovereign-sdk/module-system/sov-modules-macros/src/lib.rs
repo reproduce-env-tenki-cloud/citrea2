@@ -9,11 +9,10 @@
 // documented there.
 #![allow(missing_docs)]
 
-#[cfg(feature = "native")]
-mod cli_parser;
 mod common;
 mod default_runtime;
 mod dispatch;
+mod fork_codec;
 mod make_constants;
 mod manifest;
 mod module_call_json_schema;
@@ -21,12 +20,11 @@ mod module_info;
 #[cfg(feature = "native")]
 mod rpc;
 
-#[cfg(feature = "native")]
-use cli_parser::{derive_cli_wallet_arg, CliParserMacro};
 use default_runtime::DefaultRuntimeMacro;
 use dispatch::dispatch_call::DispatchCallMacro;
 use dispatch::genesis::GenesisMacro;
 use dispatch::message_codec::MessageCodec;
+use fork_codec::derive_fork_codec;
 use make_constants::{make_const, PartialItemConst};
 use module_call_json_schema::derive_module_call_json_schema;
 use module_info::ModuleType;
@@ -145,7 +143,7 @@ pub fn config_constant(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// };
 ///
 /// impl<C: Context> MyModule<C> {
-///     fn my_method(&self, working_set: &mut WorkingSet<C>, param: u32) -> RpcResult<u32> {
+///     fn my_method(&self, working_set: &mut WorkingSet<C::Storage>, param: u32) -> RpcResult<u32> {
 ///         Ok(1)
 ///     }  
 /// }
@@ -170,12 +168,12 @@ pub fn config_constant(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// This proc macro also generates an implementation trait intended to be used by a Runtime struct. This trait
 /// is named `MyModuleRpcImpl`, and allows a Runtime to be converted into a functional RPC server
-/// by simply implementing the two required methods - `get_backing_impl(&self) -> MyModule` and `get_working_set(&self) -> ::sov_modules_api::WorkingSet<C>`
+/// by simply implementing the two required methods - `get_backing_impl(&self) -> MyModule` and `get_working_set(&self) -> ::sov_modules_api::WorkingSet<C::Storage>`
 ///
 /// ```rust,ignore
 /// pub trait MyModuleRpcImpl<C: sov_modules_api::Context> {
 ///     fn get_backing_impl(&self) -> &TestStruct<C>;
-///     fn get_working_set(&self) -> ::sov_modules_api::WorkingSet<C>;
+///     fn get_working_set(&self) -> ::sov_modules_api::WorkingSet<C::Storage>;
 ///     fn my_method(&self, param: u32) -> u32 {
 ///         Self::get_backing_impl(self).my_method(self, &mut Self::get_working_set(self), param)
 ///     }
@@ -205,16 +203,8 @@ pub fn expose_rpc(_attr: TokenStream, input: TokenStream) -> TokenStream {
     handle_macro_error(expose_macro.generate_rpc(original, input))
 }
 
-#[cfg(feature = "native")]
-#[proc_macro_derive(CliWallet, attributes(cli_skip))]
-pub fn cli_parser(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input);
-    let cli_parser = CliParserMacro::new("Cmd");
-    handle_macro_error(cli_parser.cli_macro(input))
-}
-#[cfg(feature = "native")]
-#[proc_macro_derive(CliWalletArg)]
-pub fn custom_enum_clap(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(ForkCodec)]
+pub fn fork_codec_derive(input: TokenStream) -> TokenStream {
     let input: syn::DeriveInput = parse_macro_input!(input);
-    handle_macro_error(derive_cli_wallet_arg(input))
+    handle_macro_error(derive_fork_codec(input))
 }

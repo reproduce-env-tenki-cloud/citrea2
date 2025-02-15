@@ -86,7 +86,7 @@ impl BitcoinMerkleTree {
     pub fn calculate_root_with_merkle_proof(
         txid: [u8; 32],
         idx: u32,
-        merkle_proof: Vec<[u8; 32]>,
+        merkle_proof: &[[u8; 32]],
     ) -> [u8; 32] {
         let mut preimage: [u8; 64] = [0; 64];
         let mut combined_hash: [u8; 32] = txid;
@@ -114,7 +114,8 @@ mod tests {
     use bitcoin::hashes::Hash;
 
     use super::*;
-    use crate::helpers::test_utils::get_mock_txs;
+    use crate::helpers::calculate_wtxid;
+    use crate::helpers::parsers::parse_hex_transaction;
 
     #[test]
     fn test_merkle_root_with_proof() {
@@ -127,7 +128,7 @@ mod tests {
         let root = tree.root();
         let idx_path = tree.get_idx_path(0);
         let calculated_root =
-            BitcoinMerkleTree::calculate_root_with_merkle_proof(transactions[0], 0, idx_path);
+            BitcoinMerkleTree::calculate_root_with_merkle_proof(transactions[0], 0, &idx_path);
         assert_eq!(root, calculated_root);
     }
 
@@ -145,10 +146,12 @@ mod tests {
         compare_merkle_tree_against_bitcoin_impl(vec![[200; 32]; 2]);
         compare_merkle_tree_against_bitcoin_impl(vec![[99; 32]; 1]);
 
-        let txs = get_mock_txs()
-            .iter()
-            .map(|tx| tx.compute_wtxid().to_byte_array())
-            .collect();
+        let txs = std::fs::read_to_string("test_data/mock_txs.txt")
+            .unwrap()
+            .lines()
+            .map(|tx_hex| parse_hex_transaction(tx_hex).unwrap())
+            .map(|tx| calculate_wtxid(&tx))
+            .collect::<Vec<_>>();
         compare_merkle_tree_against_bitcoin_impl(txs);
     }
 

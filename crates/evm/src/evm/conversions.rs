@@ -1,6 +1,7 @@
+use alloy_eips::eip2718::Decodable2718;
+use alloy_primitives::Bytes as RethBytes;
 use reth_primitives::{
-    Bytes as RethBytes, TransactionSigned, TransactionSignedEcRecovered, TransactionSignedNoHash,
-    KECCAK_EMPTY,
+    TransactionSigned, TransactionSignedEcRecovered, TransactionSignedNoHash, KECCAK_EMPTY,
 };
 use revm::primitives::{AccountInfo as ReVmAccountInfo, SpecId, TransactTo, TxEnv, U256};
 
@@ -96,7 +97,9 @@ impl TryFrom<RlpEvmTransaction> for TransactionSignedNoHash {
             return Err(ConversionError::EmptyRawTransactionData);
         }
 
-        let transaction = TransactionSigned::decode_enveloped(&mut data.as_ref())
+        // According to this pr: https://github.com/paradigmxyz/reth/pull/11218
+        // decode_enveloped -> decode_2718
+        let transaction = TransactionSigned::decode_2718(&mut data.as_ref())
             .map_err(|_| ConversionError::FailedToDecodeSignedTransaction)?;
 
         Ok(transaction.into())
@@ -129,10 +132,9 @@ impl From<TransactionSignedAndRecovered> for TransactionSignedEcRecovered {
 #[cfg(feature = "native")]
 pub(crate) fn sealed_block_to_block_env(
     sealed_header: &reth_primitives::SealedHeader,
+    fork_fn: &impl Fn(u64) -> sov_modules_api::fork::Fork,
 ) -> revm::primitives::BlockEnv {
-    use citrea_primitives::forks::FORKS;
     use revm::primitives::BlobExcessGasAndPrice;
-    use sov_modules_api::fork::fork_from_block_number;
 
     use crate::citrea_spec_id_to_evm_spec_id;
 
@@ -147,9 +149,8 @@ pub(crate) fn sealed_block_to_block_env(
         blob_excess_gas_and_price: sealed_header
             .excess_blob_gas
             .or_else(|| {
-                if citrea_spec_id_to_evm_spec_id(
-                    fork_from_block_number(FORKS, sealed_header.number).spec_id,
-                ) >= SpecId::CANCUN
+                if citrea_spec_id_to_evm_spec_id(fork_fn(sealed_header.number).spec_id)
+                    >= SpecId::CANCUN
                 {
                     Some(0)
                 } else {

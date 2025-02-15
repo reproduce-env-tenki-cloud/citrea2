@@ -1,14 +1,22 @@
+use core::result::Result;
+
 use borsh::{BorshDeserialize, BorshSerialize};
-use sov_modules_api::{CallResponse, Context, DaSpec, StateValueAccessor, WorkingSet};
+use sov_modules_api::{
+    CallResponse, Context, DaSpec, SoftConfirmationModuleCallError, StateValueAccessor, WorkingSet,
+};
 
 use crate::SoftConfirmationRuleEnforcer;
 
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize),
-    derive(serde::Deserialize)
+#[derive(
+    Debug,
+    Clone,
+    BorshDeserialize,
+    BorshSerialize,
+    Eq,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
 )]
-#[derive(Debug, Clone, BorshDeserialize, BorshSerialize, Eq, PartialEq)]
 pub enum CallMessage<C: Context> {
     /// Change the authority of soft confirmation rule enforcing.
     ChangeAuthority {
@@ -24,7 +32,7 @@ pub enum CallMessage<C: Context> {
 
 impl<C: Context, Da: DaSpec> SoftConfirmationRuleEnforcer<C, Da> {
     /// Returns the address of authority.
-    fn get_authority(&self, working_set: &mut WorkingSet<C>) -> C::Address {
+    fn get_authority(&self, working_set: &mut WorkingSet<C::Storage>) -> C::Address {
         self.authority
             .get(working_set)
             .expect("Authority must be set")
@@ -34,12 +42,12 @@ impl<C: Context, Da: DaSpec> SoftConfirmationRuleEnforcer<C, Da> {
         &self,
         address: C::Address,
         context: &C,
-        working_set: &mut WorkingSet<C>,
-    ) -> anyhow::Result<CallResponse> {
-        anyhow::ensure!(
-            *context.sender() == self.get_authority(working_set),
-            "Only authority can change the authority"
-        );
+        working_set: &mut WorkingSet<C::Storage>,
+    ) -> Result<CallResponse, SoftConfirmationModuleCallError> {
+        if *context.sender() != self.get_authority(working_set) {
+            return Err(SoftConfirmationModuleCallError::RuleEnforcerUnauthorized);
+        }
+
         self.authority.set(&address, working_set);
         Ok(CallResponse::default())
     }
@@ -48,12 +56,11 @@ impl<C: Context, Da: DaSpec> SoftConfirmationRuleEnforcer<C, Da> {
         &self,
         max_l2_blocks_per_l1: u32,
         context: &C,
-        working_set: &mut WorkingSet<C>,
-    ) -> anyhow::Result<CallResponse> {
-        anyhow::ensure!(
-            *context.sender() == self.get_authority(working_set),
-            "Only authority can change the max L2 blocks per L1"
-        );
+        working_set: &mut WorkingSet<C::Storage>,
+    ) -> Result<CallResponse, SoftConfirmationModuleCallError> {
+        if *context.sender() != self.get_authority(working_set) {
+            return Err(SoftConfirmationModuleCallError::RuleEnforcerUnauthorized);
+        }
 
         let mut data = self.data.get(working_set).expect("Data must be set");
 

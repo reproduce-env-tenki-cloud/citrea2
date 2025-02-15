@@ -2,8 +2,10 @@ use anyhow::anyhow;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use sov_rollup_interface::da::{
-    BlobReaderTrait, BlockHeaderTrait, DaNamespace, DaSpec, DaVerifier, UpdatedDaState,
+    BlobReaderTrait, DaNamespace, DaSpec, DaVerifier, L1UpdateSystemTransactionInfo, LatestDaState,
+    ShortHeaderProofVerificationError, VerifableShortHeaderProof,
 };
+use sov_rollup_interface::Network;
 
 use crate::{MockAddress, MockBlob, MockBlockHeader, MockDaVerifier, MockHash};
 
@@ -11,14 +13,18 @@ impl BlobReaderTrait for MockBlob {
     type Address = MockAddress;
 
     fn sender(&self) -> Self::Address {
-        self.address
+        self.address.clone()
     }
 
     fn hash(&self) -> [u8; 32] {
         self.hash
     }
 
-    fn verified_data(&self) -> &[u8] {
+    fn wtxid(&self) -> Option<[u8; 32]> {
+        self.wtxid
+    }
+
+    fn full_data(&self) -> &[u8] {
         self.data.accumulator()
     }
 
@@ -26,10 +32,12 @@ impl BlobReaderTrait for MockBlob {
         self.data.total_len()
     }
 
-    #[cfg(feature = "native")]
-    fn advance(&mut self, num_bytes: usize) -> &[u8] {
-        self.data.advance(num_bytes);
-        self.verified_data()
+    fn serialize_v1(&self) -> borsh::io::Result<Vec<u8>> {
+        borsh::to_vec(self)
+    }
+
+    fn serialize_v2(&self) -> borsh::io::Result<Vec<u8>> {
+        borsh::to_vec(self)
     }
 }
 
@@ -43,14 +51,28 @@ impl DaSpec for MockDaSpec {
     type BlobTransaction = MockBlob;
     type Address = MockAddress;
     type InclusionMultiProof = [u8; 32];
-    type CompletenessProof = ();
+    type CompletenessProof = Vec<MockBlob>;
     type ChainParams = ();
+    type ShortHeaderProof = MockShortHeaderProof;
 }
 
+#[derive(borsh::BorshDeserialize, borsh::BorshSerialize)]
+/// Short form header proof for mock da
+pub struct MockShortHeaderProof;
+
+impl VerifableShortHeaderProof for MockShortHeaderProof {
+    fn verify(&self) -> Result<L1UpdateSystemTransactionInfo, ShortHeaderProofVerificationError> {
+        todo!()
+    }
+}
 impl DaVerifier for MockDaVerifier {
     type Spec = MockDaSpec;
 
     type Error = anyhow::Error;
+
+    fn decompress_chunks(&self, complete_chunks: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        Ok(complete_chunks.to_vec())
+    }
 
     fn new(_params: <Self::Spec as DaSpec>::ChainParams) -> Self {
         Self {}
@@ -59,50 +81,48 @@ impl DaVerifier for MockDaVerifier {
     fn verify_transactions(
         &self,
         _block_header: &<Self::Spec as DaSpec>::BlockHeader,
-        _txs: &[<Self::Spec as DaSpec>::BlobTransaction],
         _inclusion_proof: <Self::Spec as DaSpec>::InclusionMultiProof,
-        _completeness_proof: <Self::Spec as DaSpec>::CompletenessProof,
+        completeness_proof: <Self::Spec as DaSpec>::CompletenessProof,
         _namespace: DaNamespace,
-    ) -> Result<(), Self::Error> {
-        Ok(())
+    ) -> Result<Vec<<Self::Spec as DaSpec>::BlobTransaction>, Self::Error> {
+        Ok(completeness_proof)
     }
 
     fn verify_header_chain(
         &self,
-        previous_light_client_proof_output: &Option<
-            sov_rollup_interface::zk::LightClientCircuitOutput<Self::Spec>,
-        >,
+        latest_da_state: Option<&LatestDaState>,
         block_header: &<Self::Spec as DaSpec>::BlockHeader,
-    ) -> Result<UpdatedDaState<Self::Spec>, Self::Error> {
-        let Some(previous_light_client_proof_output) = previous_light_client_proof_output else {
-            return Ok(UpdatedDaState {
-                hash: block_header.hash,
-                height: block_header.height,
+        _network: Network,
+    ) -> Result<LatestDaState, Self::Error> {
+        let Some(latest_da_state) = latest_da_state else {
+            return Ok(LatestDaState {
+                block_hash: block_header.hash.0,
+                block_height: block_header.height,
                 total_work: [0; 32],
-                epoch_start_time: block_header.time.secs() as u32,
+                current_target_bits: 0,
+                epoch_start_time: 0,
                 prev_11_timestamps: [0; 11],
-                current_target_bits: block_header.bits(),
             });
         };
         // Check block heights are consecutive
-        if block_header.height - 1 != previous_light_client_proof_output.da_block_height {
+        if block_header.height - 1 != latest_da_state.block_height {
             return Err(anyhow!("Block heights are not consecutive"));
         }
         // Check prev hash matches with prev light client proof hash
-        if block_header.prev_hash != previous_light_client_proof_output.da_block_hash {
+        if block_header.prev_hash.0 != latest_da_state.block_hash {
             return Err(anyhow!(
                 "Block prev hash does not match with prev light client proof hash"
             ));
         }
         // Skip hash, bits, pow and timestamp checks for now
 
-        Ok(UpdatedDaState {
-            hash: block_header.hash,
-            height: block_header.height,
+        Ok(LatestDaState {
+            block_hash: block_header.hash.0,
+            block_height: block_header.height,
             total_work: [0; 32],
+            current_target_bits: 0,
             epoch_start_time: 0,
             prev_11_timestamps: [0; 11],
-            current_target_bits: 0,
         })
     }
 }

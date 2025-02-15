@@ -2,18 +2,18 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use alloy_eips::eip1559::BaseFeeParams;
+use alloy_primitives::hex_literal::hex;
+use alloy_primitives::{address, Address, Bytes, TxKind, B256, U256};
 use lazy_static::lazy_static;
 use reth_primitives::constants::ETHEREUM_BLOCK_GAS_LIMIT;
-use reth_primitives::hex_literal::hex;
-use reth_primitives::{address, Address, Bytes, TxKind, B256};
-use revm::primitives::{KECCAK_EMPTY, U256};
+use reth_primitives::KECCAK_EMPTY;
 use sov_modules_api::default_context::DefaultContext;
+use sov_modules_api::fork::Fork;
 use sov_modules_api::hooks::HookSoftConfirmationInfo;
-use sov_modules_api::{Module, WorkingSet};
+use sov_modules_api::{Module, Spec, WorkingSet};
 use sov_prover_storage_manager::{new_orphan_storage, SnapshotManager};
 use sov_rollup_interface::spec::SpecId as SovSpecId;
 use sov_state::{ProverStorage, Storage};
-use sov_stf_runner::read_json_file;
 
 use crate::smart_contracts::{LogsContract, SimpleStorageContract, TestContract};
 use crate::tests::test_signer::TestSigner;
@@ -34,43 +34,48 @@ pub(crate) fn get_evm_with_storage(
     config: &EvmConfig,
 ) -> (
     Evm<C>,
-    WorkingSet<DefaultContext>,
+    WorkingSet<ProverStorage<SnapshotManager>>,
     ProverStorage<SnapshotManager>,
 ) {
     let tmpdir = tempfile::tempdir().unwrap();
     let prover_storage = new_orphan_storage(tmpdir.path()).unwrap();
     let mut working_set = WorkingSet::new(prover_storage.clone());
     let evm = Evm::<C>::default();
-    evm.genesis(config, &mut working_set).unwrap();
+    evm.genesis(config, &mut working_set);
 
     let mut genesis_state_root = [0u8; 32];
     genesis_state_root.copy_from_slice(GENESIS_STATE_ROOT.as_ref());
 
-    evm.finalize_hook(
-        &genesis_state_root.into(),
-        &mut working_set.accessory_state(),
-    );
+    evm.finalize_hook(&genesis_state_root, &mut working_set.accessory_state());
     (evm, working_set, prover_storage)
 }
-pub(crate) fn get_evm(config: &EvmConfig) -> (Evm<C>, WorkingSet<C>) {
+
+pub(crate) fn get_evm(config: &EvmConfig) -> (Evm<C>, WorkingSet<<C as Spec>::Storage>, SovSpecId) {
+    get_evm_with_spec(config, SovSpecId::Fork2)
+}
+
+pub(crate) fn get_evm_with_spec(
+    config: &EvmConfig,
+    spec_id: SovSpecId,
+) -> (Evm<C>, WorkingSet<<C as Spec>::Storage>, SovSpecId) {
     let tmpdir = tempfile::tempdir().unwrap();
     let storage = new_orphan_storage(tmpdir.path()).unwrap();
     let mut working_set = WorkingSet::new(storage.clone());
     let mut evm = Evm::<C>::default();
-    evm.genesis(config, &mut working_set).unwrap();
+    evm.genesis(config, &mut working_set);
 
     let root = commit(working_set, storage.clone());
 
-    let mut working_set: WorkingSet<C> = WorkingSet::new(storage.clone());
-    evm.finalize_hook(&root.into(), &mut working_set.accessory_state());
+    let mut working_set = WorkingSet::new(storage.clone());
+    evm.finalize_hook(&root, &mut working_set.accessory_state());
 
     let hook_info = HookSoftConfirmationInfo {
         l2_height: 1,
         da_slot_hash: [1u8; 32],
         da_slot_height: 1,
         da_slot_txs_commitment: [2u8; 32],
-        pre_state_root: root.to_vec(),
-        current_spec: SovSpecId::Genesis,
+        pre_state_root: root,
+        current_spec: spec_id,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate: 0,
@@ -82,17 +87,17 @@ pub(crate) fn get_evm(config: &EvmConfig) -> (Evm<C>, WorkingSet<C>) {
     evm.end_soft_confirmation_hook(&hook_info, &mut working_set);
 
     let root = commit(working_set, storage.clone());
-    let mut working_set: WorkingSet<C> = WorkingSet::new(storage.clone());
-    evm.finalize_hook(&root.into(), &mut working_set.accessory_state());
+    let mut working_set: WorkingSet<<C as Spec>::Storage> = WorkingSet::new(storage.clone());
+    evm.finalize_hook(&root, &mut working_set.accessory_state());
 
     // let mut genesis_state_root = [0u8; 32];
     // genesis_state_root.copy_from_slice(GENESIS_STATE_ROOT.as_ref());
 
-    (evm, working_set)
+    (evm, working_set, spec_id)
 }
 
 pub(crate) fn commit(
-    working_set: WorkingSet<C>,
+    working_set: WorkingSet<<C as Spec>::Storage>,
     storage: ProverStorage<SnapshotManager>,
 ) -> [u8; 32] {
     // Save checkpoint
@@ -111,15 +116,14 @@ pub(crate) fn commit(
 
     storage.commit(&authenticated_node_batch, &accessory_log, &offchain_log);
 
-    state_root_transition.final_root.0
+    state_root_transition.final_root
 }
 
 /// Loads the genesis configuration from the given path and pushes the accounts to the evm config
 pub(crate) fn config_push_contracts(config: &mut EvmConfig, path: Option<&str>) {
     let mut genesis_config: EvmConfig = read_json_file(Path::new(
         path.unwrap_or("../../resources/test-data/integration-tests/evm.json"),
-    ))
-    .expect("Failed to read genesis configuration");
+    ));
     config.data.append(&mut genesis_config.data);
 }
 
@@ -132,6 +136,18 @@ pub fn create_contract_message<T: TestContract>(
         .sign_default_transaction(TxKind::Create, contract.byte_code(), nonce, 0)
         .unwrap()
 }
+
+pub fn create_contract_message_with_bytecode(
+    dev_signer: &TestSigner,
+    nonce: u64,
+    bytecode: Vec<u8>,
+    value: Option<u128>,
+) -> RlpEvmTransaction {
+    dev_signer
+        .sign_default_transaction(TxKind::Create, bytecode, nonce, value.unwrap_or_default())
+        .unwrap()
+}
+
 pub(crate) fn create_contract_message_with_fee<T: TestContract>(
     dev_signer: &TestSigner,
     nonce: u64,
@@ -148,6 +164,26 @@ pub(crate) fn create_contract_message_with_fee<T: TestContract>(
         )
         .unwrap()
 }
+
+pub(crate) fn create_contract_message_with_fee_and_gas_limit<T: TestContract>(
+    dev_signer: &TestSigner,
+    nonce: u64,
+    contract: T,
+    max_fee_per_gas: u128,
+    gas_limit: u64,
+) -> RlpEvmTransaction {
+    dev_signer
+        .sign_default_transaction_with_fee_and_gas_limit(
+            TxKind::Create,
+            contract.byte_code(),
+            nonce,
+            0,
+            max_fee_per_gas,
+            gas_limit,
+        )
+        .unwrap()
+}
+
 pub(crate) fn create_contract_transaction<T: TestContract>(
     dev_signer: &TestSigner,
     nonce: u64,
@@ -284,5 +320,18 @@ pub(crate) fn get_evm_test_config() -> EvmConfig {
         nonce: 0,
     };
     config_push_contracts(&mut config, None);
+    config
+}
+
+pub(crate) fn get_fork_fn_only_fork2() -> impl Fn(u64) -> Fork {
+    |_: u64| Fork::new(SovSpecId::Fork2, 0)
+}
+
+/// Read genesis file
+pub fn read_json_file<T: serde::de::DeserializeOwned, P: AsRef<Path>>(path: P) -> T {
+    let data = std::fs::read_to_string(&path).unwrap();
+
+    let config: T = serde_json::from_str(&data).unwrap();
+
     config
 }

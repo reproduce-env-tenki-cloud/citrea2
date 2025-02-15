@@ -23,20 +23,18 @@ pub mod snapshot;
 pub mod test;
 
 use std::path::Path;
+use std::time::Instant;
 
+use ::metrics::{gauge, histogram};
 use anyhow::format_err;
-use iterator::ScanDirection;
-pub use iterator::{RawDbReverseIterator, SchemaIterator, SeekKeyEncoder};
-use metrics::{
-    SCHEMADB_BATCH_COMMIT_BYTES, SCHEMADB_BATCH_COMMIT_LATENCY_SECONDS, SCHEMADB_DELETES,
-    SCHEMADB_GET_BYTES, SCHEMADB_GET_LATENCY_SECONDS, SCHEMADB_PUT_BYTES,
-};
+pub use iterator::{RawDbReverseIterator, ScanDirection, SchemaIterator, SeekKeyEncoder};
 pub use rocksdb;
-use rocksdb::ReadOptions;
 pub use rocksdb::DEFAULT_COLUMN_FAMILY_NAME;
+use rocksdb::{DBIterator, ReadOptions};
 use thiserror::Error;
 use tracing::info;
 
+pub use crate::metrics::SCHEMADB_METRICS;
 pub use crate::schema::Schema;
 use crate::schema::{ColumnFamilyName, KeyCodec, ValueCodec};
 pub use crate::schema_batch::{SchemaBatch, SchemaBatchIterator};
@@ -75,6 +73,12 @@ impl DB {
     /// Returns the path of the DB.
     pub fn path(&self) -> &Path {
         self.inner.path()
+    }
+
+    /// Lists column families in the DB.
+    pub fn list_column_families(&self) -> Vec<String> {
+        rocksdb::DB::list_cf(&rocksdb::Options::default(), self.path())
+            .expect("Should list column families")
     }
 
     /// Open RocksDB with the provided column family descriptors.
@@ -131,22 +135,27 @@ impl DB {
     }
 
     fn _get<S: Schema>(&self, schema_key: &impl KeyCodec<S>) -> anyhow::Result<Option<S::Value>> {
-        let _timer = SCHEMADB_GET_LATENCY_SECONDS
-            .with_label_values(&[S::COLUMN_FAMILY_NAME])
-            .start_timer();
+        let start = Instant::now();
 
         let k = schema_key.encode_key()?;
         let cf_handle = self.get_cf_handle(S::COLUMN_FAMILY_NAME)?;
 
         let result = self.inner.get_pinned_cf(cf_handle, k)?;
-        SCHEMADB_GET_BYTES
-            .with_label_values(&[S::COLUMN_FAMILY_NAME])
-            .observe(result.as_ref().map_or(0.0, |v| v.len() as f64));
 
-        result
+        histogram!("schemadb_get_bytes", "cf_name" => S::COLUMN_FAMILY_NAME)
+            .record(result.as_ref().map_or(0.0, |v| v.len() as f64));
+
+        let result = result
             .map(|raw_value| <S::Value as ValueCodec<S>>::decode_value(&raw_value))
             .transpose()
-            .map_err(|err| err.into())
+            .map_err(|err| err.into());
+
+        histogram!("schemadb_get_latency_seconds", "cf_name" => S::COLUMN_FAMILY_NAME).record(
+            Instant::now()
+                .saturating_duration_since(start)
+                .as_secs_f64(),
+        );
+        result
     }
 
     /// Writes single record.
@@ -173,6 +182,17 @@ impl DB {
     /// Delete a single key from the database.
     pub fn delete<S: Schema>(&self, key: &impl KeyCodec<S>) -> anyhow::Result<()> {
         tokio::task::block_in_place(|| self._delete(key))
+    }
+
+    /// Delete a batch of keys
+    pub fn delete_batch<S: Schema>(&self, keys: Vec<impl KeyCodec<S>>) -> anyhow::Result<()> {
+        // Not necessary to use a batch, but we'd like a central place to bump counters.
+        // Used in tests only anyway.
+        let mut batch = SchemaBatch::new();
+        for key in keys {
+            batch.delete::<S>(&key)?;
+        }
+        self.write_schemas(batch)
     }
 
     fn _delete<S: Schema>(&self, key: &impl KeyCodec<S>) -> anyhow::Result<()> {
@@ -208,7 +228,8 @@ impl DB {
         Ok(())
     }
 
-    fn iter_with_direction<S: Schema>(
+    /// Returns a [`SchemaIterator`] on a certain schema with the provided read options and direction.
+    pub fn iter_with_direction<S: Schema>(
         &self,
         opts: ReadOptions,
         direction: ScanDirection,
@@ -225,6 +246,38 @@ impl DB {
         let mut read_options = ReadOptions::default();
         read_options.set_async_io(true);
         self.iter_with_direction::<S>(read_options, ScanDirection::Forward)
+    }
+
+    /// Drops a column family from the database.
+    pub fn drop_cf(&mut self, cf_name: &str) -> anyhow::Result<()> {
+        Ok(self.inner.drop_cf(cf_name)?)
+    }
+
+    /// Inserts a key value pair to a column family.
+    pub fn put_cf(
+        &self,
+        cf_handle: &rocksdb::ColumnFamily,
+        key: &[u8],
+        value: &[u8],
+    ) -> anyhow::Result<()> {
+        self.inner.put_cf(cf_handle, key, value)?;
+        Ok(())
+    }
+
+    /// Deletes a key from a column family.
+    pub fn delete_cf(&self, cf_handle: &rocksdb::ColumnFamily, key: &[u8]) -> anyhow::Result<()> {
+        self.inner.delete_cf(cf_handle, key)?;
+        Ok(())
+    }
+
+    /// Returns an iterator over a column family
+    pub fn iter_cf<'a>(
+        &'a self,
+        cf_handle: &rocksdb::ColumnFamily,
+        iter_mode: Option<rocksdb::IteratorMode>,
+    ) -> DBIterator<'a> {
+        self.inner
+            .iterator_cf(cf_handle, iter_mode.unwrap_or(rocksdb::IteratorMode::Start))
     }
 
     /// Returns a [`RawDbReverseIterator`] which allows to iterate over raw values, backwards
@@ -250,9 +303,8 @@ impl DB {
     }
 
     fn _write_schemas(&self, batch: SchemaBatch) -> anyhow::Result<()> {
-        let _timer = SCHEMADB_BATCH_COMMIT_LATENCY_SECONDS
-            .with_label_values(&[self.name])
-            .start_timer();
+        let start = Instant::now();
+
         let mut db_batch = rocksdb::WriteBatch::default();
         for (cf_name, rows) in batch.last_writes.iter() {
             let cf_handle = self.get_cf_handle(cf_name)?;
@@ -272,24 +324,28 @@ impl DB {
             for (key, operation) in rows {
                 match operation {
                     Operation::Put { value } => {
-                        SCHEMADB_PUT_BYTES
-                            .with_label_values(&[cf_name])
-                            .observe((key.len() + value.len()) as f64);
+                        histogram!("schemadb_put_bytes").record((key.len() + value.len()) as f64);
                     }
                     Operation::Delete => {
-                        SCHEMADB_DELETES.with_label_values(&[cf_name]).inc();
+                        gauge!("schemadb_deletes", "cf_name" => cf_name.to_owned()).increment(1)
                     }
                 }
             }
         }
-        SCHEMADB_BATCH_COMMIT_BYTES
-            .with_label_values(&[self.name])
-            .observe(serialized_size as f64);
+
+        histogram!("schemadb_batch_commit_bytes").record(serialized_size as f64);
+
+        histogram!("schemadb_batch_commit_latency_seconds", "db_name" => self.name).record(
+            Instant::now()
+                .saturating_duration_since(start)
+                .as_secs_f64(),
+        );
 
         Ok(())
     }
 
-    fn get_cf_handle(&self, cf_name: &str) -> anyhow::Result<&rocksdb::ColumnFamily> {
+    /// Returns the handle for a rocksdb column family.
+    pub fn get_cf_handle(&self, cf_name: &str) -> anyhow::Result<&rocksdb::ColumnFamily> {
         self.inner.cf_handle(cf_name).ok_or_else(|| {
             format_err!(
                 "DB::cf_handle not found for column family name: {}",
@@ -302,6 +358,11 @@ impl DB {
     /// This is only used for testing `get_approximate_sizes_cf` in unit tests.
     pub fn flush_cf(&self, cf_name: &str) -> anyhow::Result<()> {
         Ok(self.inner.flush_cf(self.get_cf_handle(cf_name)?)?)
+    }
+
+    /// Force flush db
+    pub fn flush(&self) -> anyhow::Result<()> {
+        Ok(self.inner.flush()?)
     }
 
     /// Returns the current RocksDB property value for the provided column family name
@@ -327,6 +388,25 @@ impl DB {
         rocksdb::checkpoint::Checkpoint::new(&self.inner)?.create_checkpoint(path)?;
         Ok(())
     }
+
+    /// Create backup at directory specified by `backup_path`
+    pub fn create_backup(&self, backup_path: impl AsRef<Path>) -> anyhow::Result<()> {
+        std::fs::create_dir_all(&backup_path)?;
+
+        let backup_opts = rocksdb::backup::BackupEngineOptions::new(backup_path.as_ref())?;
+        let env = rocksdb::Env::new()?;
+        let mut backup_engine = rocksdb::backup::BackupEngine::open(&backup_opts, &env)?;
+
+        backup_engine.create_new_backup_flush(&self.inner, false)?;
+
+        info!(
+            db_name = self.name,
+            path = ?backup_path.as_ref(),
+            "Created database backup"
+        );
+
+        Ok(())
+    }
 }
 
 /// Raw rocksdb config wrapper. Useful to convert user provided config into
@@ -343,7 +423,6 @@ pub type SchemaKey = Vec<u8>;
 /// Readability alias for a value in the DB.
 pub type SchemaValue = Vec<u8>;
 
-#[cfg_attr(feature = "arbitrary", derive(proptest_derive::Arbitrary))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 /// Represents operation written to the database
 pub enum Operation {

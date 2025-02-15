@@ -9,15 +9,15 @@ use tokio::sync::oneshot::Sender as OneshotSender;
 
 use crate::da::BlockHeaderTrait;
 #[cfg(feature = "native")]
-use crate::da::{DaData, DaNamespace, DaSpec, DaVerifier, SequencerCommitment};
+use crate::da::{DaNamespace, DaSpec, DaTxRequest, DaVerifier, SequencerCommitment};
 #[cfg(feature = "native")]
 use crate::zk::Proof;
 
 /// This type represents a queued request to send_transaction
 #[cfg(feature = "native")]
-pub struct SenderWithNotifier<TxID> {
+pub struct TxRequestWithNotifier<TxID> {
     /// Data to send.
-    pub da_data: DaData,
+    pub tx_request: DaTxRequest,
     /// Channel to receive result of the operation.
     pub notify: OneshotSender<Result<TxID, anyhow::Error>>,
 }
@@ -107,15 +107,21 @@ pub trait DaService: Send + Sync + 'static {
         <Self::Spec as DaSpec>::CompletenessProof,
     );
 
+    /// Decompress and deserialize the chunks into a single complete proof.
+    fn decompress_chunks(&self, complete_chunks: &[u8]) -> Result<Vec<u8>, Self::Error>;
+
     /// Send a transaction directly to the DA layer.
     /// blob is the serialized and signed transaction.
     /// Returns nothing if the transaction was successfully sent.
-    async fn send_transaction(&self, da_data: DaData) -> Result<Self::TransactionId, Self::Error>;
+    async fn send_transaction(
+        &self,
+        tx_request: DaTxRequest,
+    ) -> Result<Self::TransactionId, Self::Error>;
 
     /// A tx part of the queue to send transactions in order
     fn get_send_transaction_queue(
         &self,
-    ) -> UnboundedSender<SenderWithNotifier<Self::TransactionId>> {
+    ) -> UnboundedSender<TxRequestWithNotifier<Self::TransactionId>> {
         unimplemented!()
     }
 
@@ -127,6 +133,11 @@ pub trait DaService: Send + Sync + 'static {
         &self,
         sequencer_da_pub_key: &[u8],
     ) -> Vec<SequencerCommitment>;
+
+    /// Convert a DA layer block to short form header proof.
+    fn block_to_short_header_proof(
+        block: Self::FilteredBlock,
+    ) -> <Self::Spec as DaSpec>::ShortHeaderProof;
 }
 
 /// `SlotData` is the subset of a DA layer block which is stored in the rollup's database.

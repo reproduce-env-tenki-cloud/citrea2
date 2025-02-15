@@ -1,16 +1,18 @@
-use reth_primitives::revm_primitives::TxEnv;
-use reth_primitives::{TransactionSigned, TransactionSignedEcRecovered, TxHash, U256};
-use reth_rpc_eth_types::error::{EthApiError, EthResult, RpcInvalidTransactionError};
-use reth_rpc_types::trace::geth::{
+use alloy_primitives::{TxHash, U256};
+use alloy_rpc_types_trace::geth::{
     FourByteFrame, GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingOptions,
     GethTrace, NoopFrame,
 };
+use reth_primitives::revm_primitives::TxEnv;
+use reth_primitives::{TransactionSigned, TransactionSignedEcRecovered};
+use reth_rpc_eth_types::error::{EthApiError, EthResult, RpcInvalidTransactionError};
 use revm::precompile::{PrecompileSpecId, Precompiles};
 use revm::primitives::db::Database;
 use revm::primitives::{Address, BlockEnv, CfgEnvWithHandlerCfg, EVMError, ResultAndState, SpecId};
 use revm::{inspector_handle_register, Inspector};
 use revm_inspectors::tracing::{FourByteInspector, TracingInspector, TracingInspectorConfig};
 
+use crate::db::DBError;
 use crate::evm::db::EvmDb;
 use crate::handler::{
     citrea_handle_register, CitreaExternal, CitreaExternalExt, TracingCitreaExternal, TxInfo,
@@ -72,23 +74,25 @@ pub(crate) fn trace_transaction<C: sov_modules_api::Context>(
                         .inspector
                         .into_geth_builder()
                         .geth_call_traces(call_config, res.result.gas_used());
-                    return Ok((frame.into(), res.state));
+                    Ok((frame.into(), res.state))
                 }
                 GethDebugBuiltInTracerType::PreStateTracer => {
                     // Requires DatabaseRef trait
                     // meaning we need a readonly state to implement this
-                    return Err(EthApiError::Unsupported("PreStateTracer"));
+                    Err(EthApiError::Unsupported("PreStateTracer"))
                 }
                 GethDebugBuiltInTracerType::NoopTracer => {
                     Ok((NoopFrame::default().into(), Default::default()))
                 }
-                // TODO: either implement or return unsupported
-                GethDebugBuiltInTracerType::MuxTracer => todo!("MuxTracer"),
+                GethDebugBuiltInTracerType::MuxTracer => Err(EthApiError::Unsupported("MuxTracer")),
+                GethDebugBuiltInTracerType::FlatCallTracer => {
+                    Err(EthApiError::Unsupported("FlatCallTracer"))
+                }
             },
             GethDebugTracerType::JsTracer(_code) => {
                 // This also requires DatabaseRef trait
                 // Implement after readonly state is implemented
-                return Err(EthApiError::Unsupported("JsTracer"));
+                Err(EthApiError::Unsupported("JsTracer"))
             }
         };
     }
@@ -119,27 +123,27 @@ pub(crate) fn trace_transaction<C: sov_modules_api::Context>(
 }
 
 /// Executes the [Env] against the given [Database] without committing state changes.
-fn inspect_citrea<DB, I>(
-    db: DB,
+fn inspect_citrea<'a, 'b, C, I>(
+    db: &'b mut EvmDb<'a, C>,
     config_env: CfgEnvWithHandlerCfg,
     block_env: BlockEnv,
     tx_env: TxEnv,
     tx_hash: TxHash,
     inspector: I,
-) -> Result<ResultAndState, EVMError<DB::Error>>
+) -> Result<ResultAndState, EVMError<DBError>>
 where
-    DB: Database,
-    <DB as Database>::Error: Into<EthApiError>,
-    I: Inspector<DB>,
+    C: sov_modules_api::Context,
+    I: Inspector<&'b mut EvmDb<'a, C>>,
     I: CitreaExternalExt,
 {
+    let citrea_spec = db.citrea_spec;
     let mut evm = revm::Evm::builder()
         .with_db(db)
         .with_external_context(inspector)
         .with_cfg_env_with_handler_cfg(config_env)
         .with_block_env(block_env)
         .with_tx_env(tx_env)
-        .append_handler_register(citrea_handle_register)
+        .append_handler_register_box(citrea_handle_register(citrea_spec))
         .append_handler_register(inspector_handle_register)
         .build();
     evm.context.external.set_current_tx_hash(tx_hash);
@@ -172,27 +176,25 @@ where
     evm.transact()
 }
 
-pub(crate) fn inspect_no_tracing<DB>(
-    db: DB,
+pub(crate) fn inspect_no_tracing<C: sov_modules_api::Context>(
+    db: EvmDb<'_, C>,
     config_env: CfgEnvWithHandlerCfg,
     block_env: BlockEnv,
     tx_env: TxEnv,
     l1_fee_rate: u128,
-) -> Result<(ResultAndState, TxInfo), EVMError<DB::Error>>
-where
-    DB: Database,
-{
+) -> Result<(ResultAndState, TxInfo), EVMError<DBError>> {
     let tmp_hash: TxHash = b"hash_of_an_ephemeral_transaction".into();
     let mut ext = CitreaExternal::new(l1_fee_rate);
     ext.set_current_tx_hash(tmp_hash);
 
+    let citrea_spec = db.citrea_spec;
     let mut evm = revm::Evm::builder()
         .with_db(db)
         .with_external_context(&mut ext)
         .with_cfg_env_with_handler_cfg(config_env)
         .with_block_env(block_env)
         .with_tx_env(tx_env)
-        .append_handler_register(citrea_handle_register)
+        .append_handler_register_box(citrea_handle_register(citrea_spec))
         .build();
 
     let result_and_state = evm.transact()?;
@@ -238,7 +240,10 @@ pub(crate) fn caller_gas_allowance(balance: U256, value: U256, gas_price: U256) 
         // Subtract transferred value from the caller balance.
         .checked_sub(value)
         // Return error if the caller has insufficient funds.
-        .ok_or_else(|| RpcInvalidTransactionError::InsufficientFunds)?
+        .ok_or_else(|| RpcInvalidTransactionError::InsufficientFunds {
+            cost: value,
+            balance,
+        })?
         // Calculate the amount of gas the caller can afford with the specified gas price.
         .checked_div(gas_price)
         // This will be 0 if gas price is 0. It is fine, because we check it before.

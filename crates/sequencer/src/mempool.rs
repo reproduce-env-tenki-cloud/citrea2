@@ -1,34 +1,36 @@
 use std::sync::Arc;
 
+use alloy_genesis::Genesis;
+use alloy_primitives::TxHash;
 use anyhow::{anyhow, bail};
 use citrea_common::SequencerMempoolConfig;
 use citrea_evm::SYSTEM_SIGNER;
 use reth_chainspec::{Chain, ChainSpecBuilder};
-use reth_primitives::{Genesis, TxHash};
+use reth_execution_types::ChangedAccount;
 use reth_tasks::TokioTaskExecutor;
 use reth_transaction_pool::blobstore::NoopBlobStore;
 use reth_transaction_pool::error::PoolError;
 use reth_transaction_pool::{
-    BestTransactions, BestTransactionsAttributes, ChangedAccount, CoinbaseTipOrdering,
-    EthPooledTransaction, EthTransactionValidator, Pool, PoolConfig, PoolResult, SubPoolLimit,
-    TransactionPool, TransactionPoolExt, TransactionValidationTaskExecutor, ValidPoolTransaction,
+    BestTransactions, BestTransactionsAttributes, CoinbaseTipOrdering, EthPooledTransaction,
+    EthTransactionValidator, Pool, PoolConfig, PoolResult, SubPoolLimit, TransactionPool,
+    TransactionPoolExt, TransactionValidationTaskExecutor, ValidPoolTransaction,
 };
 
 pub use crate::db_provider::DbProvider;
 
-type CitreaMempoolImpl<C> = Pool<
-    TransactionValidationTaskExecutor<EthTransactionValidator<DbProvider<C>, EthPooledTransaction>>,
+type CitreaMempoolImpl = Pool<
+    TransactionValidationTaskExecutor<EthTransactionValidator<DbProvider, EthPooledTransaction>>,
     CoinbaseTipOrdering<EthPooledTransaction>,
     NoopBlobStore,
 >;
 
-type Transaction<C> = <CitreaMempoolImpl<C> as TransactionPool>::Transaction;
+type Transaction = <CitreaMempoolImpl as TransactionPool>::Transaction;
 
-pub(crate) struct CitreaMempool<C: sov_modules_api::Context>(CitreaMempoolImpl<C>);
+pub struct CitreaMempool(CitreaMempoolImpl);
 
-impl<C: sov_modules_api::Context> CitreaMempool<C> {
+impl CitreaMempool {
     pub(crate) fn new(
-        client: DbProvider<C>,
+        client: DbProvider,
         mempool_conf: SequencerMempoolConfig,
     ) -> anyhow::Result<Self> {
         let blob_store = NoopBlobStore::default();
@@ -50,12 +52,12 @@ impl<C: sov_modules_api::Context> CitreaMempool<C> {
                 Genesis::default()
                     .with_nonce(nonce.into())
                     .with_timestamp(genesis_block.header.timestamp)
-                    .with_extra_data(genesis_block.header.extra_data)
+                    .with_extra_data(genesis_block.header.extra_data.clone())
                     .with_gas_limit(genesis_block.header.gas_limit)
                     .with_difficulty(genesis_block.header.difficulty)
                     .with_mix_hash(genesis_mix_hash)
                     .with_coinbase(genesis_block.header.miner)
-                    .with_base_fee(genesis_block.header.base_fee_per_gas),
+                    .with_base_fee(genesis_block.header.base_fee_per_gas.map(Into::into)),
             )
             .build();
 
@@ -108,14 +110,14 @@ impl<C: sov_modules_api::Context> CitreaMempool<C> {
         self.0.add_external_transaction(transaction).await
     }
 
-    pub(crate) fn get(&self, hash: &TxHash) -> Option<Arc<ValidPoolTransaction<Transaction<C>>>> {
+    pub(crate) fn get(&self, hash: &TxHash) -> Option<Arc<ValidPoolTransaction<Transaction>>> {
         self.0.get(hash)
     }
 
     pub(crate) fn remove_transactions(
         &self,
         tx_hashes: Vec<TxHash>,
-    ) -> Vec<Arc<ValidPoolTransaction<Transaction<C>>>> {
+    ) -> Vec<Arc<ValidPoolTransaction<Transaction>>> {
         self.0.remove_transactions(tx_hashes)
     }
 
@@ -126,8 +128,12 @@ impl<C: sov_modules_api::Context> CitreaMempool<C> {
     pub(crate) fn best_transactions_with_attributes(
         &self,
         best_transactions_attributes: BestTransactionsAttributes,
-    ) -> Box<dyn BestTransactions<Item = Arc<ValidPoolTransaction<Transaction<C>>>>> {
+    ) -> Box<dyn BestTransactions<Item = Arc<ValidPoolTransaction<Transaction>>>> {
         self.0
             .best_transactions_with_attributes(best_transactions_attributes)
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
     }
 }

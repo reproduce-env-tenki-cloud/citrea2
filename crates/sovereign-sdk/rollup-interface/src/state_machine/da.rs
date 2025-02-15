@@ -1,14 +1,13 @@
 //! Defines traits and types used by the rollup to verify claims about the
 //! DA layer.
-use alloc::vec::Vec;
-use core::fmt::Debug;
+use std::fmt::Debug;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::zk::{LightClientCircuitOutput, Proof};
-use crate::BasicAddress;
+use crate::zk::Proof;
+use crate::{BasicAddress, Network};
 
 /// Commitments made to the DA layer from the sequencer.
 /// Has merkle root of soft confirmation hashes from L1 start block to L1 end block (inclusive)
@@ -20,6 +19,15 @@ pub struct SequencerCommitment {
     pub l2_start_block_number: u64,
     /// End L2 block's number
     pub l2_end_block_number: u64,
+}
+
+/// A new batch proof method_id starting to be applied from the l2_block_number (inclusive).
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+pub struct BatchProofMethodId {
+    /// New method id of upcoming fork
+    pub method_id: [u32; 8],
+    /// Activation L2 height of the new method id
+    pub activation_l2_height: u64,
 }
 
 impl core::cmp::PartialOrd for SequencerCommitment {
@@ -34,34 +42,15 @@ impl core::cmp::Ord for SequencerCommitment {
     }
 }
 
-/// UpdatedDaState is the state after verifying and applying a block
-/// on top of the existing DA state.
-#[derive(Debug, Clone, Default)]
-pub struct UpdatedDaState<Spec: DaSpec> {
-    /// DA block hash
-    pub hash: Spec::SlotHash,
-    /// DA block height
-    pub height: u64,
-    /// DA block latest total work
-    pub total_work: [u8; 32],
-    /// DA block epoch start time
-    pub epoch_start_time: u32,
-    /// DA block's previous 11 timestamps
-    pub prev_11_timestamps: [u32; 11],
-    /// DA block target bits
-    pub current_target_bits: u32,
-}
-
-// TODO: rename to da service request smth smth
-// DaDataOutgoing
-/// Data written to DA can only be one of these two types
-/// Data written to DA and read from DA is must be borsh serialization of this enum
+/// Transaction request to send to the DA queue.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
-pub enum DaData {
+pub enum DaTxRequest {
     /// A commitment from the sequencer
     SequencerCommitment(SequencerCommitment),
     /// Or a zk proof and state diff
     ZKProof(Proof),
+    /// Batch proof method id update for light client
+    BatchProofMethodId(BatchProofMethodId),
 }
 
 /// Data written to DA and read from DA must be the borsh serialization of this enum
@@ -70,9 +59,45 @@ pub enum DaDataLightClient {
     /// A zk proof and state diff
     Complete(Proof),
     /// A list of tx ids
-    Aggregate(Vec<[u8; 32]>),
+    Aggregate(Vec<[u8; 32]>, Vec<[u8; 32]>),
     /// A chunk of an aggregate
     Chunk(Vec<u8>),
+    /// A new batch proof method_id
+    BatchProofMethodId(BatchProofMethodId),
+}
+
+impl DaDataLightClient {
+    /// Implement parsing of ::Complete variant according to possible changes
+    ///  of format on DA.
+    pub fn borsh_parse_complete(body: &[u8]) -> borsh::io::Result<Self> {
+        #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize)]
+        enum PreFork1Proof {
+            /// Only public input was generated.
+            PublicInput(Vec<u8>),
+            /// The serialized ZK proof.
+            Full(Vec<u8>),
+        }
+
+        #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize)]
+        enum PreFork1DaDataLightClient {
+            Complete(PreFork1Proof),
+        }
+
+        if let Ok(res) = Self::try_from_slice(body) {
+            Ok(res)
+        } else {
+            let prefork1_data = PreFork1DaDataLightClient::try_from_slice(body)?;
+            if let PreFork1DaDataLightClient::Complete(PreFork1Proof::Full(full)) = prefork1_data {
+                Ok(DaDataLightClient::Complete(full))
+            } else {
+                use borsh::io::{Error, ErrorKind};
+                Err(Error::new(
+                    ErrorKind::InvalidData,
+                    "PreFork1 Complete failed to parse",
+                ))
+            }
+        }
+    }
 }
 
 /// Data written to DA and read from DA must be the borsh serialization of this enum
@@ -132,6 +157,65 @@ pub trait DaSpec:
     /// The parameters of the rollup which are baked into the state-transition function.
     /// For example, this could include the namespace of the rollup on Celestia.
     type ChainParams: Send + Sync;
+
+    /// A verifiable proof that upon verification, returns the hash of the header,
+    /// the transaction commitment from the header, and the txid merkle proof height of the coinbase transaction.
+    type ShortHeaderProof: VerifableShortHeaderProof + BorshDeserialize + BorshSerialize;
+}
+
+/// Information needed to update L1 light client system contract
+///
+/// (header hash, tx commitment (wtxid commitment in Bitcoin), hashes needed for the merkle inclusion proof)
+pub type L1UpdateSystemTransactionInfo = ([u8; 32], [u8; 32], u8);
+
+/// A trait for a verifiable short header proof
+pub trait VerifableShortHeaderProof {
+    /// Verifies the proof and returns the header hash, transaction commitment and coinbase transaction txid merkle proof
+    /// height.
+    ///
+    /// The proof only shows that for a claimed header hash, wtxid merkle root and coinbase txid merkle proof height,
+    /// are valid.
+    ///
+    /// These proofs will be used inside the batch proofs, and the hash is going to be committed to the output of the
+    /// proof. It will be upto the verifier to check if the hash is correct.
+    ///
+    /// In the light client proof, the circuit will extract the `l1_hashes` output and will check that the hashes are
+    /// included in the header chain.
+    fn verify(&self) -> Result<L1UpdateSystemTransactionInfo, ShortHeaderProofVerificationError>;
+}
+
+#[derive(Debug, PartialEq, Eq)]
+/// Error that can arise from short form header proof
+pub enum ShortHeaderProofVerificationError {
+    /// Wrong coinbase was supplied
+    InvalidCoinbaseMerkleProof,
+    /// Tx commitment in `DaSpec::BlockHeader` was wrong
+    WrongTxCommitment {
+        /// The expected commitment
+        expected: [u8; 32],
+        /// The actual commitment
+        actual: [u8; 32],
+    },
+    /// Provided precomputed hash was incorrect
+    InvalidHeaderHash,
+}
+
+/// Latest da state to verify and apply da block changes
+#[derive(Default, Debug, Clone, BorshDeserialize, BorshSerialize, PartialEq)]
+pub struct LatestDaState {
+    /// Proved DA block's header hash
+    /// This is used to compare the previous DA block hash with first batch proof's DA block hash
+    pub block_hash: [u8; 32],
+    /// Height of the blockchain
+    pub block_height: u64,
+    /// Total work done in the DA blockchain
+    pub total_work: [u8; 32],
+    /// Current target bits of the DA block
+    pub current_target_bits: u32,
+    /// The time of the first block in the current epoch (the difficulty adjustment timestamp)
+    pub epoch_start_time: u32,
+    /// The UNIX timestamps in seconds of the previous 11 blocks
+    pub prev_11_timestamps: [u32; 11],
 }
 
 /// A `DaVerifier` implements the logic required to create a zk proof that some data
@@ -151,25 +235,27 @@ pub trait DaVerifier: Send + Sync {
     /// Create a new da verifier with the given chain parameters
     fn new(params: <Self::Spec as DaSpec>::ChainParams) -> Self;
 
-    /// Verify a claimed set of transactions of the given namespace against a block header.
+    /// Extract the relevant transactions from a block, using provided proofs to verify the data.
     fn verify_transactions(
         &self,
         block_header: &<Self::Spec as DaSpec>::BlockHeader,
-        txs: &[<Self::Spec as DaSpec>::BlobTransaction],
         inclusion_proof: <Self::Spec as DaSpec>::InclusionMultiProof,
         completeness_proof: <Self::Spec as DaSpec>::CompletenessProof,
         namespace: DaNamespace,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<Vec<<Self::Spec as DaSpec>::BlobTransaction>, Self::Error>;
 
     /// Verify that the block header is valid for the given previous light client proof output
     fn verify_header_chain(
         &self,
-        previous_light_client_proof_output: &Option<LightClientCircuitOutput<Self::Spec>>,
+        latest_da_state: Option<&LatestDaState>,
         block_header: &<Self::Spec as DaSpec>::BlockHeader,
-    ) -> Result<UpdatedDaState<Self::Spec>, Self::Error>;
+        network: Network,
+    ) -> Result<LatestDaState, Self::Error>;
+
+    /// Decompress chunks to complete
+    fn decompress_chunks(&self, complete_chunks: &[u8]) -> Result<Vec<u8>, Self::Error>;
 }
 
-#[cfg(feature = "std")]
 #[derive(Debug, Clone, Serialize, Deserialize, BorshDeserialize, BorshSerialize, PartialEq)]
 /// Simple structure that implements the Read trait for a buffer and  counts the number of bytes read from the beginning.
 /// Useful for the partial blob reading optimization: we know for each blob how many bytes have been read from the beginning.
@@ -184,7 +270,6 @@ pub struct CountedBufReader<B: bytes::Buf> {
     accumulator: Vec<u8>,
 }
 
-#[cfg(feature = "std")]
 impl<B: bytes::Buf> CountedBufReader<B> {
     /// Creates a new buffer reader with counter from an objet that implements the buffer trait
     pub fn new(inner: B) -> Self {
@@ -249,36 +334,20 @@ pub trait BlobReaderTrait:
     /// Returns the hash of the blob as it appears on the DA layer
     fn hash(&self) -> [u8; 32];
 
-    /// Returns a slice containing all the data accessible to the rollup at this point in time.
-    /// When running in native mode, the rollup can extend this slice by calling `advance`. In zk-mode,
-    /// the rollup is limited to only the verified data.
-    ///
-    /// Rollups should use this method in conjunction with `advance` to read only the minimum amount
-    /// of data required for execution
-    fn verified_data(&self) -> &[u8];
+    /// Returns the witness transaction ID of the blob as it appears on the DA layer
+    fn wtxid(&self) -> Option<[u8; 32]>;
+
+    /// Returns the full data of the blob
+    fn full_data(&self) -> &[u8];
 
     /// Returns the total number of bytes in the blob. Note that this may be unequal to `verified_data.len()`.
     fn total_len(&self) -> usize;
 
-    /// Extends the `partial_data` accumulator with the next `num_bytes` of  data from the blob
-    /// and returns a reference to the entire contents of the blob up to this point.
-    ///
-    /// If `num_bytes` is greater than the length of the remaining unverified data,
-    /// then all remaining unverified data is added to the accumulator.
-    ///
-    /// ### Note:
-    /// This method is only available when the `native` feature is enabled because it is unsafe to access
-    /// unverified data during execution
-    #[cfg(feature = "native")]
-    fn advance(&mut self, num_bytes: usize) -> &[u8];
+    /// Weird method to serialize blob as v1. Should be removed when a better way is introduced in the future.
+    fn serialize_v1(&self) -> borsh::io::Result<Vec<u8>>;
 
-    /// Verifies all remaining unverified data in the blob and returns a reference to the entire contents of the blob.
-    /// For efficiency, rollups should prefer use of `verified_data` and `advance` unless they know that all of the
-    /// blob data will be required for execution.
-    #[cfg(feature = "native")]
-    fn full_data(&mut self) -> &[u8] {
-        self.advance(self.total_len())
-    }
+    /// Serialize the blob as v2 (pre Fork 2)
+    fn serialize_v2(&self) -> borsh::io::Result<Vec<u8>>;
 }
 
 /// Trait with collection of trait bounds for a block hash.
@@ -331,7 +400,7 @@ pub struct Time {
 
 #[derive(Debug)]
 #[cfg_attr(
-    feature = "std",
+    feature = "native",
     derive(thiserror::Error),
     error("Only intervals less than one second may be represented as nanoseconds")
 )]
@@ -363,7 +432,6 @@ impl Time {
         }
     }
 
-    #[cfg(feature = "std")]
     /// Get the current time
     pub fn now() -> Self {
         let current_time = std::time::SystemTime::now()

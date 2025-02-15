@@ -4,50 +4,53 @@ mod call;
 mod evm;
 mod genesis;
 mod hooks;
-#[cfg(feature = "native")]
 mod provider_functions;
 
+use alloy_rlp::{RlpDecodable, RlpEncodable};
 pub use call::*;
 pub use evm::*;
 pub use genesis::*;
+#[cfg(feature = "native")]
+use primitive_types::DoNotUseSealedBlock;
+#[cfg(feature = "native")]
+use primitive_types::DoNotUseTransactionSignedAndRecovered;
 pub use system_events::SYSTEM_SIGNER;
 
 #[cfg(feature = "native")]
 mod rpc_helpers;
-#[cfg(feature = "native")]
-pub use error::rpc::*;
 #[cfg(feature = "native")]
 pub use rpc_helpers::*;
 #[cfg(feature = "native")]
 mod query;
 #[cfg(feature = "native")]
 pub use query::*;
-#[cfg(feature = "native")]
+#[cfg(test)]
 mod signer;
-#[cfg(feature = "native")]
-pub use signer::DevSigner;
+
 #[cfg(feature = "native")]
 pub mod smart_contracts;
 
 #[cfg(all(test, feature = "native"))]
 mod tests;
 
+use alloy_consensus::Header as AlloyHeader;
+use alloy_primitives::{Address, TxHash, B256};
 use evm::db::EvmDb;
-use reth_primitives::{Address, TxHash, B256};
-pub use revm::primitives::SpecId as EvmSpecId;
-use revm::primitives::{BlockEnv, U256};
-#[cfg(feature = "native")]
-use sov_modules_api::{AccessoryWorkingSet, StateVecAccessor};
-use sov_modules_api::{Error, ModuleInfo, SpecId as CitreaSpecId, WorkingSet};
-use sov_state::codec::BcsCodec;
+use revm::primitives::{BlockEnv, SpecId as EvmSpecId, U256};
+use sov_modules_api::{
+    ModuleInfo, SoftConfirmationModuleCallError, SpecId as CitreaSpecId, WorkingSet,
+};
+use sov_state::codec::{BcsCodec, RlpCodec};
 
 #[cfg(feature = "native")]
 use crate::evm::primitive_types::SealedBlock;
-use crate::evm::primitive_types::{Block, Receipt, TransactionSignedAndRecovered};
+use crate::evm::primitive_types::{Block, DoNotUseHeader, Receipt, TransactionSignedAndRecovered};
 use crate::evm::system_events::SystemEvent;
 pub use crate::EvmConfig;
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Debug, serde::Serialize, serde::Deserialize, RlpEncodable, RlpDecodable, PartialEq, Eq,
+)]
 /// Pending EVM transaction
 pub struct PendingTransaction {
     pub(crate) transaction: TransactionSignedAndRecovered,
@@ -66,6 +69,9 @@ impl PendingTransaction {
     }
 }
 
+/// A unique id of account inside our evm state. 64 bits is enough.
+type AccountId = u64;
+
 /// The citrea-evm module provides compatibility with the EVM.
 // #[cfg_attr(feature = "native", derive(sov_modules_api::ModuleCallJsonSchema))]
 #[derive(ModuleInfo, Clone)]
@@ -74,24 +80,36 @@ pub struct Evm<C: sov_modules_api::Context> {
     #[address]
     pub(crate) address: C::Address,
 
+    /// Mapping from account address to account id.
+    #[state(rename = "i")]
+    pub account_idxs: sov_modules_api::StateMap<Address, AccountId, BcsCodec>,
+
     /// Mapping from account address to account state.
     #[state(rename = "a")]
-    pub(crate) accounts: sov_modules_api::StateMap<Address, AccountInfo, BcsCodec>,
+    pub accounts_prefork2: sov_modules_api::StateMap<Address, AccountInfo, BcsCodec>,
+
+    /// Mapping from account id to account state.
+    #[state(rename = "t")]
+    pub accounts_postfork2: sov_modules_api::StateMap<AccountId, AccountInfo, BcsCodec>,
+
+    /// The total number of accounts.
+    #[state(rename = "n")]
+    pub(crate) account_amount: sov_modules_api::StateValue<u64, BcsCodec>,
 
     /// Mapping from code hash to code. Used for lazy-loading code into a contract account.
     #[state(rename = "c")]
-    pub(crate) code:
-        sov_modules_api::StateMap<reth_primitives::B256, revm::primitives::Bytecode, BcsCodec>,
+    pub(crate) code: sov_modules_api::StateMap<B256, revm::primitives::Bytecode, BcsCodec>,
+
+    /// Mapping from storage hash ( sha256(address | key) ) to storage value.
+    #[state(rename = "s")]
+    pub storage: sov_modules_api::StateMap<U256, U256, BcsCodec>,
 
     /// Mapping from code hash to code. Used for lazy-loading code into a contract account.
     /// This is the new offchain version which is not counted in the state diff.
     /// Activated after FORK1
     #[state(rename = "occ")]
-    pub(crate) offchain_code: sov_modules_api::OffchainStateMap<
-        reth_primitives::B256,
-        revm::primitives::Bytecode,
-        BcsCodec,
-    >,
+    pub(crate) offchain_code:
+        sov_modules_api::OffchainStateMap<B256, revm::primitives::Bytecode, BcsCodec>,
 
     /// Chain configuration. This field is set in genesis.
     #[state]
@@ -101,10 +119,6 @@ pub struct Evm<C: sov_modules_api::Context> {
     #[memory]
     pub(crate) block_env: BlockEnv,
 
-    /// Field that keeps track of blob gas usage
-    #[memory]
-    pub(crate) blob_gas_used: u64,
-
     /// Transactions that will be added to the current block.
     /// Valid transactions are added to the vec on every call message.
     #[memory]
@@ -113,7 +127,12 @@ pub struct Evm<C: sov_modules_api::Context> {
     /// Head of the chain. The new head is set in `end_slot_hook` but without the inclusion of the `state_root` field.
     /// The `state_root` is added in `begin_slot_hook` of the next block because its calculation occurs after the `end_slot_hook`.
     #[state]
-    pub(crate) head: sov_modules_api::StateValue<Block, BcsCodec>,
+    pub(crate) head: sov_modules_api::StateValue<Block<DoNotUseHeader>, BcsCodec>,
+
+    /// Head of the rlp encoded chain. The new head is set in `end_slot_hook` but without the inclusion of the `state_root` field.
+    /// The `state_root` is added in `begin_slot_hook` of the next block because its calculation occurs after the `end_slot_hook`.
+    #[state]
+    pub(crate) head_rlp: sov_modules_api::StateValue<Block<AlloyHeader>, RlpCodec>,
 
     /// Last seen L1 block hash.
     #[state(rename = "l")]
@@ -125,20 +144,6 @@ pub struct Evm<C: sov_modules_api::Context> {
     #[state(rename = "h")]
     pub(crate) latest_block_hashes: sov_modules_api::StateMap<U256, B256, BcsCodec>,
 
-    /// Native pending transactions. Used to store transactions that are not yet included in the block.
-    /// We use this in the sequencer to see which txs did not fail
-    #[cfg(feature = "native")]
-    #[state]
-    pub(crate) native_pending_transactions:
-        sov_modules_api::AccessoryStateVec<PendingTransaction, BcsCodec>,
-
-    /// Transaction's hash that failed to pay the L1 fee.
-    /// Used to prevent DOS attacks.
-    /// The vector is cleared in `finalize_hook`.
-    #[cfg(feature = "native")]
-    #[state]
-    pub(crate) l1_fee_failed_txs: sov_modules_api::AccessoryStateVec<TxHash, BcsCodec>,
-
     /// Used only by the RPC: This represents the head of the chain and is set in two distinct stages:
     /// 1. `end_slot_hook`: the pending head is populated with data from pending_transactions.
     /// 2. `finalize_hook` the `root_hash` is populated.
@@ -146,35 +151,46 @@ pub struct Evm<C: sov_modules_api::Context> {
     /// Since this value is not authenticated, it can be modified in the `finalize_hook` with the correct `state_root`.
     #[cfg(feature = "native")]
     #[state]
-    pub(crate) pending_head: sov_modules_api::AccessoryStateValue<Block, BcsCodec>,
+    pub(crate) pending_head: sov_modules_api::AccessoryStateValue<Block<AlloyHeader>, RlpCodec>,
 
     /// Used only by the RPC: The vec is extended with `pending_head` in `finalize_hook`.
     #[cfg(feature = "native")]
     #[state]
-    pub(crate) blocks: sov_modules_api::AccessoryStateVec<SealedBlock, BcsCodec>,
+    pub(crate) blocks: sov_modules_api::AccessoryStateVec<DoNotUseSealedBlock, BcsCodec>,
+
+    #[cfg(feature = "native")]
+    #[state]
+    pub(crate) blocks_rlp: sov_modules_api::AccessoryStateVec<SealedBlock, RlpCodec>,
 
     /// Used only by the RPC: block_hash => block_number mapping,
     #[cfg(feature = "native")]
     #[state]
-    pub(crate) block_hashes:
-        sov_modules_api::AccessoryStateMap<reth_primitives::B256, u64, BcsCodec>,
+    pub(crate) block_hashes: sov_modules_api::AccessoryStateMap<B256, u64, BcsCodec>,
 
     /// Used only by the RPC: List of processed transactions.
     #[cfg(feature = "native")]
     #[state]
     pub(crate) transactions:
-        sov_modules_api::AccessoryStateVec<TransactionSignedAndRecovered, BcsCodec>,
+        sov_modules_api::AccessoryStateVec<DoNotUseTransactionSignedAndRecovered, BcsCodec>,
+
+    #[cfg(feature = "native")]
+    #[state]
+    pub(crate) transactions_rlp:
+        sov_modules_api::AccessoryStateVec<TransactionSignedAndRecovered, RlpCodec>,
 
     /// Used only by the RPC: transaction_hash => transaction_index mapping.
     #[cfg(feature = "native")]
     #[state]
-    pub(crate) transaction_hashes:
-        sov_modules_api::AccessoryStateMap<reth_primitives::B256, u64, BcsCodec>,
+    pub(crate) transaction_hashes: sov_modules_api::AccessoryStateMap<B256, u64, BcsCodec>,
 
     /// Used only by the RPC: Receipts.
     #[cfg(feature = "native")]
     #[state]
     pub(crate) receipts: sov_modules_api::AccessoryStateVec<Receipt, BcsCodec>,
+
+    #[cfg(feature = "native")]
+    #[state]
+    pub(crate) receipts_rlp: sov_modules_api::AccessoryStateVec<Receipt, RlpCodec>,
 }
 
 impl<C: sov_modules_api::Context> sov_modules_api::Module for Evm<C> {
@@ -184,55 +200,27 @@ impl<C: sov_modules_api::Context> sov_modules_api::Module for Evm<C> {
 
     type CallMessage = call::CallMessage;
 
-    type Event = ();
-
-    fn genesis(&self, config: &Self::Config, working_set: &mut WorkingSet<C>) -> Result<(), Error> {
-        Ok(self.init_module(config, working_set)?)
+    fn genesis(&self, config: &Self::Config, working_set: &mut WorkingSet<C::Storage>) {
+        self.init_module(config, working_set)
     }
 
     fn call(
         &mut self,
         msg: Self::CallMessage,
         context: &Self::Context,
-        working_set: &mut WorkingSet<C>,
-    ) -> Result<sov_modules_api::CallResponse, Error> {
-        Ok(self.execute_call(msg.txs, context, working_set)?)
+        working_set: &mut WorkingSet<C::Storage>,
+    ) -> Result<sov_modules_api::CallResponse, SoftConfirmationModuleCallError> {
+        self.execute_call(msg.txs, context, working_set)
     }
 }
 
 impl<C: sov_modules_api::Context> Evm<C> {
     pub(crate) fn get_db<'a>(
-        &self,
-        working_set: &'a mut WorkingSet<C>,
-        current_spec: EvmSpecId,
+        &'a self,
+        working_set: &'a mut WorkingSet<C::Storage>,
+        citrea_spec: CitreaSpecId,
     ) -> EvmDb<'a, C> {
-        EvmDb::new(
-            self.accounts.clone(),
-            self.code.clone(),
-            self.offchain_code.clone(),
-            self.latest_block_hashes.clone(),
-            working_set,
-            current_spec,
-        )
-    }
-
-    /// Returns transaction hashes that failed to pay the L1 fee.
-    #[cfg(feature = "native")]
-    pub fn get_l1_fee_failed_txs(
-        &self,
-        accessory_working_set: &mut AccessoryWorkingSet<C>,
-    ) -> Vec<TxHash> {
-        self.l1_fee_failed_txs.iter(accessory_working_set).collect()
-    }
-
-    /// Returns the list of pending EVM transactions
-    #[cfg(feature = "native")]
-    pub fn get_last_pending_transaction(
-        &self,
-        accessory_working_set: &mut WorkingSet<C>,
-    ) -> Option<PendingTransaction> {
-        self.native_pending_transactions
-            .last(&mut accessory_working_set.accessory_state())
+        EvmDb::new(self, working_set, citrea_spec)
     }
 }
 

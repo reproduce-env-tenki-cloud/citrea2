@@ -1,22 +1,5 @@
 //! This module defines the following tables:
 //!
-//!
-//! Slot Tables:
-//! - `SlotNumber -> StoredSlot`
-//! - `SlotNumber -> Vec<BatchNumber>`
-//!
-//! Batch Tables:
-//! - `BatchNumber -> StoredBatch`
-//! - `BatchHash -> BatchNumber`
-//!
-//! Tx Tables:
-//! - `TxNumber -> (TxHash,Tx)`
-//! - `TxHash -> TxNumber`
-//!
-//! Event Tables:
-//! - `(EventKey, TxNumber) -> EventNumber`
-//! - `EventNumber -> (EventKey, EventValue)`
-//!
 //! JMT Tables:
 //! - `KeyHash -> Key`
 //! - `(Key, Version) -> JmtValue`
@@ -27,32 +10,131 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use jmt::storage::{NibblePath, Node, NodeKey};
+use jmt::storage::{NibblePath, Node, NodeKey, StaleNodeIndex};
 use jmt::Version;
 use sov_rollup_interface::da::SequencerCommitment;
+use sov_rollup_interface::mmr::{MMRChunk, MMRNodeHash, Wtxid};
 use sov_rollup_interface::stf::StateDiff;
 use sov_schema_db::schema::{KeyDecoder, KeyEncoder, ValueCodec};
 use sov_schema_db::{CodecError, SeekKeyEncoder};
 
+use super::types::batch_proof::{StoredBatchProof, StoredVerifiedProof};
+use super::types::light_client_proof::StoredLightClientProof;
+use super::types::soft_confirmation::StoredSoftConfirmation;
 use super::types::{
-    AccessoryKey, AccessoryStateValue, BatchNumber, DbHash, JmtValue, L2HeightRange, SlotNumber,
-    StateKey, StoredBatch, StoredBatchProof, StoredBatchProofV1, StoredLightClientProof,
-    StoredSlot, StoredSoftConfirmation, StoredVerifiedProof,
+    AccessoryKey, AccessoryStateValue, DbHash, JmtValue, L2HeightRange, SlotNumber,
+    SoftConfirmationNumber, StateKey,
 };
+
+/// A list of all tables used by the StateDB. These tables store rollup state - meaning
+/// account balances, nonces, etc.
+pub const MMR_TABLES: &[&str] = &[
+    MMRNodes::table_name(),
+    MMRTreeSize::table_name(),
+    MMRChunks::table_name(),
+];
 
 /// A list of all tables used by the StateDB. These tables store rollup state - meaning
 /// account balances, nonces, etc.
 pub const STATE_TABLES: &[&str] = &[
     KeyHashToKey::table_name(),
     JmtValues::table_name(),
+    // when iterating we get bigger versions first
     JmtNodes::table_name(),
+    // when iterating we get smaller stale since versions first
+    StaleNodes::table_name(),
+];
+
+/// A list of all tables used by Sequencer LedgerDB
+pub const SEQUENCER_LEDGER_TABLES: &[&str] = &[
+    ExecutedMigrations::table_name(),
+    SoftConfirmationByNumber::table_name(),
+    SoftConfirmationByHash::table_name(),
+    L2RangeByL1Height::table_name(),
+    L2GenesisStateRoot::table_name(),
+    LastStateDiff::table_name(),
+    PendingSequencerCommitmentL2Range::table_name(),
+    LastSequencerCommitmentSent::table_name(),
+    SoftConfirmationStatus::table_name(),
+    CommitmentsByNumber::table_name(),
+    MempoolTxs::table_name(),
+    LastPrunedBlock::table_name(),
+    // ########
+    // The following tables exist in the sequencer since they enable
+    // using the fullnode's backup as a sequencer database without having
+    // to remove these tables first as demonstrated by the
+    // `test_sequencer_crash_and_replace_full_node` test.
+    VerifiedBatchProofsBySlotNumber::table_name(),
+    ProverLastScannedSlot::table_name(),
+    SlotByHash::table_name(),
+    // ########
+    #[cfg(test)]
+    TestTableOld::table_name(),
+    #[cfg(test)]
+    TestTableNew::table_name(),
+];
+
+/// A list of all tables used by FullNode LedgerDB
+/// Also includes tables of Sequencer LedgerDB so that it can be used as a sequencer if needed
+pub const FULL_NODE_LEDGER_TABLES: &[&str] = &[
+    ExecutedMigrations::table_name(),
+    SlotByHash::table_name(),
+    SoftConfirmationByNumber::table_name(),
+    SoftConfirmationByHash::table_name(),
+    L2RangeByL1Height::table_name(),
+    L2GenesisStateRoot::table_name(),
+    LastSequencerCommitmentSent::table_name(),
+    SoftConfirmationStatus::table_name(),
+    ProverLastScannedSlot::table_name(),
+    CommitmentsByNumber::table_name(),
+    LastPrunedBlock::table_name(),
+    VerifiedBatchProofsBySlotNumber::table_name(),
+    #[cfg(test)]
+    TestTableOld::table_name(),
+    #[cfg(test)]
+    TestTableNew::table_name(),
+];
+
+/// A list of all tables used by BatchProver LedgerDB
+pub const BATCH_PROVER_LEDGER_TABLES: &[&str] = &[
+    ExecutedMigrations::table_name(),
+    SlotByHash::table_name(),
+    SoftConfirmationByNumber::table_name(),
+    SoftConfirmationByHash::table_name(),
+    L2RangeByL1Height::table_name(),
+    L2Witness::table_name(),
+    L2GenesisStateRoot::table_name(),
+    ProverLastScannedSlot::table_name(),
+    SoftConfirmationStatus::table_name(),
+    CommitmentsByNumber::table_name(),
+    ProofsBySlotNumber::table_name(),
+    ProofsBySlotNumberV2::table_name(),
+    PendingProvingSessions::table_name(),
+    ProverStateDiffs::table_name(),
+    LastPrunedBlock::table_name(),
+    #[cfg(test)]
+    TestTableOld::table_name(),
+    #[cfg(test)]
+    TestTableNew::table_name(),
+];
+
+/// A list of all tables used by LightClientProver LedgerDB
+pub const LIGHT_CLIENT_PROVER_LEDGER_TABLES: &[&str] = &[
+    ExecutedMigrations::table_name(),
+    SlotByHash::table_name(),
+    SoftConfirmationByNumber::table_name(),
+    LightClientProofBySlotNumber::table_name(),
+    ProverLastScannedSlot::table_name(),
+    #[cfg(test)]
+    TestTableOld::table_name(),
+    #[cfg(test)]
+    TestTableNew::table_name(),
 ];
 
 /// A list of all tables used by the LedgerDB. These tables store rollup "history" - meaning
 /// transaction, events, receipts, etc.
 pub const LEDGER_TABLES: &[&str] = &[
     ExecutedMigrations::table_name(),
-    SlotByNumber::table_name(),
     SlotByHash::table_name(),
     SoftConfirmationByNumber::table_name(),
     SoftConfirmationByHash::table_name(),
@@ -64,7 +146,6 @@ pub const LEDGER_TABLES: &[&str] = &[
     PendingSequencerCommitmentL2Range::table_name(),
     LastSequencerCommitmentSent::table_name(),
     ProverLastScannedSlot::table_name(),
-    BatchByNumber::table_name(),
     SoftConfirmationStatus::table_name(),
     CommitmentsByNumber::table_name(),
     ProofsBySlotNumber::table_name(),
@@ -110,7 +191,7 @@ macro_rules! define_table_without_codec {
         ///
         #[doc = concat!("Takes [`", stringify!($key), "`] as a key and returns [`", stringify!($value), "`]")]
         #[derive(Clone, Copy, Debug, Default)]
-        pub(crate) struct $table_name;
+        pub struct $table_name;
 
         impl ::sov_schema_db::schema::Schema for $table_name {
             const COLUMN_FAMILY_NAME: &'static str = $table_name::table_name();
@@ -236,11 +317,6 @@ define_table_with_seek_key_codec!(
     (LastStateDiff) () => StateDiff
 );
 
-define_table_with_seek_key_codec!(
-    /// The primary source for slot data
-    (SlotByNumber) SlotNumber => StoredSlot
-);
-
 define_table_with_default_codec!(
     /// A "secondary index" for slot data by hash
     (SlotByHash) DbHash => SlotNumber
@@ -253,12 +329,12 @@ define_table_with_default_codec!(
 
 define_table_with_seek_key_codec!(
     /// The primary source for soft confirmation data
-    (SoftConfirmationByNumber) BatchNumber => StoredSoftConfirmation
+    (SoftConfirmationByNumber) SoftConfirmationNumber => StoredSoftConfirmation
 );
 
 define_table_with_default_codec!(
     /// A "secondary index" for soft confirmation data by hash
-    (SoftConfirmationByHash) DbHash => BatchNumber
+    (SoftConfirmationByHash) DbHash => SoftConfirmationNumber
 );
 
 define_table_with_default_codec!(
@@ -268,7 +344,7 @@ define_table_with_default_codec!(
 
 define_table_with_default_codec!(
     /// The primary source of state & offchain witnesses by L2 height
-    (L2Witness) BatchNumber => (Vec<u8>, Vec<u8>)
+    (L2Witness) SoftConfirmationNumber => (Vec<u8>, Vec<u8>)
 );
 
 define_table_with_default_codec!(
@@ -283,7 +359,7 @@ define_table_with_default_codec!(
 
 define_table_with_seek_key_codec!(
     /// Sequencer uses this table to store the last commitment it sent
-    (LastSequencerCommitmentSent) () => BatchNumber
+    (LastSequencerCommitmentSent) () => SoftConfirmationNumber
 );
 
 define_table_with_seek_key_codec!(
@@ -294,19 +370,19 @@ define_table_with_seek_key_codec!(
     (ProverLastScannedSlot) () => SlotNumber
 );
 
-define_table_with_seek_key_codec!(
-    /// The primary source for batch data
-    (BatchByNumber) BatchNumber => StoredBatch
-);
-
 define_table_with_default_codec!(
     /// Check whether a block is finalized
-    (SoftConfirmationStatus) BatchNumber => sov_rollup_interface::rpc::SoftConfirmationStatus
+    (SoftConfirmationStatus) SoftConfirmationNumber => sov_rollup_interface::rpc::SoftConfirmationStatus
 );
 
 define_table_without_codec!(
     /// The source of truth for JMT nodes
     (JmtNodes) NodeKey => Node
+);
+
+define_table_with_default_codec!(
+    /// The list of stale nodes in JMT
+    (StaleNodes) StaleNodeIndex => ()
 );
 
 define_table_with_default_codec!(
@@ -316,7 +392,7 @@ define_table_with_default_codec!(
 
 define_table_with_default_codec!(
     /// Old version of ProofsBySlotNumber
-    (ProofsBySlotNumber) SlotNumber => Vec<StoredBatchProofV1>
+    (ProofsBySlotNumber) SlotNumber => Vec<StoredBatchProof>
 );
 
 define_table_with_default_codec!(
@@ -324,7 +400,7 @@ define_table_with_default_codec!(
     (ProofsBySlotNumberV2) SlotNumber => Vec<StoredBatchProof>
 );
 
-define_table_with_default_codec!(
+define_table_with_seek_key_codec!(
     /// Proof data on L1 slot verified by full node
     (VerifiedBatchProofsBySlotNumber) SlotNumber => Vec<StoredVerifiedProof>
 );
@@ -342,12 +418,27 @@ define_table_with_default_codec!(
 
 define_table_with_default_codec!(
     /// L2 height to state diff for prover
-    (ProverStateDiffs) BatchNumber => StateDiff
+    (ProverStateDiffs) SoftConfirmationNumber => StateDiff
 );
 
 define_table_with_seek_key_codec!(
     /// Stores the last pruned L2 block number
     (LastPrunedBlock) () => u64
+);
+
+define_table_with_seek_key_codec!(
+    /// Stores the chunk's hash of an MMR
+    (MMRNodes) (u32, u32) => MMRNodeHash
+);
+
+define_table_with_seek_key_codec!(
+    /// Stores the chunk's content by hash
+    (MMRChunks) Wtxid => MMRChunk
+);
+
+define_table_with_seek_key_codec!(
+    /// Stores the MMR tree size
+    (MMRTreeSize) () => u32
 );
 
 #[cfg(test)]

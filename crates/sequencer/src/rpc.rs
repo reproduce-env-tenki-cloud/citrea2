@@ -1,31 +1,69 @@
 use std::sync::Arc;
 
+use alloy_eips::eip2718::Encodable2718;
+use alloy_network::AnyNetwork;
+use alloy_primitives::{Bytes, B256};
 use citrea_evm::Evm;
-use futures::channel::mpsc::UnboundedSender;
+use citrea_stf::runtime::DefaultContext;
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
 use jsonrpsee::types::error::{INTERNAL_ERROR_CODE, INTERNAL_ERROR_MSG};
 use jsonrpsee::types::{ErrorCode, ErrorObject, ErrorObjectOwned};
 use parking_lot::Mutex;
-use reth_primitives::{Bytes, IntoRecoveredTransaction, B256};
+use reth_rpc::eth::EthTxBuilder;
+use reth_rpc_eth_api::RpcTransaction;
 use reth_rpc_eth_types::error::EthApiError;
 use reth_rpc_types_compat::transaction::from_recovered;
 use reth_transaction_pool::{EthPooledTransaction, PoolTransaction};
 use sov_db::ledger_db::SequencerLedgerOps;
-use sov_modules_api::WorkingSet;
+use sov_modules_api::{Spec, WorkingSet};
+use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error};
 
 use crate::deposit_data_mempool::DepositDataMempool;
 use crate::mempool::CitreaMempool;
+use crate::metrics::SEQUENCER_METRICS;
 use crate::utils::recover_raw_transaction;
 
-pub(crate) struct RpcContext<C: sov_modules_api::Context, DB: SequencerLedgerOps> {
-    pub mempool: Arc<CitreaMempool<C>>,
+pub struct RpcContext<DB: SequencerLedgerOps> {
+    pub mempool: Arc<CitreaMempool>,
     pub deposit_mempool: Arc<Mutex<DepositDataMempool>>,
     pub l2_force_block_tx: UnboundedSender<()>,
-    pub storage: C::Storage,
+    pub storage: <DefaultContext as Spec>::Storage,
     pub ledger: DB,
     pub test_mode: bool,
+}
+
+/// Creates a shared RpcContext with all required data.
+pub fn create_rpc_context<DB>(
+    mempool: Arc<CitreaMempool>,
+    deposit_mempool: Arc<Mutex<DepositDataMempool>>,
+    l2_force_block_tx: UnboundedSender<()>,
+    storage: <DefaultContext as Spec>::Storage,
+    ledger_db: DB,
+    test_mode: bool,
+) -> RpcContext<DB>
+where
+    DB: SequencerLedgerOps + Send + Clone + 'static,
+{
+    RpcContext {
+        mempool,
+        deposit_mempool,
+        l2_force_block_tx,
+        storage,
+        ledger: ledger_db,
+        test_mode,
+    }
+}
+
+/// Updates the given RpcModule with Sequencer methods.
+pub fn register_rpc_methods<DB: SequencerLedgerOps + Send + Sync + 'static>(
+    rpc_context: RpcContext<DB>,
+    mut rpc_methods: jsonrpsee::RpcModule<()>,
+) -> Result<jsonrpsee::RpcModule<()>, jsonrpsee::core::RegisterMethodError> {
+    let rpc = create_rpc_module(rpc_context);
+    rpc_methods.merge(rpc)?;
+    Ok(rpc_methods)
 }
 
 #[rpc(client, server)]
@@ -39,7 +77,7 @@ pub trait SequencerRpc {
         &self,
         hash: B256,
         mempool_only: Option<bool>,
-    ) -> RpcResult<Option<reth_rpc_types::Transaction>>;
+    ) -> RpcResult<Option<RpcTransaction<AnyNetwork>>>;
 
     #[method(name = "citrea_sendRawDepositTransaction")]
     #[blocking]
@@ -49,17 +87,12 @@ pub trait SequencerRpc {
     async fn publish_test_block(&self) -> RpcResult<()>;
 }
 
-pub struct SequencerRpcServerImpl<
-    C: sov_modules_api::Context,
-    DB: SequencerLedgerOps + Send + Sync + 'static,
-> {
-    context: Arc<RpcContext<C, DB>>,
+pub struct SequencerRpcServerImpl<DB: SequencerLedgerOps + Send + Sync + 'static> {
+    context: Arc<RpcContext<DB>>,
 }
 
-impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static>
-    SequencerRpcServerImpl<C, DB>
-{
-    pub fn new(context: RpcContext<C, DB>) -> Self {
+impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServerImpl<DB> {
+    pub fn new(context: RpcContext<DB>) -> Self {
         Self {
             context: Arc::new(context),
         }
@@ -67,8 +100,8 @@ impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static
 }
 
 #[async_trait::async_trait]
-impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServer
-    for SequencerRpcServerImpl<C, DB>
+impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServer
+    for SequencerRpcServerImpl<DB>
 {
     async fn eth_send_raw_transaction(&self, data: Bytes) -> RpcResult<B256> {
         debug!("Sequencer: eth_sendRawTransaction");
@@ -88,7 +121,7 @@ impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static
             .transaction()
             .clone()
             .into_signed()
-            .encode_enveloped(&mut rlp_encoded_tx);
+            .encode_2718(&mut rlp_encoded_tx);
 
         // Do not return error here just log
         if let Err(e) = self
@@ -97,6 +130,8 @@ impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static
             .insert_mempool_tx(hash.to_vec(), rlp_encoded_tx)
         {
             tracing::warn!("Failed to insert mempool tx into db: {:?}", e);
+        } else {
+            SEQUENCER_METRICS.mempool_txs.increment(1);
         }
 
         Ok(hash)
@@ -106,7 +141,7 @@ impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static
         &self,
         hash: B256,
         mempool_only: Option<bool>,
-    ) -> RpcResult<Option<reth_rpc_types::Transaction>> {
+    ) -> RpcResult<Option<RpcTransaction<AnyNetwork>>> {
         debug!(
             "Sequencer: eth_getTransactionByHash({}, {:?})",
             hash, mempool_only
@@ -115,17 +150,18 @@ impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static
         match self.context.mempool.get(&hash) {
             Some(tx) => {
                 let tx_signed_ec_recovered = tx.to_recovered_transaction(); // tx signed ec recovered
-                let tx: reth_rpc_types::Transaction = from_recovered(tx_signed_ec_recovered);
-                Ok::<Option<reth_rpc_types::Transaction>, ErrorObjectOwned>(Some(tx))
+                let tx: RpcTransaction<AnyNetwork> =
+                    from_recovered::<EthTxBuilder>(tx_signed_ec_recovered);
+                Ok::<Option<RpcTransaction<AnyNetwork>>, ErrorObjectOwned>(Some(tx))
             }
             None => match mempool_only {
-                Some(true) => Ok::<Option<reth_rpc_types::Transaction>, ErrorObjectOwned>(None),
+                Some(true) => Ok::<Option<RpcTransaction<AnyNetwork>>, ErrorObjectOwned>(None),
                 _ => {
-                    let evm = Evm::<C>::default();
-                    let mut working_set = WorkingSet::<C>::new(self.context.storage.clone());
+                    let evm = Evm::<DefaultContext>::default();
+                    let mut working_set = WorkingSet::new(self.context.storage.clone());
 
                     match evm.get_transaction_by_hash(hash, &mut working_set) {
-                        Ok(tx) => Ok::<Option<reth_rpc_types::Transaction>, ErrorObjectOwned>(tx),
+                        Ok(tx) => Ok::<Option<RpcTransaction<AnyNetwork>>, ErrorObjectOwned>(tx),
                         Err(e) => Err(e),
                     }
                 }
@@ -136,8 +172,8 @@ impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static
     fn send_raw_deposit_transaction(&self, deposit: Bytes) -> RpcResult<()> {
         debug!("Sequencer: citrea_sendRawDepositTransaction");
 
-        let evm = Evm::<C>::default();
-        let mut working_set = WorkingSet::<C>::new(self.context.storage.clone());
+        let evm = Evm::<DefaultContext>::default();
+        let mut working_set = WorkingSet::new(self.context.storage.clone());
 
         let dep_tx = self
             .context
@@ -169,25 +205,19 @@ impl<C: sov_modules_api::Context, DB: SequencerLedgerOps + Send + Sync + 'static
         }
 
         debug!("Sequencer: citrea_testPublishBlock");
-        self.context
-            .l2_force_block_tx
-            .unbounded_send(())
-            .map_err(|e| {
-                ErrorObjectOwned::owned(
-                    INTERNAL_ERROR_CODE,
-                    INTERNAL_ERROR_MSG,
-                    Some(format!("Could not send L2 force block transaction: {e}")),
-                )
-            })
+        self.context.l2_force_block_tx.send(()).map_err(|e| {
+            ErrorObjectOwned::owned(
+                INTERNAL_ERROR_CODE,
+                INTERNAL_ERROR_MSG,
+                Some(format!("Could not send L2 force block transaction: {e}")),
+            )
+        })
     }
 }
 
-pub fn create_rpc_module<
-    C: sov_modules_api::Context,
-    DB: SequencerLedgerOps + Send + Sync + 'static,
->(
-    rpc_context: RpcContext<C, DB>,
-) -> jsonrpsee::RpcModule<SequencerRpcServerImpl<C, DB>> {
+pub fn create_rpc_module<DB: SequencerLedgerOps + Send + Sync + 'static>(
+    rpc_context: RpcContext<DB>,
+) -> jsonrpsee::RpcModule<SequencerRpcServerImpl<DB>> {
     let server = SequencerRpcServerImpl::new(rpc_context);
 
     SequencerRpcServer::into_rpc(server)

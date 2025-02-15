@@ -20,12 +20,11 @@ fn change_max_l2_blocks_per_l1_and_authority() {
     };
 
     let sender_address = <DefaultContext as Spec>::Address::from_str(
-        "sov1l6n2cku82yfqld30lanm2nfw43n2auc8clw7r5u5m6s7p8jrm4zqrr8r94",
+        "sov1kqrxxkwkf7t7kfuegllwkzp6jc6r6h66pgkfe7pggtm0gayl756qku2u5p",
     )
     .unwrap();
 
-    let sequencer_address = generate_address::<C>("sequencer");
-    let context = C::new(sender_address, sequencer_address, 1, SpecId::Genesis, 0);
+    let context = C::new(sender_address, 1, SpecId::Genesis, 0);
 
     let _ = soft_confirmation_rule_enforcer
         .call(call_message, &context, &mut working_set)
@@ -92,7 +91,7 @@ fn change_max_l2_blocks_per_l1_and_authority() {
     );
 
     // create a new context with the new authority
-    let context = C::new(new_authority, sequencer_address, 1, SpecId::Genesis, 0);
+    let context = C::new(new_authority, 1, SpecId::Genesis, 0);
     let _ = soft_confirmation_rule_enforcer
         .call(
             modify_max_l2_blocks_per_l1_message,

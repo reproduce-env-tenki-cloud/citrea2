@@ -1,17 +1,17 @@
-use alloy_eips::eip4844::MAX_DATA_GAS_PER_BLOCK;
 use reth_primitives::TransactionSignedEcRecovered;
 use revm::primitives::{
     BlockEnv, CfgEnvWithHandlerCfg, EVMError, Env, EvmState, ExecutionResult, ResultAndState,
 };
 use revm::{self, Context, Database, DatabaseCommit, EvmContext};
-use sov_modules_api::{native_error, native_trace};
+use sov_modules_api::{
+    native_error, native_trace, SoftConfirmationModuleCallError, SpecId as CitreaSpecId,
+};
 #[cfg(feature = "native")]
 use tracing::trace_span;
 
 use super::conversions::create_tx_env;
 use super::handler::{citrea_handler, CitreaExternalExt};
-use crate::db::DBError;
-use crate::SYSTEM_SIGNER;
+use crate::{EvmDb, SYSTEM_SIGNER};
 
 pub(crate) struct CitreaEvm<'a, EXT, DB: Database> {
     evm: revm::Evm<'a, EXT, DB>,
@@ -23,17 +23,23 @@ where
     EXT: CitreaExternalExt,
 {
     /// Creates a new Citrea EVM with the given parameters.
-    pub fn new(db: DB, block_env: BlockEnv, config_env: CfgEnvWithHandlerCfg, ext: EXT) -> Self {
+    pub fn new(
+        db: DB,
+        citrea_spec: CitreaSpecId,
+        block_env: BlockEnv,
+        config_env: CfgEnvWithHandlerCfg,
+        ext: EXT,
+    ) -> Self {
         let evm_env = Env::boxed(config_env.cfg_env, block_env, Default::default());
         let evm_context = EvmContext::new_with_env(db, evm_env);
         let context = Context::new(evm_context, ext);
-        let handler = citrea_handler(config_env.handler_cfg);
+        let handler = citrea_handler(citrea_spec, config_env.handler_cfg);
         let evm = revm::Evm::new(context, handler);
         Self { evm }
     }
 
     /// Sets all required parameters and executes a transaction.
-    fn transact_commit(
+    pub(crate) fn transact_commit(
         &mut self,
         tx: &TransactionSignedEcRecovered,
     ) -> Result<ExecutionResult, EVMError<DB::Error>>
@@ -65,39 +71,26 @@ where
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn execute_tx<DB: Database + DatabaseCommit, EXT: CitreaExternalExt>(
-    db: DB,
-    block_env: BlockEnv,
-    tx: &TransactionSignedEcRecovered,
-    config_env: CfgEnvWithHandlerCfg,
-    ext: &mut EXT,
-) -> Result<ExecutionResult, EVMError<DB::Error>> {
-    let mut evm = CitreaEvm::new(db, block_env, config_env, ext);
-    evm.transact_commit(tx)
-}
-
-pub(crate) fn execute_multiple_tx<
-    DB: Database<Error = DBError> + DatabaseCommit,
-    EXT: CitreaExternalExt,
->(
-    db: DB,
+/// Will fail on the first error.
+/// Rendering the soft confirmation invalid
+pub(crate) fn execute_multiple_tx<C: sov_modules_api::Context, EXT: CitreaExternalExt>(
+    db: EvmDb<C>,
     block_env: BlockEnv,
     txs: &[TransactionSignedEcRecovered],
     config_env: CfgEnvWithHandlerCfg,
     ext: &mut EXT,
     prev_gas_used: u64,
-    blob_gas_used: &mut u64,
-) -> Vec<Result<ExecutionResult, EVMError<DBError>>> {
+) -> Result<Vec<ExecutionResult>, SoftConfirmationModuleCallError> {
     if txs.is_empty() {
-        return vec![];
+        return Ok(vec![]);
     }
 
     let block_gas_limit: u64 = block_env.gas_limit.saturating_to();
 
     let mut cumulative_gas_used = prev_gas_used;
 
-    let mut evm = CitreaEvm::new(db, block_env, config_env, ext);
+    let citrea_spec = db.citrea_spec;
+    let mut evm = CitreaEvm::new(db, citrea_spec, block_env, config_env, ext);
 
     let mut tx_results = Vec::with_capacity(txs.len());
     for (_i, tx) in txs.iter().enumerate() {
@@ -106,73 +99,65 @@ pub(crate) fn execute_multiple_tx<
             trace_span!("Processing tx", i = _i, signer = %tx.signer(), tx_hash = %tx.hash())
                 .entered();
 
-        if tx.is_eip4844()
-            // can unwrap because we checked if it's EIP-4844
-            && *blob_gas_used + tx.blob_gas_used().unwrap() > MAX_DATA_GAS_PER_BLOCK
-        {
-            native_error!("Blob gas used exceeds block gas limit");
-            tx_results.push(Err(EVMError::Custom(format!(
-                "Blob gas used exceeds block gas limit {:?}",
-                block_gas_limit
-            ))));
-            continue;
+        if tx.signer() == SYSTEM_SIGNER {
+            native_error!("System transaction found in user txs");
+            return Err(SoftConfirmationModuleCallError::EvmMisplacedSystemTx);
         }
 
-        let result_and_state = match evm.transact(tx) {
-            Ok(result_and_state) => result_and_state,
-            Err(e) => {
-                native_error!(error = %e, "Transaction failed");
-                tx_results.push(Err(e));
-                continue;
+        // if tx is eip4844 error out
+        if tx.is_eip4844() {
+            native_error!("EIP-4844 transaction is not supported");
+            return Err(SoftConfirmationModuleCallError::EvmTxTypeNotSupported(
+                "EIP-4844".to_string(),
+            ));
+        }
+
+        let result_and_state = evm.transact(tx).map_err(|e| {
+            native_error!("Invalid tx {}. Error: {}", tx.hash(), e);
+            match e {
+                // only custom error we use is for not enough funds for L1 fee
+                EVMError::Custom(_) => SoftConfirmationModuleCallError::EvmNotEnoughFundsForL1Fee,
+                _ => SoftConfirmationModuleCallError::EvmTransactionExecutionError,
             }
-        };
+        })?;
 
         // Check if the transaction used more gas than the available block gas limit
-        let result = if cumulative_gas_used + result_and_state.result.gas_used() > block_gas_limit {
+        if cumulative_gas_used + result_and_state.result.gas_used() > block_gas_limit {
             native_error!("Gas used exceeds block gas limit");
-            Err(EVMError::Custom(format!(
-                "Gas used exceeds block gas limit {:?}",
-                block_gas_limit
-            )))
-        } else if tx.signer() == SYSTEM_SIGNER {
-            Err(EVMError::Custom(format!(
-                "Invalid system transaction: {:?}",
-                hex::encode(tx.hash())
-            )))
-        } else {
-            native_trace!("Commiting tx to DB");
-            evm.commit(result_and_state.state);
-            cumulative_gas_used += result_and_state.result.gas_used();
+            return Err(
+                SoftConfirmationModuleCallError::EvmGasUsedExceedsBlockGasLimit {
+                    cumulative_gas: cumulative_gas_used,
+                    tx_gas_used: result_and_state.result.gas_used(),
+                    block_gas_limit,
+                },
+            );
+        }
 
-            if tx.is_eip4844() {
-                *blob_gas_used += tx.blob_gas_used().unwrap();
-            }
+        native_trace!("Commiting tx to DB");
+        evm.commit(result_and_state.state);
+        cumulative_gas_used += result_and_state.result.gas_used();
 
-            Ok(result_and_state.result)
-        };
-        tx_results.push(result);
+        tx_results.push(result_and_state.result);
     }
-    tx_results
+
+    Ok(tx_results)
 }
 
-pub(crate) fn execute_system_txs<
-    DB: Database<Error = DBError> + DatabaseCommit,
-    EXT: CitreaExternalExt,
->(
-    db: DB,
+pub(crate) fn execute_system_txs<C: sov_modules_api::Context, EXT: CitreaExternalExt>(
+    db: EvmDb<C>,
     block_env: BlockEnv,
     system_txs: &[TransactionSignedEcRecovered],
     config_env: CfgEnvWithHandlerCfg,
     ext: &mut EXT,
 ) -> Vec<ExecutionResult> {
-    let mut evm = CitreaEvm::new(db, block_env, config_env, ext);
+    let citrea_spec = db.citrea_spec;
+    let mut evm = CitreaEvm::new(db, citrea_spec, block_env, config_env, ext);
 
-    let mut tx_results = vec![];
-    for tx in system_txs {
-        let result = evm
-            .transact_commit(tx)
-            .expect("System transactions must never fail");
-        tx_results.push(result);
-    }
-    tx_results
+    system_txs
+        .iter()
+        .map(|tx| {
+            evm.transact_commit(tx)
+                .expect("System transactions must never fail")
+        })
+        .collect()
 }

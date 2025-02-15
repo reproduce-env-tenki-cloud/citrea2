@@ -21,10 +21,12 @@ use bitcoin::{
     Address, Amount, OutPoint, ScriptBuf, Sequence, TapLeafHash, TapNodeHash, Transaction, TxIn,
     TxOut, Txid, Witness, XOnlyPublicKey,
 };
+use secp256k1::SECP256K1;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use tracing::{instrument, trace, warn};
 
-use super::{calculate_sha256, TransactionKindBatchProof, TransactionKindLightClient};
+use super::{TransactionKindBatchProof, TransactionKindLightClient};
 use crate::spec::utxo::UTXO;
 use crate::REVEAL_OUTPUT_AMOUNT;
 
@@ -288,11 +290,10 @@ fn build_witness(
         .expect("Cannot create hash for signature");
 
     // sign reveal tx data
-    let signature = secp256k1.sign_schnorr_with_rng(
+    let signature = secp256k1.sign_schnorr(
         &Message::from_digest_slice(signature_hash.as_byte_array())
             .expect("should be cryptographically secure hash"),
         key_pair,
-        &mut rand::thread_rng(),
     );
 
     // add signature to witness and finalize reveal tx
@@ -324,11 +325,10 @@ fn update_witness(
         .expect("Cannot create hash for signature");
 
     // sign reveal tx data
-    let signature = secp256k1.sign_schnorr_with_rng(
+    let signature = secp256k1.sign_schnorr(
         &Message::from_digest_slice(signature_hash.as_byte_array())
             .expect("should be cryptographically secure hash"),
         key_pair,
-        &mut rand::thread_rng(),
     );
 
     // add signature to witness and finalize reveal tx
@@ -464,12 +464,17 @@ fn choose_utxos(
 /// Returns (signature, public_key)
 pub fn sign_blob_with_private_key(blob: &[u8], private_key: &SecretKey) -> (Vec<u8>, Vec<u8>) {
     let message = calculate_sha256(blob);
-    let secp = Secp256k1::new();
-    let public_key = secp256k1::PublicKey::from_secret_key(&secp, private_key);
+    let public_key = secp256k1::PublicKey::from_secret_key(SECP256K1, private_key);
     let msg = secp256k1::Message::from_digest(message);
-    let sig = secp.sign_ecdsa(&msg, private_key);
+    let sig = SECP256K1.sign_ecdsa(&msg, private_key);
     (
         sig.serialize_compact().to_vec(),
         public_key.serialize().to_vec(),
     )
+}
+
+pub fn calculate_sha256(input: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::default();
+    hasher.update(input);
+    hasher.finalize().into()
 }

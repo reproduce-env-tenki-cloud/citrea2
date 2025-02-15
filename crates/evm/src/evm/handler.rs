@@ -4,20 +4,22 @@ use std::mem::size_of;
 use std::sync::Arc;
 
 use reth_primitives::KECCAK_EMPTY;
-use revm::handler::register::{EvmHandler, HandleRegisters};
+use revm::handler::register::{EvmHandler, HandleRegisterBox, HandleRegisters};
 #[cfg(feature = "native")]
 use revm::interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter};
 use revm::interpreter::{Gas, InstructionResult};
+use revm::precompile::u64_to_address;
 #[cfg(feature = "native")]
 use revm::primitives::Log;
 use revm::primitives::{
     spec_to_generic, Address, EVMError, Env, HandlerCfg, InvalidTransaction, ResultAndState, Spec,
     SpecId, B256, U256,
 };
-use revm::{Context, Database, FrameResult, InnerEvmContext, JournalEntry};
+use revm::{Context, ContextPrecompiles, Database, FrameResult, InnerEvmContext, JournalEntry};
 #[cfg(feature = "native")]
 use revm::{EvmContext, Inspector};
-use sov_modules_api::{native_debug, native_error, native_warn};
+use revm_precompile::secp256r1::P256VERIFY;
+use sov_modules_api::{native_debug, native_error, native_warn, SpecId as CitreaSpecId};
 #[cfg(feature = "native")]
 use tracing::instrument;
 
@@ -51,6 +53,10 @@ const CODE_KEY_SIZE: usize = 39;
 /// It is calculated by measuring the state diff we write to da in a single batch every 10 minutes which is about 300 soft confirmations
 /// The full calculation can be found here: https://github.com/chainwayxyz/citrea/blob/erce/l1-fee-overhead-calculations/l1_fee_overhead.md
 pub const L1_FEE_OVERHEAD: usize = 3;
+
+/// The brotli average compression ratio (compressed size / uncompressed size) was calculated as 0.33 by measuring the size of state diffs of batches before and after brotli compression.
+/// calculated diff size * BROTLI_COMPRESSION_PERCENTAGE/100 gives the estimated size of the state diff that is written to the da.
+pub const BROTLI_COMPRESSION_PERCENTAGE: usize = 33;
 
 /// We want to charge the user for the amount of data written as fairly as possible, the problem is at the time of when we write batch proof to the da we cannot know the exact state diff
 /// So we calculate the state diff created by a single transaction and use that to charge user
@@ -262,47 +268,60 @@ impl<EXT, DB: Database> CitreaEnv for &'_ mut Context<EXT, DB> {
     }
 }
 
-pub(crate) fn citrea_handler<'a, DB, EXT>(cfg: HandlerCfg) -> EvmHandler<'a, EXT, DB>
+pub(crate) fn citrea_handler<'a, DB, EXT>(
+    citrea_spec: CitreaSpecId,
+    cfg: HandlerCfg,
+) -> EvmHandler<'a, EXT, DB>
 where
     DB: Database,
     EXT: CitreaExternalExt,
 {
     let mut handler = EvmHandler::mainnet_with_spec(cfg.spec_id);
-    handler.append_handler_register(HandleRegisters::Plain(citrea_handle_register));
+    handler.append_handler_register(HandleRegisters::Box(citrea_handle_register(citrea_spec)));
     handler
 }
 
-pub(crate) fn citrea_handle_register<DB, EXT>(handler: &mut EvmHandler<'_, EXT, DB>)
+pub(crate) fn citrea_handle_register<DB, EXT>(
+    citrea_spec: CitreaSpecId,
+) -> HandleRegisterBox<'static, EXT, DB>
 where
     DB: Database,
     EXT: CitreaExternalExt,
 {
-    spec_to_generic!(handler.cfg.spec_id, {
-        let validation = &mut handler.validation;
-        let pre_execution = &mut handler.pre_execution;
-        // let execution = &mut handler.execution;
-        let post_execution = &mut handler.post_execution;
-        // validation.initial_tx_gas = can be overloaded too
-        // validation.env =
-        validation.tx_against_state =
-            Arc::new(CitreaHandler::<SPEC, EXT, DB>::validate_tx_against_state);
-        // pre_execution.load_accounts =
-        // pre_execution.load_accounts =
-        pre_execution.deduct_caller = Arc::new(CitreaHandler::<SPEC, EXT, DB>::deduct_caller);
-        // execution.last_frame_return =
-        // execution.call =
-        // execution.call_return =
-        // execution.insert_call_outcome =
-        // execution.create =
-        // execution.create_return =
-        // execution.insert_create_outcome =
-        post_execution.reimburse_caller =
-            Arc::new(CitreaHandler::<SPEC, EXT, DB>::reimburse_caller);
-        post_execution.reward_beneficiary =
-            Arc::new(CitreaHandler::<SPEC, EXT, DB>::reward_beneficiary);
-        post_execution.output = Arc::new(CitreaHandler::<SPEC, EXT, DB>::post_execution_output);
-        // post_execution.end =
-    });
+    let f = move |handler: &mut EvmHandler<'_, EXT, DB>| {
+        spec_to_generic!(handler.cfg.spec_id, {
+            let validation = &mut handler.validation;
+            let pre_execution = &mut handler.pre_execution;
+            // let execution = &mut handler.execution;
+            let post_execution = &mut handler.post_execution;
+            // validation.initial_tx_gas = can be overloaded too
+            // validation.env =
+            validation.tx_against_state =
+                Arc::new(CitreaHandler::<SPEC, EXT, DB>::validate_tx_against_state);
+            let load_precompiles = if citrea_spec >= CitreaSpecId::Fork2 {
+                CitreaHandler::<SPEC, EXT, DB>::load_precompiles_postfork2
+            } else {
+                CitreaHandler::<SPEC, EXT, DB>::load_precompiles_prefork2
+            };
+            pre_execution.load_precompiles = Arc::new(load_precompiles);
+            // pre_execution.load_accounts =
+            pre_execution.deduct_caller = Arc::new(CitreaHandler::<SPEC, EXT, DB>::deduct_caller);
+            // execution.last_frame_return =
+            // execution.call =
+            // execution.call_return =
+            // execution.insert_call_outcome =
+            // execution.create =
+            // execution.create_return =
+            // execution.insert_create_outcome =
+            post_execution.reimburse_caller =
+                Arc::new(CitreaHandler::<SPEC, EXT, DB>::reimburse_caller);
+            post_execution.reward_beneficiary =
+                Arc::new(CitreaHandler::<SPEC, EXT, DB>::reward_beneficiary);
+            post_execution.output = Arc::new(CitreaHandler::<SPEC, EXT, DB>::post_execution_output);
+            // post_execution.end =
+        });
+    };
+    Box::new(f)
 }
 
 struct CitreaHandler<SPEC, EXT, DB> {
@@ -310,13 +329,45 @@ struct CitreaHandler<SPEC, EXT, DB> {
 }
 
 impl<SPEC: Spec, EXT: CitreaExternalExt, DB: Database> CitreaHandler<SPEC, EXT, DB> {
+    fn load_precompiles_prefork2() -> ContextPrecompiles<DB> {
+        fn our_precompiles<SPEC: Spec, DB: Database>() -> ContextPrecompiles<DB> {
+            let mut precompiles = revm::handler::mainnet::load_precompiles::<SPEC, DB>();
+
+            if SPEC::enabled(SpecId::CANCUN) {
+                precompiles
+                    .to_mut()
+                    .remove(&u64_to_address(0x0A))
+                    .expect("after cancun point eval should be removed");
+            }
+
+            precompiles
+        }
+
+        our_precompiles::<SPEC, DB>()
+    }
+
+    fn load_precompiles_postfork2() -> ContextPrecompiles<DB> {
+        fn our_precompiles<SPEC: Spec, DB: Database>() -> ContextPrecompiles<DB> {
+            let mut precompiles = revm::handler::mainnet::load_precompiles::<SPEC, DB>();
+
+            let p = precompiles.to_mut();
+            p.remove(&u64_to_address(0x0A))
+                .expect("point eval should be removed");
+
+            precompiles.extend([P256VERIFY]);
+
+            precompiles
+        }
+
+        our_precompiles::<SPEC, DB>()
+    }
     fn validate_tx_against_state(
         context: &mut Context<EXT, DB>,
     ) -> Result<(), EVMError<DB::Error>> {
         if context.is_system_caller() {
             // Don't verify balance but nonce only.
             let tx_caller = context.evm.env.tx.caller;
-            let (caller_account, _) = context
+            let caller_account = context
                 .evm
                 .inner
                 .journaled_state
@@ -347,7 +398,7 @@ impl<SPEC: Spec, EXT: CitreaExternalExt, DB: Database> CitreaHandler<SPEC, EXT, 
             if context.evm.env.tx.transact_to.is_call() {
                 // Nonce is already checked
                 let tx_caller = context.evm.env.tx.caller;
-                let (caller_account, _) = context
+                let mut caller_account = context
                     .evm
                     .inner
                     .journaled_state
@@ -401,8 +452,17 @@ impl<SPEC: Spec, EXT: CitreaExternalExt, DB: Database> CitreaHandler<SPEC, EXT, 
         context: &mut Context<EXT, DB>,
         result: FrameResult,
     ) -> Result<ResultAndState, EVMError<<DB as Database>::Error>> {
-        let diff_size =
-            calc_diff_size::<EXT, SPEC, DB>(context).map_err(EVMError::Database)? as u64;
+        let uncompressed_size =
+            calc_diff_size::<EXT, SPEC, DB>(context).map_err(EVMError::Database)?;
+
+        let compression_percentage = if SPEC::enabled(SpecId::CANCUN) {
+            // Estimate the size of the state diff after the brotli compression
+            BROTLI_COMPRESSION_PERCENTAGE
+        } else {
+            100
+        };
+        let diff_size = (uncompressed_size * compression_percentage / 100) as u64;
+
         let l1_fee_rate = context.external.l1_fee_rate();
         let l1_fee =
             U256::from(l1_fee_rate) * (U256::from(diff_size) + U256::from(L1_FEE_OVERHEAD));
@@ -620,7 +680,7 @@ fn change_balance<EXT, DB: Database>(
         ..
     } = &mut context.evm.inner;
 
-    let (account, _) = journaled_state.load_account(address, db)?;
+    let mut account = journaled_state.load_account(address, db)?;
     account.mark_touch();
 
     let balance = &mut account.info.balance;

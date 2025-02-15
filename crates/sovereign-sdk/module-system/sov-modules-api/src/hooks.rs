@@ -1,10 +1,12 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use sov_modules_core::{AccessoryWorkingSet, Context, Spec, Storage, WorkingSet};
-use sov_rollup_interface::da::{BlobReaderTrait, DaSpec};
+use sov_modules_core::{AccessoryWorkingSet, Context, Spec, WorkingSet};
+use sov_rollup_interface::da::DaSpec;
 use sov_rollup_interface::soft_confirmation::SignedSoftConfirmation;
 use sov_rollup_interface::spec::SpecId;
 pub use sov_rollup_interface::stf::SoftConfirmationError;
+use sov_rollup_interface::stf::SoftConfirmationHookError;
+use sov_rollup_interface::zk::StorageRootHash;
 
 use crate::transaction::Transaction;
 
@@ -21,61 +23,42 @@ pub trait TxHooks {
     /// Runs just before a transaction is dispatched to an appropriate module.
     fn pre_dispatch_tx_hook(
         &self,
-        tx: &Transaction<Self::Context>,
-        working_set: &mut WorkingSet<Self::Context>,
+        tx: &Transaction,
+        working_set: &mut WorkingSet<<Self::Context as Spec>::Storage>,
         arg: &Self::PreArg,
-    ) -> anyhow::Result<Self::PreResult>;
+        spec_id: SpecId,
+    ) -> Result<Self::PreResult, SoftConfirmationHookError>;
 
     /// Runs after the tx is dispatched to an appropriate module.
     /// IF this hook returns error rollup panics
     fn post_dispatch_tx_hook(
         &self,
-        tx: &Transaction<Self::Context>,
+        tx: &Transaction,
         ctx: &Self::Context,
-        working_set: &mut WorkingSet<Self::Context>,
-    ) -> anyhow::Result<()>;
-}
-
-/// Hooks related to the Sequencer functionality.
-/// In essence, the sequencer locks a bond at the beginning of the `StateTransitionFunction::apply_blob`,
-/// and is rewarded once a blob of transactions is processed.
-pub trait ApplyBlobHooks<B: BlobReaderTrait> {
-    type Context: Context;
-    type BlobResult;
-
-    /// Runs at the beginning of apply_blob, locks the sequencer bond.
-    /// If this hook returns Err, batch is not applied
-    fn begin_blob_hook(
-        &self,
-        blob: &mut B,
-        working_set: &mut WorkingSet<Self::Context>,
-    ) -> anyhow::Result<()>;
-
-    /// Executes at the end of apply_blob and rewards or slashes the sequencer
-    /// If this hook returns Err rollup panics
-    fn end_blob_hook(&self, working_set: &mut WorkingSet<Self::Context>) -> anyhow::Result<()>;
+        working_set: &mut WorkingSet<<Self::Context as Spec>::Storage>,
+        spec_id: SpecId,
+    ) -> Result<(), SoftConfirmationHookError>;
 }
 
 /// Hooks that are executed before and after a soft confirmation is processed.
 pub trait ApplySoftConfirmationHooks<Da: DaSpec> {
     type Context: Context;
-    type SoftConfirmationResult;
 
     /// Runs at the beginning of apply_soft_confirmation.
     /// If this hook returns Err, batch is not applied
     fn begin_soft_confirmation_hook(
         &mut self,
         soft_confirmation_info: &HookSoftConfirmationInfo,
-        working_set: &mut WorkingSet<Self::Context>,
-    ) -> Result<(), SoftConfirmationError>;
+        working_set: &mut WorkingSet<<Self::Context as Spec>::Storage>,
+    ) -> Result<(), SoftConfirmationHookError>;
 
     /// Executes at the end of apply_blob and rewards or slashes the sequencer
     /// If this hook returns Err rollup panics
     fn end_soft_confirmation_hook(
         &mut self,
         soft_confirmation_info: HookSoftConfirmationInfo,
-        working_set: &mut WorkingSet<Self::Context>,
-    ) -> Result<(), SoftConfirmationError>;
+        working_set: &mut WorkingSet<<Self::Context as Spec>::Storage>,
+    ) -> Result<(), SoftConfirmationHookError>;
 }
 
 /// Information about the soft confirmation block
@@ -91,7 +74,7 @@ pub struct HookSoftConfirmationInfo {
     /// DA block transactions commitment
     pub da_slot_txs_commitment: [u8; 32],
     /// Previous batch's pre state root
-    pub pre_state_root: Vec<u8>,
+    pub pre_state_root: StorageRootHash,
     /// The current spec
     pub current_spec: SpecId,
     /// Public key of the sequencer
@@ -105,9 +88,9 @@ pub struct HookSoftConfirmationInfo {
 }
 
 impl HookSoftConfirmationInfo {
-    pub fn new(
-        signed_soft_confirmation: &SignedSoftConfirmation,
-        pre_state_root: Vec<u8>,
+    pub fn new<Tx: Clone>(
+        signed_soft_confirmation: &SignedSoftConfirmation<Tx>,
+        pre_state_root: StorageRootHash,
         current_spec: SpecId,
     ) -> Self {
         HookSoftConfirmationInfo {
@@ -142,8 +125,8 @@ impl HookSoftConfirmationInfo {
     }
 
     /// Previous batch's pre state root
-    pub fn pre_state_root(&self) -> Vec<u8> {
-        self.pre_state_root.clone()
+    pub fn pre_state_root(&self) -> StorageRootHash {
+        self.pre_state_root
     }
 
     /// Active spec
@@ -181,11 +164,11 @@ pub trait SlotHooks<Da: DaSpec> {
     fn begin_slot_hook(
         &self,
         slot_header: &Da::BlockHeader,
-        pre_state_root: &<<Self::Context as Spec>::Storage as Storage>::Root,
-        working_set: &mut WorkingSet<Self::Context>,
+        pre_state_root: &StorageRootHash,
+        working_set: &mut WorkingSet<<Self::Context as Spec>::Storage>,
     );
 
-    fn end_slot_hook(&self, working_set: &mut WorkingSet<Self::Context>);
+    fn end_slot_hook(&self, working_set: &mut WorkingSet<<Self::Context as Spec>::Storage>);
 }
 
 pub trait FinalizeHook<Da: DaSpec> {
@@ -193,7 +176,7 @@ pub trait FinalizeHook<Da: DaSpec> {
 
     fn finalize_hook(
         &self,
-        root_hash: &<<Self::Context as Spec>::Storage as Storage>::Root,
-        accessory_working_set: &mut AccessoryWorkingSet<Self::Context>,
+        root_hash: &StorageRootHash,
+        accessory_working_set: &mut AccessoryWorkingSet<<Self::Context as Spec>::Storage>,
     );
 }

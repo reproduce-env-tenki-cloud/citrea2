@@ -1,25 +1,23 @@
-use bitcoin::hashes::Hash;
 use citrea_primitives::compression::decompress_blob;
 use crypto_bigint::{Encoding, U256};
 use itertools::Itertools;
-use sov_rollup_interface::da::{
-    BlockHeaderTrait, CountedBufReader, DaNamespace, DaSpec, DaVerifier, UpdatedDaState,
-};
-use sov_rollup_interface::zk::LightClientCircuitOutput;
+use sov_rollup_interface::da::{BlockHeaderTrait, DaNamespace, DaSpec, DaVerifier, LatestDaState};
+use sov_rollup_interface::Network;
 
 use crate::helpers::parsers::{
     parse_batch_proof_transaction, parse_light_client_transaction, ParsedBatchProofTransaction,
     ParsedLightClientTransaction, VerifyParsed,
 };
-use crate::helpers::{calculate_double_sha256, merkle_tree};
-use crate::spec::blob::{BlobBuf, BlobWithSender};
+use crate::helpers::{calculate_double_sha256, calculate_txid, calculate_wtxid, merkle_tree};
+use crate::network_constants::{
+    INITIAL_MAINNET_STATE, INITIAL_SIGNET_STATE, INITIAL_TESTNET4_STATE, MAINNET_CONSTANTS,
+    REGTEST_CONSTANTS, SIGNET_CONSTANTS, TESTNET4_CONSTANTS,
+};
+use crate::spec::blob::BlobWithSender;
+use crate::spec::header::HeaderWrapper;
 use crate::spec::BitcoinSpec;
 
 pub const WITNESS_COMMITMENT_PREFIX: &[u8] = &[0x6a, 0x24, 0xaa, 0x21, 0xa9, 0xed];
-
-/// The maximum target value, which corresponds to the minimum difficulty
-const MAX_TARGET: U256 =
-    U256::from_be_hex("00000000FFFF0000000000000000000000000000000000000000000000000000");
 
 /// An epoch should be two weeks (represented as number of seconds)
 /// seconds/minute * minutes/hour * hours/day * 14 days
@@ -28,12 +26,12 @@ const EXPECTED_EPOCH_TIMESPAN: u32 = 60 * 60 * 24 * 14;
 /// Number of blocks per epoch
 const BLOCKS_PER_EPOCH: u64 = 2016;
 
+#[derive(Debug)]
 pub struct BitcoinVerifier {
     to_batch_proof_prefix: Vec<u8>,
     to_light_client_prefix: Vec<u8>,
 }
 
-// TODO: custom errors based on our implementation
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ValidationError {
     InvalidBlock,
@@ -55,6 +53,8 @@ pub enum ValidationError {
     InvalidBlockBits,
     InvalidTargetHash,
     InvalidTimestamp,
+    HeaderInclusionTxCountMismatch,
+    FailedToDeserializeCompleteChunks,
 }
 
 impl DaVerifier for BitcoinVerifier {
@@ -69,22 +69,30 @@ impl DaVerifier for BitcoinVerifier {
         }
     }
 
+    fn decompress_chunks(&self, complete_chunks: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        borsh::from_slice(decompress_blob(complete_chunks).as_slice())
+            .map_err(|_| ValidationError::FailedToDeserializeCompleteChunks)
+    }
+
     // Verify that the given list of blob transactions is complete and correct.
     fn verify_transactions(
         &self,
         block_header: &<Self::Spec as DaSpec>::BlockHeader,
-        blobs: &[<Self::Spec as DaSpec>::BlobTransaction],
         inclusion_proof: <Self::Spec as DaSpec>::InclusionMultiProof,
         completeness_proof: <Self::Spec as DaSpec>::CompletenessProof,
         namespace: DaNamespace,
-    ) -> Result<(), Self::Error> {
-        // create hash set of blobs
-        let mut blobs_iter = blobs.iter();
+    ) -> Result<Vec<<Self::Spec as DaSpec>::BlobTransaction>, Self::Error> {
+        if block_header.tx_count as usize != inclusion_proof.wtxids.len() {
+            return Err(ValidationError::HeaderInclusionTxCountMismatch);
+        }
 
         let prefix = match namespace {
             DaNamespace::ToBatchProver => self.to_batch_proof_prefix.as_slice(),
             DaNamespace::ToLightClientProver => self.to_light_client_prefix.as_slice(),
         };
+
+        // Optimistically assume all txs in the completeness proof are verifiable
+        let mut blobs = Vec::with_capacity(completeness_proof.len());
 
         let relevant_wtxid_iter = inclusion_proof
             .wtxids
@@ -92,7 +100,7 @@ impl DaVerifier for BitcoinVerifier {
             .filter(|wtxid| wtxid.starts_with(prefix));
         for (wtxid, tx) in relevant_wtxid_iter.zip_eq(&completeness_proof) {
             // ensure completeness proof tx matches the inclusion tx
-            if tx.compute_wtxid().as_byte_array() != wtxid {
+            if &calculate_wtxid(tx) != wtxid {
                 return Err(ValidationError::RelevantTxNotInProof);
             }
 
@@ -102,15 +110,13 @@ impl DaVerifier for BitcoinVerifier {
                     if let Ok(parsed_tx) = parse_batch_proof_transaction(tx) {
                         match parsed_tx {
                             ParsedBatchProofTransaction::SequencerCommitment(seq_comm) => {
-                                if let Some(blob_content) =
-                                    verified_blob_content(&seq_comm, &mut blobs_iter)?
-                                {
-                                    let blob_content = blob_content.accumulator();
-
-                                    // assert tx content is not modified
-                                    if blob_content != seq_comm.body {
-                                        return Err(ValidationError::BlobContentWasModified);
-                                    }
+                                if let Some(hash) = seq_comm.get_sig_verified_hash() {
+                                    blobs.push(BlobWithSender::new(
+                                        seq_comm.body,
+                                        seq_comm.public_key,
+                                        hash,
+                                        Some(*wtxid),
+                                    ));
                                 }
                             }
                         }
@@ -120,42 +126,48 @@ impl DaVerifier for BitcoinVerifier {
                     if let Ok(parsed_tx) = parse_light_client_transaction(tx) {
                         match parsed_tx {
                             ParsedLightClientTransaction::Complete(complete) => {
-                                if let Some(blob_content) =
-                                    verified_blob_content(&complete, &mut blobs_iter)?
-                                {
-                                    let blob_content = blob_content.accumulator();
-
-                                    // assert tx content is not modified
-                                    let body = decompress_blob(&complete.body);
-                                    if blob_content != body {
-                                        return Err(ValidationError::BlobContentWasModified);
-                                    }
+                                if let Some(hash) = complete.get_sig_verified_hash() {
+                                    blobs.push(BlobWithSender::new(
+                                        decompress_blob(&complete.body),
+                                        complete.public_key,
+                                        hash,
+                                        Some(*wtxid),
+                                    ))
                                 }
                             }
                             ParsedLightClientTransaction::Aggregate(aggregate) => {
-                                if let Some(blob_content) =
-                                    verified_blob_content(&aggregate, &mut blobs_iter)?
-                                {
-                                    let blob_content = blob_content.accumulator();
-
-                                    // assert tx content is not modified
-                                    if blob_content != aggregate.body {
-                                        return Err(ValidationError::BlobContentWasModified);
-                                    }
+                                if let Some(hash) = aggregate.get_sig_verified_hash() {
+                                    blobs.push(BlobWithSender::new(
+                                        aggregate.body,
+                                        aggregate.public_key,
+                                        hash,
+                                        Some(*wtxid),
+                                    ))
                                 }
                             }
-                            ParsedLightClientTransaction::Chunk(_chunk) => {
-                                // ignore
+                            ParsedLightClientTransaction::Chunk(chunk) => {
+                                blobs.push(BlobWithSender::new(
+                                    chunk.body,
+                                    // chunk sender and hash irrelevant
+                                    vec![],
+                                    [0; 32],
+                                    Some(*wtxid),
+                                ));
+                            }
+                            ParsedLightClientTransaction::BatchProverMethodId(method_id) => {
+                                if let Some(hash) = method_id.get_sig_verified_hash() {
+                                    blobs.push(BlobWithSender::new(
+                                        method_id.body,
+                                        method_id.public_key,
+                                        hash,
+                                        Some(*wtxid),
+                                    ))
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-
-        // assert no extra txs than the ones in the completeness proof are left
-        if blobs_iter.next().is_some() {
-            return Err(ValidationError::IncorrectCompletenessProof);
         }
 
         // verify that one of the outputs of the coinbase transaction has script pub key starting with 0x6a24aa21a9ed,
@@ -173,6 +185,11 @@ impl DaVerifier for BitcoinVerifier {
         match commitment_idx {
             // If commitment does not exist
             None => {
+                // TODO: add this here? PR #1822
+                // if block_header.merkle_root() != block_header.txs_commitment() {
+                //     return Err()
+                // }
+
                 // Relevant txs should be empty if there is no witness data because data is inscribed in the witness
                 if !blobs.is_empty() {
                     return Err(ValidationError::InvalidBlock);
@@ -203,13 +220,9 @@ impl DaVerifier for BitcoinVerifier {
         }
 
         let claimed_root = merkle_tree::BitcoinMerkleTree::calculate_root_with_merkle_proof(
-            inclusion_proof
-                .coinbase_tx
-                .compute_txid()
-                .as_raw_hash()
-                .to_byte_array(),
+            calculate_txid(&inclusion_proof.coinbase_tx),
             0,
-            inclusion_proof.coinbase_merkle_proof,
+            &inclusion_proof.coinbase_merkle_proof,
         );
 
         // Check that the tx root in the block header matches the tx root in the inclusion proof.
@@ -217,46 +230,286 @@ impl DaVerifier for BitcoinVerifier {
             return Err(ValidationError::IncorrectInclusionProof);
         }
 
-        Ok(())
+        Ok(blobs)
     }
 
     fn verify_header_chain(
         &self,
-        previous_light_client_proof_output: &Option<LightClientCircuitOutput<Self::Spec>>,
+        latest_da_state: Option<&LatestDaState>,
         block_header: &<Self::Spec as DaSpec>::BlockHeader,
-    ) -> Result<UpdatedDaState<Self::Spec>, Self::Error> {
+        network: Network,
+    ) -> Result<LatestDaState, Self::Error> {
+        match network {
+            Network::Mainnet => self.verify_header_chain_mainnet(
+                latest_da_state.unwrap_or(&INITIAL_MAINNET_STATE),
+                block_header,
+            ),
+            Network::Testnet => self.verify_header_chain_testnet4(
+                latest_da_state.unwrap_or(&INITIAL_TESTNET4_STATE),
+                block_header,
+            ),
+            Network::Devnet => self.verify_header_chain_signet(
+                latest_da_state.unwrap_or(&INITIAL_SIGNET_STATE),
+                block_header,
+            ),
+            Network::Nightly | Network::TestNetworkWithForks => {
+                // For regtest, if this is the first light client proof, we always
+                // consider the block valid with respect to its parent block, so
+                // it can start from anywhere.
+                self.verify_header_chain_regtest(
+                    latest_da_state.unwrap_or(&LatestDaState {
+                        block_hash: block_header.prev_hash().to_byte_array(),
+                        block_height: block_header.height() - 1,
+                        // Total work is irrelevant in regtest
+                        total_work: [0; 32],
+                        current_target_bits: REGTEST_CONSTANTS.max_bits,
+                        // Epoch start time is irrelevant in regtest
+                        epoch_start_time: 0,
+                        // Prev 11 timestamps is irrelevant in regtest
+                        prev_11_timestamps: [0; 11],
+                    }),
+                    block_header,
+                )
+            }
+        }
+    }
+}
+
+impl BitcoinVerifier {
+    fn verify_header_chain_mainnet(
+        &self,
+        latest_da_state: &LatestDaState,
+        block_header: &HeaderWrapper,
+    ) -> Result<LatestDaState, ValidationError> {
+        let network_constants = MAINNET_CONSTANTS;
+
+        let target = bits_to_target(latest_da_state.current_target_bits);
+        let work_add = target_to_work(&target);
+
+        // Verify common header chain rules
+        self.verify_header_chain_common(
+            block_header,
+            latest_da_state,
+            target,
+            latest_da_state.current_target_bits,
+        )?;
+
+        // Update previous timestamps
+        let mut prev_11_timestamps = latest_da_state.prev_11_timestamps;
+        prev_11_timestamps[block_header.height() as usize % 11] = block_header.time().secs() as u32;
+
+        let epoch_block = block_header.height() % BLOCKS_PER_EPOCH;
+
+        // Check if this is the first epoch block, and update time accordingly
+        let epoch_start_time = if epoch_block == 0 {
+            block_header.time().secs() as u32
+        } else {
+            latest_da_state.epoch_start_time
+        };
+
+        // If this is the last block of the epoch, calculate the target for the next epoch
+        let current_target_bits = if epoch_block == BLOCKS_PER_EPOCH - 1 {
+            let next_target = calculate_new_difficulty(
+                epoch_start_time,
+                block_header.time().secs() as u32,
+                block_header.bits(),
+                network_constants.max_target,
+            );
+            target_to_bits(&next_target)
+        } else {
+            block_header.bits()
+        };
+
+        let total_work = U256::from_be_bytes(latest_da_state.total_work)
+            .saturating_add(&work_add)
+            .to_be_bytes();
+
+        Ok(LatestDaState {
+            block_hash: block_header.hash().to_byte_array(),
+            block_height: block_header.height(),
+            total_work,
+            current_target_bits,
+            epoch_start_time,
+            prev_11_timestamps,
+        })
+    }
+
+    fn verify_header_chain_testnet4(
+        &self,
+        latest_da_state: &LatestDaState,
+        block_header: &HeaderWrapper,
+    ) -> Result<LatestDaState, ValidationError> {
+        let network_constants = TESTNET4_CONSTANTS;
+
+        let epoch_block = block_header.height() % BLOCKS_PER_EPOCH;
+        let latest_block_time =
+            latest_da_state.prev_11_timestamps[latest_da_state.block_height as usize % 11];
+
+        // If more than 20 minutes passed since latest block and this is not epoch block 0, reset target
+        let (target, expected_bits) =
+            if epoch_block != 0 && block_header.time().secs() as u32 > latest_block_time + 1200 {
+                let target = network_constants.max_target.to_be_bytes();
+                (target, network_constants.max_bits)
+            } else {
+                let target = bits_to_target(latest_da_state.current_target_bits);
+                (target, latest_da_state.current_target_bits)
+            };
+        let work_add = target_to_work(&target);
+
+        // Verify common header chain rules
+        self.verify_header_chain_common(block_header, latest_da_state, target, expected_bits)?;
+
+        // Update previous timestamps
+        let mut prev_11_timestamps = latest_da_state.prev_11_timestamps;
+        prev_11_timestamps[block_header.height() as usize % 11] = block_header.time().secs() as u32;
+
+        // Check if this is the first epoch block, and update time accordingly
+        let epoch_start_time = if epoch_block == 0 {
+            block_header.time().secs() as u32
+        } else {
+            latest_da_state.epoch_start_time
+        };
+
+        // If this is the last block of the epoch, calculate the target for the next epoch
+        let current_target_bits = if epoch_block == BLOCKS_PER_EPOCH - 1 {
+            let next_target = calculate_new_difficulty(
+                epoch_start_time,
+                block_header.time().secs() as u32,
+                // If 20 minute exception happened on last block of the difficulty period,
+                // previous block's target should be used. If didn't happen, it is going
+                // to be equal to current block bits anyway.
+                latest_da_state.current_target_bits,
+                network_constants.max_target,
+            );
+            target_to_bits(&next_target)
+        } else {
+            latest_da_state.current_target_bits
+        };
+
+        let total_work = U256::from_be_bytes(latest_da_state.total_work)
+            .saturating_add(&work_add)
+            .to_be_bytes();
+
+        Ok(LatestDaState {
+            block_hash: block_header.hash().to_byte_array(),
+            block_height: block_header.height(),
+            total_work,
+            current_target_bits,
+            epoch_start_time,
+            prev_11_timestamps,
+        })
+    }
+
+    fn verify_header_chain_signet(
+        &self,
+        latest_da_state: &LatestDaState,
+        block_header: &HeaderWrapper,
+    ) -> Result<LatestDaState, ValidationError> {
+        let network_constants = SIGNET_CONSTANTS;
+
+        let target = bits_to_target(latest_da_state.current_target_bits);
+        let work_add = target_to_work(&target);
+
+        // Verify common header chain rules
+        self.verify_header_chain_common(
+            block_header,
+            latest_da_state,
+            target,
+            latest_da_state.current_target_bits,
+        )?;
+
+        // Update previous timestamps
+        let mut prev_11_timestamps = latest_da_state.prev_11_timestamps;
+        prev_11_timestamps[block_header.height() as usize % 11] = block_header.time().secs() as u32;
+
+        let epoch_block = block_header.height() % BLOCKS_PER_EPOCH;
+
+        // Check if this is epoch block, and update time accordingly
+        let epoch_start_time = if epoch_block == 0 {
+            block_header.time().secs() as u32
+        } else {
+            latest_da_state.epoch_start_time
+        };
+
+        // If the next block is epoch start block, calculate the next epoch's difficulty target
+        let current_target_bits = if epoch_block == BLOCKS_PER_EPOCH - 1 {
+            let next_target = calculate_new_difficulty(
+                epoch_start_time,
+                block_header.time().secs() as u32,
+                block_header.bits(),
+                network_constants.max_target,
+            );
+            target_to_bits(&next_target)
+        } else {
+            block_header.bits()
+        };
+
+        let total_work = U256::from_be_bytes(latest_da_state.total_work)
+            .saturating_add(&work_add)
+            .to_be_bytes();
+
+        Ok(LatestDaState {
+            block_hash: block_header.hash().to_byte_array(),
+            block_height: block_header.height(),
+            total_work,
+            current_target_bits,
+            epoch_start_time,
+            prev_11_timestamps,
+        })
+    }
+
+    fn verify_header_chain_regtest(
+        &self,
+        latest_da_state: &LatestDaState,
+        block_header: &HeaderWrapper,
+    ) -> Result<LatestDaState, ValidationError> {
+        assert_ne!(block_header.height(), 0, "Height must not be 0 in regtest");
+
+        let network_constants = REGTEST_CONSTANTS;
+
+        // Verify common header chain rules
+        self.verify_header_chain_common(
+            block_header,
+            latest_da_state,
+            network_constants.max_target.to_be_bytes(),
+            network_constants.max_bits,
+        )?;
+
+        // Update previous timestamps
+        let mut prev_11_timestamps = latest_da_state.prev_11_timestamps;
+        prev_11_timestamps[block_header.height() as usize % 11] = block_header.time().secs() as u32;
+
+        Ok(LatestDaState {
+            block_hash: block_header.hash().to_byte_array(),
+            block_height: block_header.height(),
+            total_work: [0; 32],
+            current_target_bits: block_header.bits(),
+            epoch_start_time: 0,
+            prev_11_timestamps,
+        })
+    }
+
+    fn verify_header_chain_common(
+        &self,
+        block_header: &HeaderWrapper,
+        latest_da_state: &LatestDaState,
+        target: [u8; 32],
+        expected_bits: u32,
+    ) -> Result<(), ValidationError> {
         // Check 1: Verify block hash
         if !block_header.verify_hash() {
             return Err(ValidationError::InvalidBlockHash);
         }
-
-        let target = bits_to_target(block_header.bits());
-        let work_add = target_to_work(&target);
-
-        // TODO: this is first light client proof, hardcode the first da block and verify accordingly
-        let Some(previous_light_client_proof_output) = previous_light_client_proof_output else {
-            return Ok(UpdatedDaState {
-                hash: block_header.hash(),
-                height: block_header.height(),
-                // TODO: total work should be the hardcoded initial block's total_work + work_add
-                total_work: work_add.to_be_bytes(),
-                epoch_start_time: block_header.time().secs() as u32,
-                // TODO: this is temporary fix for ci to pass until we hardcode the first da block
-                prev_11_timestamps: [0; 11],
-                current_target_bits: block_header.bits(),
-            });
-        };
-
         // Check 2: block heights are consecutive
-        if block_header.height() - 1 != previous_light_client_proof_output.da_block_height {
+        if block_header.height() - 1 != latest_da_state.block_height {
             return Err(ValidationError::NonConsecutiveBlockHeight);
         }
         // Check 3: prev hash matches with prev light client proof hash
-        if block_header.prev_hash() != previous_light_client_proof_output.da_block_hash {
+        if block_header.prev_hash().to_byte_array() != latest_da_state.block_hash {
             return Err(ValidationError::InvalidPrevBlockHash);
         }
         // Check 4: valid bits
-        if block_header.bits() != previous_light_client_proof_output.da_current_target_bits {
+        if block_header.bits() != expected_bits {
             return Err(ValidationError::InvalidBlockBits);
         }
         // Check 5: proof of work
@@ -266,74 +519,12 @@ impl DaVerifier for BitcoinVerifier {
         // Check 6: valid timestamp
         if !verify_timestamp(
             block_header.time().secs() as u32,
-            previous_light_client_proof_output.da_prev_11_timestamps,
+            latest_da_state.prev_11_timestamps,
         ) {
             return Err(ValidationError::InvalidTimestamp);
         }
 
-        let epoch_block = block_header.height() % BLOCKS_PER_EPOCH;
-        // Check if this is epoch block, and update time accordingly
-        let mut epoch_start_time = previous_light_client_proof_output.da_epoch_start_time;
-        if epoch_block == 0 {
-            epoch_start_time = block_header.time().secs() as u32;
-        }
-
-        // Update previous timestamps
-        let mut prev_11_timestamps = previous_light_client_proof_output.da_prev_11_timestamps;
-        prev_11_timestamps[block_header.height() as usize % 11] = block_header.time().secs() as u32;
-
-        // If the next block is epoch start block, calculate the next epoch's difficulty target
-        let mut current_target_bits = block_header.bits();
-        if epoch_block == BLOCKS_PER_EPOCH - 1 {
-            let next_target = calculate_new_difficulty(
-                epoch_start_time,
-                block_header.time().secs() as u32,
-                block_header.bits(),
-            );
-            current_target_bits = target_to_bits(&next_target);
-        }
-
-        let total_work = U256::from_be_bytes(previous_light_client_proof_output.da_total_work)
-            .saturating_add(&work_add)
-            .to_be_bytes();
-
-        Ok(UpdatedDaState {
-            hash: block_header.hash(),
-            height: block_header.height(),
-            total_work,
-            epoch_start_time,
-            prev_11_timestamps,
-            current_target_bits,
-        })
-    }
-}
-
-// Get associated blob content only if signatures, hashes and public keys match
-fn verified_blob_content(
-    tx: &dyn VerifyParsed,
-    blobs_iter: &mut dyn Iterator<Item = &BlobWithSender>,
-) -> Result<Option<CountedBufReader<BlobBuf>>, ValidationError> {
-    if let Some(blob_hash) = tx.get_sig_verified_hash() {
-        let blob = blobs_iter.next();
-
-        let Some(blob) = blob else {
-            return Err(ValidationError::ValidBlobNotFoundInBlobs);
-        };
-
-        if blob.hash != blob_hash {
-            return Err(ValidationError::BlobWasTamperedWith);
-        }
-
-        if tx.public_key() != blob.sender.0 {
-            return Err(ValidationError::IncorrectSenderInBlob);
-        }
-
-        // read the supplied blob from txs
-        let mut blob_content = blob.blob.clone();
-        blob_content.advance(blob_content.total_len());
-        Ok(Some(blob_content))
-    } else {
-        Ok(None)
+        Ok(())
     }
 }
 
@@ -389,7 +580,7 @@ fn bits_to_target(bits: u32) -> [u8; 32] {
 }
 
 /// Converts the big-endian target value to the little-endian `bits` field of a block header.
-fn target_to_bits(target: &[u8; 32]) -> u32 {
+pub(crate) const fn target_to_bits(target: &[u8; 32]) -> u32 {
     let target_u256 = U256::from_be_slice(target);
     let target_bits = target_u256.bits();
     let size = (263 - target_bits) / 8;
@@ -414,7 +605,8 @@ fn target_to_work(target: &[u8; 32]) -> U256 {
 fn calculate_new_difficulty(
     epoch_start_time: u32,
     last_timestamp: u32,
-    current_target: u32,
+    current_target_bits: u32,
+    max_target: U256,
 ) -> [u8; 32] {
     // Step 1: Calculate the actual timespan of the epoch
     let mut actual_timespan = last_timestamp - epoch_start_time;
@@ -424,13 +616,13 @@ fn calculate_new_difficulty(
         actual_timespan = EXPECTED_EPOCH_TIMESPAN * 4;
     }
     // Step 2: Calculate the new target
-    let new_target_bytes = bits_to_target(current_target);
+    let new_target_bytes = bits_to_target(current_target_bits);
     let mut new_target = U256::from_be_bytes(new_target_bytes)
         .wrapping_mul(&U256::from(actual_timespan))
         .wrapping_div(&U256::from(EXPECTED_EPOCH_TIMESPAN));
     // Step 3: Clamp the new target to the maximum target
-    if new_target > MAX_TARGET {
-        new_target = MAX_TARGET;
+    if new_target > max_target {
+        new_target = max_target;
     }
 
     new_target.to_be_bytes()
@@ -438,746 +630,143 @@ fn calculate_new_difficulty(
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    use std::ops::Deref;
 
-    // Transactions for testing is prepared with 2 leading zeros
-    // So verifier takes in [0, 0]
-
-    use core::str::FromStr;
-
-    use bitcoin::block::{Header, Version};
-    use bitcoin::hash_types::{TxMerkleNode, WitnessMerkleNode};
-    use bitcoin::hashes::Hash;
-    use bitcoin::{BlockHash, CompactTarget, ScriptBuf, Witness};
-    use sov_rollup_interface::da::{DaNamespace, DaVerifier};
+    use borsh::BorshDeserialize;
+    use sov_rollup_interface::da::{DaVerifier, LatestDaState};
 
     use super::BitcoinVerifier;
-    use crate::helpers::merkle_tree::BitcoinMerkleTree;
-    use crate::helpers::parsers::{parse_batch_proof_transaction, ParsedBatchProofTransaction};
-    use crate::helpers::test_utils::{
-        get_blob_with_sender, get_mock_data, get_mock_txs, get_non_segwit_mock_txs,
-    };
-    use crate::spec::blob::BlobWithSender;
-    use crate::spec::header::HeaderWrapper;
-    use crate::spec::proof::InclusionMultiProof;
-    use crate::spec::transaction::TransactionWrapper;
+    use crate::spec::header::{BitcoinHeaderWrapper, HeaderWrapper};
     use crate::spec::RollupParams;
-    use crate::verifier::{ValidationError, WITNESS_COMMITMENT_PREFIX};
 
-    #[test]
-    fn correct() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, inclusion_proof, completeness_proof, txs) = get_mock_data();
-
-        assert!(verifier
-            .verify_transactions(
-                &block_header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            )
-            .is_ok());
+    fn get_verifier() -> BitcoinVerifier {
+        BitcoinVerifier::new(RollupParams {
+            to_batch_proof_prefix: vec![],
+            to_light_client_prefix: vec![],
+        })
     }
 
     #[test]
-    fn test_non_segwit_block() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-        let header = HeaderWrapper::new(
-            Header {
-                version: Version::from_consensus(536870912),
-                prev_blockhash: BlockHash::from_str(
-                    "6b15a2e4b17b0aabbd418634ae9410b46feaabf693eea4c8621ffe71435d24b0",
-                )
-                .unwrap(),
-                merkle_root: TxMerkleNode::from_slice(&[
-                    164, 71, 72, 235, 241, 189, 131, 141, 120, 210, 207, 233, 212, 171, 56, 52, 25,
-                    40, 83, 62, 135, 211, 81, 44, 3, 109, 10, 127, 210, 213, 124, 221,
-                ])
-                .unwrap(),
-                time: 1694177029,
-                bits: CompactTarget::from_unprefixed_hex("207fffff").unwrap(),
-                nonce: 0,
-            },
-            6,
-            2,
-            WitnessMerkleNode::from_str(
-                "a8b25755ed6e2f1df665b07e751f6acc1ff4e1ec765caa93084176e34fa5ad71",
-            )
-            .unwrap()
-            .to_raw_hash()
-            .to_byte_array(),
-        );
+    fn test_header_chain_mainnet_old_blocks() {
+        let verifier = get_verifier();
 
-        let block_txs = get_non_segwit_mock_txs();
-        let block_txs: Vec<TransactionWrapper> = block_txs.into_iter().map(Into::into).collect();
-
-        // block does not have any segwit txs
-        let idx = block_txs[0].output.iter().position(|output| {
-            output
-                .script_pubkey
-                .to_bytes()
-                .starts_with(WITNESS_COMMITMENT_PREFIX)
-        });
-        assert!(idx.is_none());
-
-        // tx with txid 00... is not relevant is in this proof
-        // only used so the completeness proof is not empty
-        let completeness_proof = vec![];
-
-        let tree = BitcoinMerkleTree::new(
-            block_txs
-                .iter()
-                .map(|t| t.compute_txid().to_raw_hash().to_byte_array())
-                .collect(),
-        );
-
-        let inclusion_proof = InclusionMultiProof {
-            wtxids: block_txs
-                .iter()
-                .map(|t| t.compute_wtxid().to_byte_array())
-                .collect(),
-            coinbase_tx: block_txs[0].clone(),
-            coinbase_merkle_proof: tree.get_idx_path(0),
+        let mut block_hash = [0; 32];
+        hex::decode_to_slice(
+            "000000006ae2e2690d771ee2ce991006d6606c97c5894e810159563a7731b39e",
+            &mut block_hash,
+        )
+        .unwrap();
+        block_hash.reverse();
+        // Initial da height 40309 state
+        let mut da_state = LatestDaState {
+            block_hash,
+            block_height: 40309,
+            total_work: [0; 32],
+            current_target_bits: 0x1d008cc3,
+            epoch_start_time: 1265319794,
+            prev_11_timestamps: [
+                1266182524, 1266182598, 1266184302, 1266185866, 1266186230, 1266186530, 1266180699,
+                1266181218, 1266181275, 1266182052, 1266182473,
+            ],
         };
 
-        // There should not be any blobs
-        let txs: Vec<BlobWithSender> = vec![];
+        let file = File::open("test_data/mainnet/headers-40310-42346.txt").unwrap();
+        let reader = BufReader::new(file);
+        for (line, height) in reader.lines().zip(40310..=42346) {
+            let header_hex = line.unwrap();
+            let header_bytes = hex::decode(&header_hex).unwrap();
 
-        assert!(matches!(
-            verifier.verify_transactions(
-                &header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            ),
-            Ok(()),
-        ));
+            let inner_header =
+                BitcoinHeaderWrapper::deserialize(&mut header_bytes.as_ref()).unwrap();
+            let header = HeaderWrapper::new(*inner_header.deref(), 0, height, [0; 32]);
+
+            da_state = verifier
+                .verify_header_chain_mainnet(&da_state, &header)
+                .expect("Header chain verification should not fail");
+        }
     }
 
     #[test]
-    fn false_coinbase_input_witness_should_fail() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
+    fn test_header_chain_mainnet_newer_blocks() {
+        let verifier = get_verifier();
 
-        let header = HeaderWrapper::new(
-            Header {
-                version: Version::from_consensus(536870912),
-                prev_blockhash: BlockHash::from_str(
-                    "426524a1b644fd8c77d32621f42a74486262bbc2eaeacf43d12cdee312885f42",
-                )
-                .unwrap(),
-                merkle_root: TxMerkleNode::from_str(
-                    "34ef858c354e8fd441e49fdc9266ca2bb760034c54b28fdb660254c2546295c8",
-                )
-                .unwrap(),
-                time: 1724662940,
-                bits: CompactTarget::from_unprefixed_hex("207fffff").unwrap(),
-                nonce: 0,
-            },
-            36,
-            1001,
-            WitnessMerkleNode::from_str(
-                "0467b591b054383ec433945d04063742f5aabb80e52a53bc2f8ded58d350a7c5",
-            )
-            .unwrap()
-            .to_raw_hash()
-            .to_byte_array(),
-        );
-
-        let block_txs = get_mock_txs();
-        let mut block_txs: Vec<TransactionWrapper> =
-            block_txs.into_iter().map(Into::into).collect();
-
-        block_txs[0].input[0].witness = Witness::from_slice(&[vec![1u8; 32]]);
-
-        let relevant_txs_indices = [4, 6, 18, 28, 34];
-
-        let completeness_proof = relevant_txs_indices
-            .into_iter()
-            .map(|i| block_txs[i].clone())
-            .map(Into::into)
-            .collect();
-
-        let tree = BitcoinMerkleTree::new(
-            block_txs
-                .iter()
-                .map(|t| t.compute_txid().to_raw_hash().to_byte_array())
-                .collect(),
-        );
-
-        let mut inclusion_proof = InclusionMultiProof {
-            wtxids: block_txs
-                .iter()
-                .map(|t| t.compute_wtxid().to_byte_array())
-                .collect(),
-            coinbase_tx: block_txs[0].clone(),
-            coinbase_merkle_proof: tree.get_idx_path(0),
+        let mut block_hash = [0; 32];
+        hex::decode_to_slice(
+            "000000000000000000006d109e50b04ac96c15e9e47688bb264849867cc0faee",
+            &mut block_hash,
+        )
+        .unwrap();
+        block_hash.reverse();
+        // Initial da height 872917 state
+        let mut da_state = LatestDaState {
+            block_hash,
+            block_height: 872917,
+            total_work: [0; 32],
+            current_target_bits: 0x1702c070,
+            epoch_start_time: 1731962532,
+            prev_11_timestamps: [
+                1733145689, 1733146032, 1733139284, 1733139502, 1733140945, 1733141528, 1733141580,
+                1733142637, 1733142783, 1733143675, 1733144344,
+            ],
         };
 
-        // Coinbase tx wtxid should be [0u8;32]
-        inclusion_proof.wtxids[0] = [0; 32];
+        let file = File::open("test_data/mainnet/headers-872918-874954.txt").unwrap();
+        let reader = BufReader::new(file);
+        for (line, height) in reader.lines().zip(872918..=874954) {
+            let header_hex = line.unwrap();
+            let header_bytes = hex::decode(&header_hex).unwrap();
 
-        let txs: Vec<BlobWithSender> = relevant_txs_indices
-            .into_iter()
-            .filter_map(|i| get_blob_with_sender(&block_txs[i]).ok())
-            .collect();
+            let inner_header =
+                BitcoinHeaderWrapper::deserialize(&mut header_bytes.as_ref()).unwrap();
+            let header = HeaderWrapper::new(*inner_header.deref(), 0, height, [0; 32]);
 
-        assert_eq!(
-            verifier.verify_transactions(
-                &header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            ),
-            Err(ValidationError::IncorrectInclusionProof)
-        );
+            da_state = verifier
+                .verify_header_chain_mainnet(&da_state, &header)
+                .expect("Header chain verification should not fail");
+        }
     }
 
     #[test]
-    fn false_coinbase_script_pubkey_should_fail() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
+    fn test_header_chain_testnet4() {
+        let verifier = get_verifier();
 
-        let header = HeaderWrapper::new(
-            Header {
-                version: Version::from_consensus(536870912),
-                prev_blockhash: BlockHash::from_str(
-                    "426524a1b644fd8c77d32621f42a74486262bbc2eaeacf43d12cdee312885f42",
-                )
-                .unwrap(),
-                merkle_root: TxMerkleNode::from_str(
-                    "34ef858c354e8fd441e49fdc9266ca2bb760034c54b28fdb660254c2546295c8",
-                )
-                .unwrap(),
-                time: 1724662940,
-                bits: CompactTarget::from_unprefixed_hex("207fffff").unwrap(),
-                nonce: 0,
-            },
-            36,
-            1001,
-            WitnessMerkleNode::from_str(
-                "0467b591b054383ec433945d04063742f5aabb80e52a53bc2f8ded58d350a7c5",
-            )
-            .unwrap()
-            .to_raw_hash()
-            .to_byte_array(),
-        );
-
-        let block_txs = get_mock_txs();
-        let mut block_txs: Vec<TransactionWrapper> =
-            block_txs.into_iter().map(Into::into).collect();
-
-        let idx = block_txs[0]
-            .output
-            .iter()
-            .position(|output| {
-                output
-                    .script_pubkey
-                    .to_bytes()
-                    .starts_with(WITNESS_COMMITMENT_PREFIX)
-            })
-            .unwrap();
-
-        // the 7th byte of script pubkey is changed from 104 to 105
-        block_txs[0].output[idx].script_pubkey = ScriptBuf::from_bytes(vec![
-            106, 36, 170, 33, 169, 237, 105, 181, 249, 155, 21, 242, 213, 115, 55, 123, 70, 108,
-            15, 173, 14, 106, 243, 231, 186, 128, 75, 251, 178, 9, 24, 228, 200, 177, 144, 89, 95,
-            182,
-        ]);
-
-        let relevant_txs_indices = [4, 6, 18, 28, 34];
-
-        let completeness_proof = relevant_txs_indices
-            .into_iter()
-            .map(|i| block_txs[i].clone())
-            .map(Into::into)
-            .collect();
-
-        let tree = BitcoinMerkleTree::new(
-            block_txs
-                .iter()
-                .map(|t| t.compute_txid().to_raw_hash().to_byte_array())
-                .collect(),
-        );
-
-        let mut inclusion_proof = InclusionMultiProof {
-            wtxids: block_txs
-                .iter()
-                .map(|t| t.compute_wtxid().to_byte_array())
-                .collect(),
-            coinbase_tx: block_txs[0].clone(),
-            coinbase_merkle_proof: tree.get_idx_path(0),
+        let mut block_hash = [0; 32];
+        hex::decode_to_slice(
+            "000000004554e9e9ae1542b126511770012c6d6227b317efaaadea36c543519e",
+            &mut block_hash,
+        )
+        .unwrap();
+        block_hash.reverse();
+        // Initial da height 40309 state
+        // Even though target is as below, this block has its next blocks produced in more than 20 minutes,
+        // causing their bits to be resetted.
+        let mut da_state = LatestDaState {
+            block_hash,
+            block_height: 40309,
+            total_work: [0; 32],
+            current_target_bits: 0x1954fa04,
+            epoch_start_time: 1722969976,
+            prev_11_timestamps: [
+                1724062401, 1724063602, 1724064803, 1724066004, 1724061810, 1724063011, 1724056393,
+                1724057597, 1724058798, 1724059999, 1724061200,
+            ],
         };
 
-        // Coinbase tx wtxid should be [0u8;32]
-        inclusion_proof.wtxids[0] = [0; 32];
-
-        let txs: Vec<BlobWithSender> = relevant_txs_indices
-            .into_iter()
-            .filter_map(|i| get_blob_with_sender(&block_txs[i]).ok())
-            .collect();
-
-        assert_eq!(
-            verifier.verify_transactions(
-                &header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            ),
-            Err(ValidationError::IncorrectInclusionProof)
-        );
-    }
-
-    #[test]
-    fn false_witness_script_should_fail() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let header = HeaderWrapper::new(
-            Header {
-                version: Version::from_consensus(536870912),
-                prev_blockhash: BlockHash::from_str(
-                    "426524a1b644fd8c77d32621f42a74486262bbc2eaeacf43d12cdee312885f42",
-                )
-                .unwrap(),
-                merkle_root: TxMerkleNode::from_str(
-                    "34ef858c354e8fd441e49fdc9266ca2bb760034c54b28fdb660254c2546295c8",
-                )
-                .unwrap(),
-                time: 1724662940,
-                bits: CompactTarget::from_unprefixed_hex("207fffff").unwrap(),
-                nonce: 0,
-            },
-            36,
-            1001,
-            WitnessMerkleNode::from_str(
-                "0467b591b054383ec433945d04063742f5aabb80e52a53bc2f8ded58d350a7c5",
-            )
-            .unwrap()
-            .to_raw_hash()
-            .to_byte_array(),
-        );
-
-        let block_txs = get_mock_txs();
-        let mut block_txs: Vec<TransactionWrapper> =
-            block_txs.into_iter().map(Into::into).collect();
-
-        // This is the changed witness of the 6th tx, the second byte of the second script is changed from 6b to 6c
-        // This creates a different wtxid, thus the verification should fail
-        let changed_witness = vec![
-            hex::decode("9a80cec0e5697631f5833aa9e06c4254cc982abf48ef65fd38ea7c3791290a47911d99d88daa9781dc86fb2c8be70af6ee58b89f109c98c9a4bc6d69c2d8961d").unwrap(),
-            hex::decode("206c44322e08a288964df3af45c2a11b1fc9fdbcd03cdde61d0655fbf81948fc8aad0200000063400c7efadcdf53315064d4f54752544bd3c39f1e0242ef79b6de55eb3d0d0af15b0d497bb1dc367a74dd761ed066e67d7730dff4e5c78eff0db7b2cee4932c5ce12102588d202afcc1ee4ab5254c7847ec25b9a135bbda0f2bc69ee1a714749fd77dc931000e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e4d04000000000000dd040000000000006808f58003000000000077").unwrap(),
-            hex::decode("c16b44322e08a288964df3af45c2a11b1fc9fdbcd03cdde61d0655fbf81948fc8a").unwrap()
-        ];
-
-        block_txs[6].input[0].witness = Witness::from_slice(&changed_witness);
-
-        let relevant_txs_indices = [4, 6, 18, 28, 34];
-
-        let completeness_proof = relevant_txs_indices
-            .into_iter()
-            .map(|i| block_txs[i].clone())
-            .map(Into::into)
-            .collect();
-
-        let tree = BitcoinMerkleTree::new(
-            block_txs
-                .iter()
-                .map(|t| t.compute_txid().to_raw_hash().to_byte_array())
-                .collect(),
-        );
-
-        let mut inclusion_proof = InclusionMultiProof {
-            wtxids: block_txs
-                .iter()
-                .map(|t| t.compute_wtxid().to_byte_array())
-                .collect(),
-            coinbase_tx: block_txs[0].clone(),
-            coinbase_merkle_proof: tree.get_idx_path(0),
-        };
-
-        // Coinbase tx wtxid should be [0u8;32]
-        inclusion_proof.wtxids[0] = [0; 32];
-
-        let txs: Vec<BlobWithSender> = relevant_txs_indices
-            .into_iter()
-            .filter_map(|i| get_blob_with_sender(&block_txs[i]).ok())
-            .collect();
-
-        assert_eq!(
-            verifier.verify_transactions(
-                &header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            ),
-            Err(ValidationError::RelevantTxNotInProof)
-        );
-    }
-
-    // verifies it, and then changes the witness and sees that it cannot be verified
-    #[test]
-    fn different_wtxid_fails_verification() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, mut inclusion_proof, completeness_proof, txs) = get_mock_data();
-
-        assert!(verifier
-            .verify_transactions(
-                &block_header,
-                txs.as_slice(),
-                inclusion_proof.clone(),
-                completeness_proof.clone(),
-                DaNamespace::ToBatchProver,
-            )
-            .is_ok());
-
-        // cahnging the witness txid of coinbase tx to [1; 32] will make it fail
-        inclusion_proof.wtxids[0] = [1; 32];
-
-        assert!(verifier
-            .verify_transactions(
-                &block_header,
-                txs.as_slice(),
-                inclusion_proof.clone(),
-                completeness_proof.clone(),
-                DaNamespace::ToBatchProver,
-            )
-            .is_err());
-
-        inclusion_proof.wtxids[0] = [0; 32];
-
-        inclusion_proof.wtxids[1] = [16; 32];
-
-        assert!(verifier
-            .verify_transactions(
-                &block_header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            )
-            .is_err());
-    }
-
-    #[test]
-    fn extra_tx_in_inclusion() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, mut inclusion_proof, completeness_proof, txs) = get_mock_data();
-
-        inclusion_proof.wtxids.push([5; 32]);
-
-        assert_eq!(
-            verifier.verify_transactions(
-                &block_header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            ),
-            Err(ValidationError::IncorrectInclusionProof)
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "itertools: .zip_eq() reached end of one iterator before the other")]
-    fn missing_tx_in_inclusion() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, mut inclusion_proof, completeness_proof, txs) = get_mock_data();
-
-        inclusion_proof.wtxids.pop();
-
-        // should panic
-        let _ = verifier.verify_transactions(
-            &block_header,
-            txs.as_slice(),
-            inclusion_proof,
-            completeness_proof,
-            DaNamespace::ToBatchProver,
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "itertools: .zip_eq() reached end of one iterator before the other")]
-    fn empty_inclusion() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, mut inclusion_proof, completeness_proof, txs) = get_mock_data();
-
-        inclusion_proof.wtxids.clear();
-
-        // should panic
-        let _ = verifier.verify_transactions(
-            &block_header,
-            txs.as_slice(),
-            inclusion_proof,
-            completeness_proof,
-            DaNamespace::ToBatchProver,
-        );
-    }
-
-    #[test]
-    fn break_order_of_inclusion() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, mut inclusion_proof, completeness_proof, txs) = get_mock_data();
-
-        inclusion_proof.wtxids.swap(0, 1);
-
-        assert_eq!(
-            verifier.verify_transactions(
-                &block_header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            ),
-            Err(ValidationError::IncorrectInclusionProof)
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "itertools: .zip_eq() reached end of one iterator before the other")]
-    fn missing_tx_in_completeness_proof() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, inclusion_proof, mut completeness_proof, txs) = get_mock_data();
-
-        completeness_proof.pop();
-
-        // should panic
-        let _ = verifier.verify_transactions(
-            &block_header,
-            txs.as_slice(),
-            inclusion_proof,
-            completeness_proof,
-            DaNamespace::ToBatchProver,
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "itertools: .zip_eq() reached end of one iterator before the other")]
-    fn empty_completeness_proof() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, inclusion_proof, mut completeness_proof, txs) = get_mock_data();
-
-        completeness_proof.clear();
-
-        // should panic
-        let _ = verifier.verify_transactions(
-            &block_header,
-            txs.as_slice(),
-            inclusion_proof,
-            completeness_proof,
-            DaNamespace::ToBatchProver,
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "itertools: .zip_eq() reached end of one iterator before the other")]
-    fn non_relevant_tx_in_completeness_proof() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, inclusion_proof, mut completeness_proof, txs) = get_mock_data();
-
-        completeness_proof.push(get_mock_txs().get(1).unwrap().clone().into());
-
-        // should panic
-        let _ = verifier.verify_transactions(
-            &block_header,
-            txs.as_slice(),
-            inclusion_proof,
-            completeness_proof,
-            DaNamespace::ToBatchProver,
-        );
-    }
-
-    #[test]
-    fn break_completeness_proof_order() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, inclusion_proof, mut completeness_proof, txs) = get_mock_data();
-
-        completeness_proof.swap(2, 3);
-
-        assert_eq!(
-            verifier.verify_transactions(
-                &block_header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            ),
-            Err(ValidationError::RelevantTxNotInProof)
-        );
-    }
-
-    #[test]
-    fn break_rel_tx_order() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, inclusion_proof, completeness_proof, mut txs) = get_mock_data();
-
-        txs.swap(0, 1);
-
-        assert_eq!(
-            verifier.verify_transactions(
-                &block_header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            ),
-            Err(ValidationError::BlobWasTamperedWith)
-        );
-    }
-
-    #[test]
-    fn break_rel_tx_and_completeness_order() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, inclusion_proof, mut completeness_proof, mut txs) = get_mock_data();
-
-        txs.swap(0, 1);
-        completeness_proof.swap(0, 1);
-
-        assert_eq!(
-            verifier.verify_transactions(
-                &block_header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            ),
-            Err(ValidationError::RelevantTxNotInProof)
-        );
-    }
-
-    #[test]
-    fn tamper_rel_tx_content() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, inclusion_proof, completeness_proof, mut txs) = get_mock_data();
-
-        let new_blob = vec![2; 152];
-
-        txs[1] = BlobWithSender::new(new_blob, txs[1].sender.0.clone(), txs[1].hash);
-        assert_eq!(
-            verifier.verify_transactions(
-                &block_header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            ),
-            Err(ValidationError::BlobContentWasModified)
-        );
-    }
-
-    #[test]
-    fn tamper_senders() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, inclusion_proof, completeness_proof, mut txs) = get_mock_data();
-        let tx1 = &completeness_proof[1];
-        let body = {
-            let parsed = parse_batch_proof_transaction(tx1).unwrap();
-            let ParsedBatchProofTransaction::SequencerCommitment(seq) = parsed;
-            seq.body
-        };
-        txs[1] = BlobWithSender::new(body, vec![2; 33], txs[1].hash);
-
-        assert_eq!(
-            verifier.verify_transactions(
-                &block_header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            ),
-            Err(ValidationError::IncorrectSenderInBlob)
-        );
-    }
-
-    #[test]
-    fn missing_rel_tx() {
-        let verifier = BitcoinVerifier::new(RollupParams {
-            to_batch_proof_prefix: vec![1, 1],
-            to_light_client_prefix: vec![2, 2],
-        });
-
-        let (block_header, inclusion_proof, completeness_proof, mut txs) = get_mock_data();
-
-        txs = vec![txs[0].clone(), txs[1].clone(), txs[2].clone()];
-
-        assert_eq!(
-            verifier.verify_transactions(
-                &block_header,
-                txs.as_slice(),
-                inclusion_proof,
-                completeness_proof,
-                DaNamespace::ToBatchProver,
-            ),
-            Err(ValidationError::ValidBlobNotFoundInBlobs)
-        );
+        let file = File::open("test_data/testnet4/headers-40310-42346.txt").unwrap();
+        let reader = BufReader::new(file);
+        for (line, height) in reader.lines().zip(40310..=42346) {
+            let header_hex = line.unwrap();
+            let header_bytes = hex::decode(&header_hex).unwrap();
+
+            let inner_header =
+                BitcoinHeaderWrapper::deserialize(&mut header_bytes.as_ref()).unwrap();
+            let header = HeaderWrapper::new(*inner_header.deref(), 0, height, [0; 32]);
+
+            da_state = verifier
+                .verify_header_chain_testnet4(&da_state, &header)
+                .expect("Header chain verification should not fail");
+        }
     }
 }

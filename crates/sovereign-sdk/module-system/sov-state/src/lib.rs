@@ -19,8 +19,7 @@ pub use zk_storage::ZkStorage;
 pub mod config;
 
 pub use sov_modules_core::{
-    storage, AlignedVec, CacheLog, OrderedReadsAndWrites, Prefix, Storage, StorageInternalCache,
-    Witness,
+    storage, AlignedVec, CacheLog, OrderedReadsAndWrites, Prefix, Storage, Witness,
 };
 
 pub use crate::witness::ArrayWitness;
@@ -29,3 +28,5 @@ pub use crate::witness::ArrayWitness;
 pub type DefaultWitness = ArrayWitness;
 /// The default Hasher type used in merkle proofs for storage access, typically found as a type parameter for [`ProverStorage`].
 pub type DefaultHasher = sha2::Sha256;
+/// A hashed key used to index a JellyfishMerkleTree.
+pub type KeyHash = jmt::KeyHash;

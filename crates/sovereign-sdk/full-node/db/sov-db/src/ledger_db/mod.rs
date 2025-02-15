@@ -1,13 +1,12 @@
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sov_rollup_interface::da::{DaSpec, SequencerCommitment};
 use sov_rollup_interface::fork::{Fork, ForkMigration};
-use sov_rollup_interface::services::da::SlotData;
-use sov_rollup_interface::stf::{BatchReceipt, SoftConfirmationReceipt, StateDiff};
-use sov_rollup_interface::zk::Proof;
+use sov_rollup_interface::stf::{SoftConfirmationReceipt, StateDiff};
+use sov_rollup_interface::zk::{Proof, StorageRootHash};
 use sov_schema_db::{Schema, SchemaBatch, SeekKeyEncoder, DB};
 use tracing::instrument;
 
@@ -15,18 +14,21 @@ use crate::rocks_db_config::RocksdbConfig;
 #[cfg(test)]
 use crate::schema::tables::TestTableNew;
 use crate::schema::tables::{
-    BatchByNumber, CommitmentsByNumber, ExecutedMigrations, L2GenesisStateRoot, L2RangeByL1Height,
-    L2Witness, LastPrunedBlock, LastSequencerCommitmentSent, LastStateDiff,
-    LightClientProofBySlotNumber, MempoolTxs, PendingProvingSessions,
-    PendingSequencerCommitmentL2Range, ProofsBySlotNumberV2, ProverLastScannedSlot,
-    ProverStateDiffs, SlotByHash, SlotByNumber, SoftConfirmationByHash, SoftConfirmationByNumber,
-    SoftConfirmationStatus, VerifiedBatchProofsBySlotNumber, LEDGER_TABLES,
+    CommitmentsByNumber, ExecutedMigrations, L2GenesisStateRoot, L2RangeByL1Height, L2Witness,
+    LastPrunedBlock, LastSequencerCommitmentSent, LastStateDiff, LightClientProofBySlotNumber,
+    MempoolTxs, PendingProvingSessions, PendingSequencerCommitmentL2Range, ProofsBySlotNumberV2,
+    ProverLastScannedSlot, ProverStateDiffs, SlotByHash, SoftConfirmationByHash,
+    SoftConfirmationByNumber, SoftConfirmationStatus, VerifiedBatchProofsBySlotNumber,
+    LEDGER_TABLES,
 };
-use crate::schema::types::{
-    BatchNumber, L2HeightRange, SlotNumber, StoredBatchProof, StoredBatchProofOutput,
-    StoredLightClientProof, StoredLightClientProofOutput, StoredSlot, StoredSoftConfirmation,
-    StoredTransaction, StoredVerifiedProof,
+use crate::schema::types::batch_proof::{
+    StoredBatchProof, StoredBatchProofOutput, StoredVerifiedProof,
 };
+use crate::schema::types::light_client_proof::{
+    StoredLightClientProof, StoredLightClientProofOutput,
+};
+use crate::schema::types::soft_confirmation::{StoredSoftConfirmation, StoredTransaction};
+use crate::schema::types::{L2HeightRange, SlotNumber, SoftConfirmationNumber};
 
 /// Implementation of database migrator
 pub mod migrations;
@@ -37,7 +39,8 @@ mod traits;
 
 pub use traits::*;
 
-const LEDGER_DB_PATH_SUFFIX: &str = "ledger";
+/// LedgerDB path suffix
+pub const LEDGER_DB_PATH_SUFFIX: &str = "ledger";
 
 #[derive(Clone, Debug)]
 /// A database which stores the ledger history (slots, transactions, events, etc).
@@ -47,87 +50,58 @@ pub struct LedgerDB {
     /// The database which stores the committed ledger. Uses an optimized layout which
     /// requires transactions to be executed before being committed.
     pub(crate) db: Arc<DB>,
-    next_item_numbers: Arc<Mutex<ItemNumbers>>,
-}
-
-/// A SlotNumber, BatchNumber, TxNumber, and EventNumber which are grouped together, typically representing
-/// the respective heights at the start or end of slot processing.
-#[derive(Default, Clone, Debug)]
-#[cfg_attr(feature = "arbitrary", derive(proptest_derive::Arbitrary))]
-pub struct ItemNumbers {
-    /// The slot number
-    pub slot_number: u64,
-    /// The soft confirmation number
-    pub soft_confirmation_number: u64,
-    /// The batch number
-    pub batch_number: u64,
-}
-
-/// All of the data to be committed to the ledger db for a single slot.
-#[derive(Debug)]
-pub struct SlotCommit<S: SlotData, B, T> {
-    slot_data: S,
-    batch_receipts: Vec<BatchReceipt<B, T>>,
-    num_txs: usize,
-    num_events: usize,
-}
-
-impl<S: SlotData, B, T> SlotCommit<S, B, T> {
-    /// Returns a reference to the commit's slot_data
-    pub fn slot_data(&self) -> &S {
-        &self.slot_data
-    }
-
-    /// Returns a reference to the commit's batch_receipts
-    pub fn batch_receipts(&self) -> &[BatchReceipt<B, T>] {
-        &self.batch_receipts
-    }
-
-    /// Create a new SlotCommit from the given slot data
-    pub fn new(slot_data: S) -> Self {
-        Self {
-            slot_data,
-            batch_receipts: vec![],
-            num_txs: 0,
-            num_events: 0,
-        }
-    }
-    /// Add a `batch` (of transactions) to the commit
-    pub fn add_batch(&mut self, batch: BatchReceipt<B, T>) {
-        self.num_txs += batch.tx_receipts.len();
-        let events_this_batch: usize = batch.tx_receipts.iter().map(|r| r.events.len()).sum();
-        self.batch_receipts.push(batch);
-        self.num_events += events_this_batch;
-    }
 }
 
 impl LedgerDB {
     /// Open a [`LedgerDB`] (backed by RocksDB) at the specified path.
-    /// The returned instance will be at the path `{path}/ledger-db`.
+    /// Will take optional column families, used for migration purposes.
+    /// The returned instance will be at the path `{path}/ledger`.
     #[instrument(level = "trace", skip_all, err)]
     pub fn with_config(cfg: &RocksdbConfig) -> Result<Self, anyhow::Error> {
         let path = cfg.path.join(LEDGER_DB_PATH_SUFFIX);
         let raw_options = cfg.as_raw_options(false);
-        let inner = DB::open(
-            path,
-            "ledger-db",
-            LEDGER_TABLES.iter().copied(),
-            &raw_options,
-        )?;
-
-        let next_item_numbers = ItemNumbers {
-            slot_number: Self::last_version_written(&inner, SlotByNumber)?.unwrap_or_default() + 1,
-            soft_confirmation_number: Self::last_version_written(&inner, SoftConfirmationByNumber)?
-                .unwrap_or_default()
-                + 1,
-            batch_number: Self::last_version_written(&inner, BatchByNumber)?.unwrap_or_default()
-                + 1,
-        };
+        let tables = cfg
+            .column_families
+            .clone()
+            .unwrap_or_else(|| LEDGER_TABLES.iter().map(|e| e.to_string()).collect());
+        let inner = DB::open(path, "ledger-db", tables, &raw_options)?;
 
         Ok(Self {
             db: Arc::new(inner),
-            next_item_numbers: Arc::new(Mutex::new(next_item_numbers)),
         })
+    }
+
+    /// Returns the handle foe the column family with the given name
+    pub fn get_cf_handle(&self, cf_name: &str) -> anyhow::Result<&rocksdb::ColumnFamily> {
+        self.db.get_cf_handle(cf_name)
+    }
+
+    /// Insert a key-value pair into the database given a column family
+    pub fn insert_into_cf_raw(
+        &self,
+        cf_handle: &rocksdb::ColumnFamily,
+        key: &[u8],
+        value: &[u8],
+    ) -> anyhow::Result<()> {
+        self.db.put_cf(cf_handle, key, value)
+    }
+
+    /// Deletes a key-value pair from a column family given key and column family.
+    pub fn delete_from_cf_raw(
+        &self,
+        cf_handle: &rocksdb::ColumnFamily,
+        key: &[u8],
+    ) -> anyhow::Result<()> {
+        self.db.delete_cf(cf_handle, key)
+    }
+
+    /// Get an iterator for the given column family
+    pub fn get_iterator_for_cf<'a>(
+        &'a self,
+        cf_handle: &rocksdb::ColumnFamily,
+        iterator_mode: Option<rocksdb::IteratorMode>,
+    ) -> anyhow::Result<rocksdb::DBIterator<'a>> {
+        Ok(self.db.iter_cf(cf_handle, iterator_mode))
     }
 
     /// Gets all data with identifier in `range.start` to `range.end`. If `range.end` is outside
@@ -165,6 +139,11 @@ impl LedgerDB {
             _ => Ok(None),
         }
     }
+
+    /// Reference to underlying sov DB
+    pub fn db_handle(&self) -> Arc<sov_schema_db::DB> {
+        self.db.clone()
+    }
 }
 
 impl SharedLedgerOps for LedgerDB {
@@ -173,11 +152,16 @@ impl SharedLedgerOps for LedgerDB {
         self.db.path()
     }
 
+    /// Returns the inner DB instance
+    fn inner(&self) -> Arc<DB> {
+        self.db.clone()
+    }
+
     #[instrument(level = "trace", skip(self, schema_batch), err, ret)]
     fn put_soft_confirmation(
         &self,
         batch: &StoredSoftConfirmation,
-        batch_number: &BatchNumber,
+        batch_number: &SoftConfirmationNumber,
         schema_batch: &mut SchemaBatch,
     ) -> Result<(), anyhow::Error> {
         schema_batch.put::<SoftConfirmationByNumber>(batch_number, batch)?;
@@ -185,46 +169,41 @@ impl SharedLedgerOps for LedgerDB {
     }
 
     /// Commits a soft confirmation to the database by inserting its transactions and batches before
-    fn commit_soft_confirmation<T: Serialize, DS: DaSpec>(
+    fn commit_soft_confirmation<DS: DaSpec>(
         &self,
         state_root: &[u8],
-        soft_confirmation_receipt: SoftConfirmationReceipt<T, DS>,
+        soft_confirmation_receipt: SoftConfirmationReceipt<DS>,
         tx_bodies: Option<Vec<Vec<u8>>>,
     ) -> Result<(), anyhow::Error> {
-        // Create a scope to ensure that the lock is released before we commit to the db
-        let mut current_item_numbers = {
-            let mut next_item_numbers = self.next_item_numbers.lock().unwrap();
-            let item_numbers = next_item_numbers.clone();
-            next_item_numbers.soft_confirmation_number += 1;
-            item_numbers
-            // The lock is released here
-        };
-
         let mut schema_batch = SchemaBatch::new();
 
-        let tx_bodies = if let Some(tx_bodies) = tx_bodies {
-            tx_bodies.into_iter().map(Some).collect()
-        } else {
-            vec![None; soft_confirmation_receipt.tx_receipts.len()]
+        let tx_hashes = soft_confirmation_receipt.tx_hashes.into_iter();
+        let txs = match tx_bodies {
+            Some(tx_bodies) => {
+                assert_eq!(
+                    tx_bodies.len(),
+                    tx_hashes.len(),
+                    "Tx body count does not match tx hash count"
+                );
+                tx_hashes
+                    .zip(tx_bodies)
+                    .map(|(hash, body)| StoredTransaction {
+                        hash,
+                        body: Some(body),
+                    })
+                    .collect::<Vec<_>>()
+            }
+            None => tx_hashes
+                .map(|hash| StoredTransaction { hash, body: None })
+                .collect::<Vec<_>>(),
         };
 
-        let tx_hashes = soft_confirmation_receipt
-            .tx_receipts
-            .into_iter()
-            .map(|tx| tx.tx_hash);
-
-        let txs = tx_hashes
-            .zip(tx_bodies)
-            .map(|(tx_hash, tx_body)| StoredTransaction {
-                hash: tx_hash,
-                body: tx_body,
-            })
-            .collect();
+        let l2_height = soft_confirmation_receipt.l2_height;
 
         // Insert soft confirmation
         let soft_confirmation_to_store = StoredSoftConfirmation {
             da_slot_height: soft_confirmation_receipt.da_slot_height,
-            l2_height: current_item_numbers.soft_confirmation_number,
+            l2_height,
             da_slot_hash: soft_confirmation_receipt.da_slot_hash.into(),
             da_slot_txs_commitment: soft_confirmation_receipt.da_slot_txs_commitment.into(),
             hash: soft_confirmation_receipt.hash,
@@ -239,10 +218,9 @@ impl SharedLedgerOps for LedgerDB {
         };
         self.put_soft_confirmation(
             &soft_confirmation_to_store,
-            &BatchNumber(current_item_numbers.soft_confirmation_number),
+            &SoftConfirmationNumber(l2_height),
             &mut schema_batch,
         )?;
-        current_item_numbers.soft_confirmation_number += 1;
 
         self.db.write_schemas(schema_batch)?;
 
@@ -254,7 +232,7 @@ impl SharedLedgerOps for LedgerDB {
     fn extend_l2_range_of_l1_slot(
         &self,
         l1_height: SlotNumber,
-        l2_height: BatchNumber,
+        l2_height: SoftConfirmationNumber,
     ) -> Result<(), anyhow::Error> {
         let current_range = self.db.get::<L2RangeByL1Height>(&l1_height)?;
 
@@ -269,32 +247,6 @@ impl SharedLedgerOps for LedgerDB {
         self.db.write_schemas(schema_batch)?;
 
         Ok(())
-    }
-
-    /// Get the next slot, block, transaction, and event numbers
-    #[instrument(level = "trace", skip(self), ret)]
-    fn get_next_items_numbers(&self) -> ItemNumbers {
-        self.next_item_numbers.lock().unwrap().clone()
-    }
-
-    /// Gets all slots with numbers `range.start` to `range.end`. If `range.end` is outside
-    /// the range of the database, the result will smaller than the requested range.
-    /// Note that this method blindly preallocates for the requested range, so it should not be exposed
-    /// directly via rpc.
-    #[instrument(level = "trace", skip(self), err)]
-    fn _get_slot_range(
-        &self,
-        range: &std::ops::Range<SlotNumber>,
-    ) -> Result<Vec<StoredSlot>, anyhow::Error> {
-        self.get_data_range::<SlotByNumber, _, _>(range)
-    }
-
-    /// Gets l1 height of l1 hash
-    #[instrument(level = "trace", skip(self), err, ret)]
-    fn get_state_diff(&self) -> Result<StateDiff, anyhow::Error> {
-        self.db
-            .get::<LastStateDiff>(&())
-            .map(|diff| diff.unwrap_or_default())
     }
 
     /// Sets l1 height of l1 hash
@@ -313,7 +265,7 @@ impl SharedLedgerOps for LedgerDB {
     #[instrument(level = "trace", skip(self), err, ret)]
     fn put_soft_confirmation_status(
         &self,
-        height: BatchNumber,
+        height: SoftConfirmationNumber,
         status: sov_rollup_interface::rpc::SoftConfirmationStatus,
     ) -> Result<(), anyhow::Error> {
         let mut schema_batch = SchemaBatch::new();
@@ -328,7 +280,7 @@ impl SharedLedgerOps for LedgerDB {
     #[instrument(level = "trace", skip(self), err, ret)]
     fn get_soft_confirmation_status(
         &self,
-        height: BatchNumber,
+        height: SoftConfirmationNumber,
     ) -> Result<Option<sov_rollup_interface::rpc::SoftConfirmationStatus>, anyhow::Error> {
         let status = self.db.get::<SoftConfirmationStatus>(&height)?;
 
@@ -349,9 +301,13 @@ impl SharedLedgerOps for LedgerDB {
         match commitments {
             // If there were other commitments, upsert
             Some(mut commitments) => {
-                commitments.push(commitment);
-                self.db
-                    .put::<CommitmentsByNumber>(&SlotNumber(height), &commitments)
+                if !commitments.contains(&commitment) {
+                    commitments.push(commitment);
+                    self.db
+                        .put::<CommitmentsByNumber>(&SlotNumber(height), &commitments)
+                } else {
+                    Ok(())
+                }
             }
             // Else insert
             None => self
@@ -362,10 +318,7 @@ impl SharedLedgerOps for LedgerDB {
 
     /// Set the genesis state root
     #[instrument(level = "trace", skip_all, err, ret)]
-    fn set_l2_genesis_state_root<StateRoot: Serialize>(
-        &self,
-        state_root: &StateRoot,
-    ) -> anyhow::Result<()> {
+    fn set_l2_genesis_state_root(&self, state_root: &StorageRootHash) -> anyhow::Result<()> {
         let buf = bincode::serialize(state_root)?;
         let mut schema_batch = SchemaBatch::new();
         schema_batch.put::<L2GenesisStateRoot>(&(), &buf)?;
@@ -377,10 +330,7 @@ impl SharedLedgerOps for LedgerDB {
 
     /// Get the state root by L2 height
     #[instrument(level = "trace", skip_all, err)]
-    fn get_l2_state_root<StateRoot: DeserializeOwned>(
-        &self,
-        l2_height: u64,
-    ) -> anyhow::Result<Option<StateRoot>> {
+    fn get_l2_state_root(&self, l2_height: u64) -> anyhow::Result<Option<StorageRootHash>> {
         if l2_height == 0 {
             self.db
                 .get::<L2GenesisStateRoot>(&())?
@@ -388,7 +338,7 @@ impl SharedLedgerOps for LedgerDB {
                 .transpose()
         } else {
             self.db
-                .get::<SoftConfirmationByNumber>(&BatchNumber(l2_height))?
+                .get::<SoftConfirmationByNumber>(&SoftConfirmationNumber(l2_height))?
                 .map(|soft_confirmation| {
                     bincode::deserialize(&soft_confirmation.state_root).map_err(Into::into)
                 })
@@ -400,7 +350,7 @@ impl SharedLedgerOps for LedgerDB {
     #[instrument(level = "trace", skip(self), err)]
     fn get_head_soft_confirmation(
         &self,
-    ) -> anyhow::Result<Option<(BatchNumber, StoredSoftConfirmation)>> {
+    ) -> anyhow::Result<Option<(SoftConfirmationNumber, StoredSoftConfirmation)>> {
         let mut iter = self.db.iter::<SoftConfirmationByNumber>()?;
         iter.seek_to_last();
 
@@ -411,6 +361,11 @@ impl SharedLedgerOps for LedgerDB {
         }
     }
 
+    fn get_head_soft_confirmation_height(&self) -> anyhow::Result<Option<u64>> {
+        let head_l2_height = Self::last_version_written(&self.db, SoftConfirmationByNumber)?;
+        Ok(head_l2_height)
+    }
+
     /// Gets all soft confirmations with numbers `range.start` to `range.end`. If `range.end` is outside
     /// the range of the database, the result will smaller than the requested range.
     /// Note that this method blindly preallocates for the requested range, so it should not be exposed
@@ -418,10 +373,10 @@ impl SharedLedgerOps for LedgerDB {
     #[instrument(level = "trace", skip(self), err)]
     fn get_soft_confirmation_range(
         &self,
-        range: &std::ops::RangeInclusive<BatchNumber>,
+        range: &std::ops::RangeInclusive<SoftConfirmationNumber>,
     ) -> Result<Vec<StoredSoftConfirmation>, anyhow::Error> {
         let start = *range.start();
-        let end = BatchNumber(range.end().0 + 1);
+        let end = SoftConfirmationNumber(range.end().0 + 1);
         self.get_data_range::<SoftConfirmationByNumber, _, _>(&(start..end))
     }
 
@@ -429,7 +384,7 @@ impl SharedLedgerOps for LedgerDB {
     #[instrument(level = "trace", skip(self), err)]
     fn get_soft_confirmation_by_number(
         &self,
-        number: &BatchNumber,
+        number: &SoftConfirmationNumber,
     ) -> Result<Option<StoredSoftConfirmation>, anyhow::Error> {
         self.db.get::<SoftConfirmationByNumber>(number)
     }
@@ -437,7 +392,7 @@ impl SharedLedgerOps for LedgerDB {
     /// Get the most recent committed batch
     /// Returns L2 height.
     #[instrument(level = "trace", skip(self), err, ret)]
-    fn get_last_commitment_l2_height(&self) -> anyhow::Result<Option<BatchNumber>> {
+    fn get_last_commitment_l2_height(&self) -> anyhow::Result<Option<SoftConfirmationNumber>> {
         self.db.get::<LastSequencerCommitmentSent>(&())
     }
 
@@ -445,7 +400,10 @@ impl SharedLedgerOps for LedgerDB {
     /// For a sequencer, the last commitment height is set when the block is produced.
     /// For a full node the last commitment is set when a commitment is read from a finalized DA layer block.
     #[instrument(level = "trace", skip(self), err, ret)]
-    fn set_last_commitment_l2_height(&self, l2_height: BatchNumber) -> Result<(), anyhow::Error> {
+    fn set_last_commitment_l2_height(
+        &self,
+        l2_height: SoftConfirmationNumber,
+    ) -> Result<(), anyhow::Error> {
         let mut schema_batch = SchemaBatch::new();
 
         schema_batch.put::<LastSequencerCommitmentSent>(&(), &l2_height)?;
@@ -540,7 +498,9 @@ impl BatchProverLedgerOps for LedgerDB {
         &self,
         l2_height: u64,
     ) -> anyhow::Result<Option<(Witness, Witness)>> {
-        let buf = self.db.get::<L2Witness>(&BatchNumber(l2_height))?;
+        let buf = self
+            .db
+            .get::<L2Witness>(&SoftConfirmationNumber(l2_height))?;
         if let Some((state_buf, offchain_buf)) = buf {
             let state_witness = bincode::deserialize(&state_buf)?;
             let offchain_witness = bincode::deserialize(&offchain_buf)?;
@@ -598,7 +558,10 @@ impl BatchProverLedgerOps for LedgerDB {
         let state_buf = bincode::serialize(state_witness)?;
         let offchain_buf = bincode::serialize(offchain_witness)?;
         let mut schema_batch = SchemaBatch::new();
-        schema_batch.put::<L2Witness>(&BatchNumber(l2_height), &(state_buf, offchain_buf))?;
+        schema_batch.put::<L2Witness>(
+            &SoftConfirmationNumber(l2_height),
+            &(state_buf, offchain_buf),
+        )?;
 
         self.db.write_schemas(schema_batch)?;
 
@@ -607,7 +570,7 @@ impl BatchProverLedgerOps for LedgerDB {
 
     fn set_l2_state_diff(
         &self,
-        l2_height: BatchNumber,
+        l2_height: SoftConfirmationNumber,
         state_diff: StateDiff,
     ) -> anyhow::Result<()> {
         let mut schema_batch = SchemaBatch::new();
@@ -618,7 +581,10 @@ impl BatchProverLedgerOps for LedgerDB {
         Ok(())
     }
 
-    fn get_l2_state_diff(&self, l2_height: BatchNumber) -> anyhow::Result<Option<StateDiff>> {
+    fn get_l2_state_diff(
+        &self,
+        l2_height: SoftConfirmationNumber,
+    ) -> anyhow::Result<Option<StateDiff>> {
         self.db.get::<ProverStateDiffs>(&l2_height)
     }
 
@@ -680,32 +646,6 @@ impl ProvingServiceLedgerOps for LedgerDB {
 }
 
 impl SequencerLedgerOps for LedgerDB {
-    /// Put slots
-    #[instrument(level = "trace", skip(self, schema_batch), err, ret)]
-    fn put_slot(
-        &self,
-        slot: &StoredSlot,
-        slot_number: &SlotNumber,
-        schema_batch: &mut SchemaBatch,
-    ) -> Result<(), anyhow::Error> {
-        schema_batch.put::<SlotByNumber>(slot_number, slot)?;
-        schema_batch.put::<SlotByHash>(&slot.hash, slot_number)
-    }
-
-    /// Used by the sequencer to record that it has committed to soft confirmations on a given L2 height
-    #[instrument(level = "trace", skip(self), err, ret)]
-    fn set_last_sequencer_commitment_l2_height(
-        &self,
-        l2_height: BatchNumber,
-    ) -> Result<(), anyhow::Error> {
-        let mut schema_batch = SchemaBatch::new();
-
-        schema_batch.put::<LastSequencerCommitmentSent>(&(), &l2_height)?;
-        self.db.write_schemas(schema_batch)?;
-
-        Ok(())
-    }
-
     /// Gets all pending commitments' l2 ranges.
     /// Returns start-end L2 heights.
     #[instrument(level = "trace", skip(self), err)]
@@ -738,13 +678,21 @@ impl SequencerLedgerOps for LedgerDB {
 
     /// Sets the latest state diff
     #[instrument(level = "trace", skip(self), err, ret)]
-    fn set_state_diff(&self, state_diff: StateDiff) -> anyhow::Result<()> {
+    fn set_state_diff(&self, state_diff: &StateDiff) -> anyhow::Result<()> {
         let mut schema_batch = SchemaBatch::new();
-        schema_batch.put::<LastStateDiff>(&(), &state_diff)?;
+        schema_batch.put::<LastStateDiff>(&(), state_diff)?;
 
         self.db.write_schemas(schema_batch)?;
 
         Ok(())
+    }
+
+    /// Gets the latest state diff
+    #[instrument(level = "trace", skip(self), err, ret)]
+    fn get_state_diff(&self) -> Result<StateDiff, anyhow::Error> {
+        self.db
+            .get::<LastStateDiff>(&())
+            .map(|diff| diff.unwrap_or_default())
     }
 
     /// Get the most recent commitment's l1 height
@@ -824,19 +772,6 @@ impl NodeLedgerOps for LedgerDB {
                     proof_output,
                 }],
             ),
-        }
-    }
-
-    /// Get the most recent committed slot, if any
-    #[instrument(level = "trace", skip(self), err)]
-    fn get_head_slot(&self) -> anyhow::Result<Option<(SlotNumber, StoredSlot)>> {
-        let mut iter = self.db.iter::<SlotByNumber>()?;
-        iter.seek_to_last();
-
-        match iter.next() {
-            Some(Ok(item)) => Ok(Some(item.into_tuple())),
-            Some(Err(e)) => Err(e),
-            _ => Ok(None),
         }
     }
 

@@ -2,14 +2,14 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use citrea_pruning::PruningConfig;
+use citrea_storage_ops::pruning::PruningConfig;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use sov_stf_runner::ProverGuestRunConfig;
 
 pub trait FromEnv: Sized {
     fn from_env() -> anyhow::Result<Self>;
 }
+
 impl FromEnv for PruningConfig {
     fn from_env() -> anyhow::Result<Self> {
         Ok(PruningConfig {
@@ -17,6 +17,7 @@ impl FromEnv for PruningConfig {
         })
     }
 }
+
 impl FromEnv for sov_mock_da::MockDaConfig {
     fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
@@ -39,6 +40,7 @@ pub struct RunnerConfig {
     /// Configurations for pruning
     pub pruning_config: Option<PruningConfig>,
 }
+
 impl FromEnv for RunnerConfig {
     fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
@@ -52,6 +54,7 @@ impl FromEnv for RunnerConfig {
         })
     }
 }
+
 /// RPC configuration.
 #[derive(Debug, Clone, PartialEq, Deserialize, Default, Serialize)]
 pub struct RpcConfig {
@@ -78,7 +81,10 @@ pub struct RpcConfig {
     /// Maximum number of subscription connections
     #[serde(default = "default_max_subscriptions_per_connection")]
     pub max_subscriptions_per_connection: u32,
+    /// API key for protected JSON-RPC methods
+    pub api_key: Option<String>,
 }
+
 impl FromEnv for RpcConfig {
     fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
@@ -109,9 +115,11 @@ impl FromEnv for RpcConfig {
                 .ok()
                 .and_then(|val| val.parse().ok())
                 .unwrap_or_else(default_max_subscriptions_per_connection),
+            api_key: std::env::var("RPC_API_KEY").ok(),
         })
     }
 }
+
 #[inline]
 const fn default_max_connections() -> u32 {
     100
@@ -152,13 +160,20 @@ const fn default_max_subscriptions_per_connection() -> u32 {
 pub struct StorageConfig {
     /// Path that can be utilized by concrete rollup implementation
     pub path: PathBuf,
+    /// Optional path for storing database backups
+    /// If not specified, backup path will need to be provided on each backup creation
+    pub backup_path: Option<PathBuf>,
     /// File descriptor limit for RocksDB
     pub db_max_open_files: Option<i32>,
 }
+
 impl FromEnv for StorageConfig {
     fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
             path: std::env::var("STORAGE_PATH")?.into(),
+            backup_path: std::env::var("STORAGE_BACKUP_PATH")
+                .ok()
+                .and_then(|v| v.parse().ok()),
             db_max_open_files: std::env::var("DB_MAX_OPEN_FILES")
                 .ok()
                 .and_then(|val| val.parse().ok()),
@@ -172,6 +187,9 @@ pub struct RollupPublicKeys {
     /// Soft confirmation signing public key of the Sequencer
     #[serde(with = "hex::serde")]
     pub sequencer_public_key: Vec<u8>,
+    /// Soft confirmation signing k256 public key of the Sequencer
+    #[serde(with = "hex::serde")]
+    pub sequencer_k256_public_key: Vec<u8>,
     /// DA Signing Public Key of the Sequencer
     /// serialized as hex
     #[serde(with = "hex::serde")]
@@ -181,15 +199,18 @@ pub struct RollupPublicKeys {
     #[serde(with = "hex::serde")]
     pub prover_da_pub_key: Vec<u8>,
 }
+
 impl FromEnv for RollupPublicKeys {
     fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
             sequencer_public_key: hex::decode(std::env::var("SEQUENCER_PUBLIC_KEY")?)?,
+            sequencer_k256_public_key: hex::decode(std::env::var("SEQUENCER_K256_PUBLIC_KEY")?)?,
             sequencer_da_pub_key: hex::decode(std::env::var("SEQUENCER_DA_PUB_KEY")?)?,
             prover_da_pub_key: hex::decode(std::env::var("PROVER_DA_PUB_KEY")?)?,
         })
     }
 }
+
 /// Rollup Configuration
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct FullNodeConfig<BitcoinServiceConfig> {
@@ -203,7 +224,11 @@ pub struct FullNodeConfig<BitcoinServiceConfig> {
     pub da: BitcoinServiceConfig,
     /// Important pubkeys
     pub public_keys: RollupPublicKeys,
+    /// Telemetry configuration
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
 }
+
 impl<DaC: FromEnv> FromEnv for FullNodeConfig<DaC> {
     fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
@@ -212,9 +237,11 @@ impl<DaC: FromEnv> FromEnv for FullNodeConfig<DaC> {
             runner: RunnerConfig::from_env().ok(),
             da: DaC::from_env()?,
             public_keys: RollupPublicKeys::from_env()?,
+            telemetry: TelemetryConfig::from_env()?,
         })
     }
 }
+
 /// Prover configuration
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct BatchProverConfig {
@@ -227,9 +254,6 @@ pub struct BatchProverConfig {
 }
 
 /// Prover configuration
-///
-/// TODO: leaving as the same with batch prover config for now
-/// but it will most probably have different fields in the future
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct LightClientProverConfig {
     /// Prover run mode
@@ -238,6 +262,8 @@ pub struct LightClientProverConfig {
     pub proof_sampling_number: usize,
     /// If true prover will try to recover ongoing proving sessions
     pub enable_recovery: bool,
+    /// The starting DA block to sync from
+    pub initial_da_height: u64,
 }
 
 impl Default for BatchProverConfig {
@@ -256,6 +282,7 @@ impl Default for LightClientProverConfig {
             proving_mode: ProverGuestRunConfig::Execute,
             proof_sampling_number: 0,
             enable_recovery: true,
+            initial_da_height: 1,
         }
     }
 }
@@ -276,9 +303,11 @@ impl FromEnv for LightClientProverConfig {
             proving_mode: serde_json::from_str(&format!("\"{}\"", std::env::var("PROVING_MODE")?))?,
             proof_sampling_number: std::env::var("PROOF_SAMPLING_NUMBER")?.parse()?,
             enable_recovery: std::env::var("ENABLE_RECOVERY")?.parse()?,
+            initial_da_height: std::env::var("INITIAL_DA_HEIGHT")?.parse()?,
         })
     }
 }
+
 /// Reads toml file as a specific type.
 pub fn from_toml_path<P: AsRef<Path>, R: DeserializeOwned>(path: P) -> anyhow::Result<R> {
     let mut contents = String::new();
@@ -327,6 +356,7 @@ impl Default for SequencerConfig {
         }
     }
 }
+
 impl FromEnv for SequencerConfig {
     fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
@@ -343,6 +373,7 @@ impl FromEnv for SequencerConfig {
         })
     }
 }
+
 /// Mempool Config for the sequencer
 /// Read: https://github.com/ledgerwatch/erigon/wiki/Transaction-Pool-Design
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -376,6 +407,7 @@ impl Default for SequencerMempoolConfig {
         }
     }
 }
+
 impl FromEnv for SequencerMempoolConfig {
     fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
@@ -389,6 +421,57 @@ impl FromEnv for SequencerMempoolConfig {
         })
     }
 }
+
+/// Telemetry configuration.
+#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
+pub struct TelemetryConfig {
+    /// Server host.
+    pub bind_host: Option<String>,
+    /// Server port.
+    pub bind_port: Option<u16>,
+}
+
+impl FromEnv for TelemetryConfig {
+    fn from_env() -> anyhow::Result<Self> {
+        let bind_host = std::env::var("TELEMETRY_BIND_HOST").ok();
+        let bind_port = std::env::var("TELEMETRY_BIND_PORT").ok();
+        Ok(Self {
+            bind_host,
+            bind_port: bind_port.map(|p| p.parse()).transpose()?,
+        })
+    }
+}
+
+/// The possible configurations of the prover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProverGuestRunConfig {
+    /// Skip proving.
+    Skip,
+    /// Run the rollup verifier in a zkVM executor.
+    Execute,
+    /// Run the rollup verifier and create a SNARK of execution.
+    Prove,
+    /// Run the rollup verifier and create a SNARK or a fake proof of execution.
+    ProveWithFakeProofs,
+}
+
+impl<'de> Deserialize<'de> for ProverGuestRunConfig {
+    fn deserialize<D>(deserializer: D) -> Result<ProverGuestRunConfig, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = <std::string::String as Deserialize>::deserialize(deserializer)?;
+        match s.as_str() {
+            "skip" => Ok(ProverGuestRunConfig::Skip),
+            "execute" => Ok(ProverGuestRunConfig::Execute),
+            "prove" => Ok(ProverGuestRunConfig::Prove),
+            "prove-with-fakes" => Ok(ProverGuestRunConfig::ProveWithFakeProofs),
+            _ => Err(serde::de::Error::custom("invalid prover guest run config")),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
@@ -409,9 +492,10 @@ mod tests {
             r#"
             [public_keys]
             sequencer_public_key = "0000000000000000000000000000000000000000000000000000000000000000"
+            sequencer_k256_public_key = "000000000000000000000000000000000000000000000000000000000000000000"
             sequencer_da_pub_key = "7777777777777777777777777777777777777777777777777777777777777777"
             prover_da_pub_key = ""
-            
+
             [rpc]
             bind_host = "127.0.0.1"
             bind_port = 12345
@@ -422,14 +506,18 @@ mod tests {
             [da]
             sender_address = "0000000000000000000000000000000000000000000000000000000000000000"
             db_path = "/tmp/da"
-            
+
             [storage]
             path = "/tmp/rollup"
             db_max_open_files = 123
-            
+
             [runner]
             include_tx_body = true
             sequencer_client_url = "http://0.0.0.0:12346"
+
+            [telemetry]
+            bind_host = "0.0.0.0"
+            bind_port = 8001
         "#.to_owned();
 
         let config_file = create_config_from(&config);
@@ -450,6 +538,7 @@ mod tests {
             },
             storage: StorageConfig {
                 path: "/tmp/rollup".into(),
+                backup_path: None,
                 db_max_open_files: Some(123),
             },
             rpc: RpcConfig {
@@ -461,11 +550,17 @@ mod tests {
                 batch_requests_limit: 50,
                 enable_subscriptions: true,
                 max_subscriptions_per_connection: 200,
+                api_key: None,
             },
             public_keys: RollupPublicKeys {
                 sequencer_public_key: vec![0; 32],
+                sequencer_k256_public_key: vec![0; 33],
                 sequencer_da_pub_key: vec![119; 32],
                 prover_da_pub_key: vec![],
+            },
+            telemetry: TelemetryConfig {
+                bind_host: Some("0.0.0.0".to_owned()),
+                bind_port: Some(8001),
             },
         };
         assert_eq!(config, expected);
@@ -597,6 +692,10 @@ mod tests {
             "0000000000000000000000000000000000000000000000000000000000000000",
         );
         std::env::set_var(
+            "SEQUENCER_K256_PUBLIC_KEY",
+            "000000000000000000000000000000000000000000000000000000000000000000",
+        );
+        std::env::set_var(
             "SEQUENCER_DA_PUB_KEY",
             "7777777777777777777777777777777777777777777777777777777777777777",
         );
@@ -621,6 +720,8 @@ mod tests {
         std::env::set_var("SEQUENCER_CLIENT_URL", "http://0.0.0.0:12346");
         std::env::set_var("PRUNING_DISTANCE", "1000");
 
+        std::env::set_var("TELEMETRY_BIND_HOST", "0.0.0.0");
+        std::env::set_var("TELEMETRY_BIND_PORT", "8082");
         let full_node_config: FullNodeConfig<sov_mock_da::MockDaConfig> =
             FullNodeConfig::from_env().unwrap();
 
@@ -634,9 +735,11 @@ mod tests {
                 batch_requests_limit: default_batch_requests_limit(),
                 enable_subscriptions: true,
                 max_subscriptions_per_connection: 200,
+                api_key: None,
             },
             storage: StorageConfig {
                 path: "/tmp/rollup".into(),
+                backup_path: None,
                 db_max_open_files: Some(123),
             },
             runner: Some(RunnerConfig {
@@ -651,10 +754,36 @@ mod tests {
             },
             public_keys: RollupPublicKeys {
                 sequencer_public_key: vec![0; 32],
+                sequencer_k256_public_key: vec![0; 33],
                 sequencer_da_pub_key: vec![119; 32],
                 prover_da_pub_key: vec![],
             },
+            telemetry: TelemetryConfig {
+                bind_host: Some("0.0.0.0".to_owned()),
+                bind_port: Some(8082),
+            },
         };
         assert_eq!(full_node_config, expected);
+    }
+
+    #[test]
+    fn test_optional_telemetry_config_from_env() {
+        let telemetry_config = TelemetryConfig::from_env().unwrap();
+
+        let expected = TelemetryConfig {
+            bind_host: None,
+            bind_port: None,
+        };
+        assert_eq!(telemetry_config, expected);
+
+        std::env::set_var("TELEMETRY_BIND_HOST", "0.0.0.0");
+        std::env::set_var("TELEMETRY_BIND_PORT", "5000");
+        let telemetry_config = TelemetryConfig::from_env().unwrap();
+
+        let expected = TelemetryConfig {
+            bind_host: Some("0.0.0.0".to_owned()),
+            bind_port: Some(5000),
+        };
+        assert_eq!(telemetry_config, expected);
     }
 }

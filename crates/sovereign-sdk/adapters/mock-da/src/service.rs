@@ -9,10 +9,10 @@ use borsh::BorshDeserialize;
 use pin_project::pin_project;
 use sha2::Digest;
 use sov_rollup_interface::da::{
-    BlobReaderTrait, BlockHeaderTrait, DaData, DaDataBatchProof, DaDataLightClient, DaNamespace,
-    DaSpec, SequencerCommitment, Time,
+    BlobReaderTrait, BlockHeaderTrait, DaDataBatchProof, DaDataLightClient, DaNamespace, DaSpec,
+    DaTxRequest, SequencerCommitment, Time,
 };
-use sov_rollup_interface::services::da::{DaService, SenderWithNotifier, SlotData};
+use sov_rollup_interface::services::da::{DaService, SlotData, TxRequestWithNotifier};
 use sov_rollup_interface::zk::Proof;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::{broadcast, Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
@@ -115,7 +115,7 @@ impl MockDaService {
 
     /// Get sequencer address
     pub fn get_sequencer_address(&self) -> MockAddress {
-        self.sequencer_da_address
+        self.sequencer_da_address.clone()
     }
 
     /// Change number of wait attempts before giving up on waiting for block
@@ -155,8 +155,8 @@ impl MockDaService {
         blocks.prune_above(height);
 
         for blob in blobs {
-            let da_data = DaData::ZKProof(blob);
-            let blob = borsh::to_vec(&da_data).unwrap();
+            let tx_request = DaTxRequest::ZKProof(blob);
+            let blob = borsh::to_vec(&tx_request).unwrap();
             self.add_blob(&blocks, blob, Default::default()).unwrap();
         }
 
@@ -221,8 +221,9 @@ impl MockDaService {
         let blob = MockBlob::new_with_zkp_proof(
             blob.to_vec(),
             zkp_proof,
-            self.sequencer_da_address,
+            self.sequencer_da_address.clone(),
             data_hash,
+            None,
         );
         let header = MockBlockHeader {
             prev_hash: previous_block_hash,
@@ -260,7 +261,7 @@ impl MockDaService {
     pub fn extract_relevant_blobs(&self, block: &MockBlock) -> Vec<MockBlob> {
         let mut res = vec![];
         for b in block.blobs.clone() {
-            let mut clone_for_full_data = b.clone();
+            let clone_for_full_data = b.clone();
             let full_data = clone_for_full_data.full_data();
             if DaDataBatchProof::try_from_slice(full_data).is_ok() {
                 res.push(b)
@@ -349,6 +350,11 @@ impl DaService for MockDaService {
     type Error = anyhow::Error;
     type BlockHash = [u8; 32];
 
+    /// Decompress and deserialize chunks
+    fn decompress_chunks(&self, complete_chunks: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        Ok(complete_chunks.to_vec())
+    }
+
     /// Gets block at given height
     /// If block is not available, waits until it is
     /// It is possible to read non-finalized and last finalized blocks multiple times
@@ -420,7 +426,7 @@ impl DaService for MockDaService {
         _prover_da_pub_key: &[u8],
     ) -> anyhow::Result<Vec<Proof>> {
         let mut res = vec![];
-        for mut b in block.blobs.clone() {
+        for b in block.blobs.clone() {
             if let Ok(r) = DaDataLightClient::try_from_slice(b.full_data()) {
                 if let DaDataLightClient::Complete(proof) = r {
                     res.push(proof);
@@ -438,7 +444,7 @@ impl DaService for MockDaService {
         _sequencer_da_pub_key: &[u8],
     ) -> anyhow::Result<Vec<SequencerCommitment>> {
         let mut res = vec![];
-        for mut b in block.blobs.clone() {
+        for b in block.blobs.clone() {
             if let Ok(r) = DaDataBatchProof::try_from_slice(b.full_data()) {
                 let DaDataBatchProof::SequencerCommitment(seq_com) = r;
                 res.push(seq_com);
@@ -458,7 +464,7 @@ impl DaService for MockDaService {
     ) {
         let mut txs = vec![];
         for b in block.blobs.clone() {
-            let mut clone_for_full_data = b.clone();
+            let clone_for_full_data = b.clone();
             let full_data = clone_for_full_data.full_data();
             match namespace {
                 DaNamespace::ToBatchProver => {
@@ -473,21 +479,29 @@ impl DaService for MockDaService {
                 }
             };
         }
-        (txs, [0u8; 32], ())
+        (txs.clone(), [0u8; 32], txs)
     }
 
     #[tracing::instrument(name = "MockDA", level = "debug", skip_all)]
-    async fn send_transaction(&self, da_data: DaData) -> Result<Self::TransactionId, Self::Error> {
-        let blob = match da_data {
-            DaData::ZKProof(proof) => {
+    async fn send_transaction(
+        &self,
+        tx_request: DaTxRequest,
+    ) -> Result<Self::TransactionId, Self::Error> {
+        let blob = match tx_request {
+            DaTxRequest::ZKProof(proof) => {
                 tracing::debug!("Adding a zkproof");
-                let data = DaDataLightClient::Complete(proof);
-                borsh::to_vec(&data).unwrap()
+                let req = DaDataLightClient::Complete(proof);
+                borsh::to_vec(&req).unwrap()
             }
-            DaData::SequencerCommitment(seq_comm) => {
+            DaTxRequest::SequencerCommitment(seq_comm) => {
                 tracing::debug!("Adding a sequencer commitment");
-                let data = DaData::SequencerCommitment(seq_comm);
-                borsh::to_vec(&data).unwrap()
+                let req = DaTxRequest::SequencerCommitment(seq_comm);
+                borsh::to_vec(&req).unwrap()
+            }
+            DaTxRequest::BatchProofMethodId(method_id) => {
+                tracing::debug!("Adding a batch proof method id tx");
+                let req = DaTxRequest::BatchProofMethodId(method_id);
+                borsh::to_vec(&req).unwrap()
             }
         };
         let blocks = self.blocks.lock().await;
@@ -497,12 +511,12 @@ impl DaService for MockDaService {
 
     fn get_send_transaction_queue(
         &self,
-    ) -> UnboundedSender<SenderWithNotifier<Self::TransactionId>> {
-        let (tx, mut rx) = unbounded_channel::<SenderWithNotifier<Self::TransactionId>>();
+    ) -> UnboundedSender<TxRequestWithNotifier<Self::TransactionId>> {
+        let (tx, mut rx) = unbounded_channel::<TxRequestWithNotifier<Self::TransactionId>>();
         let this = self.clone();
         tokio::spawn(async move {
             while let Some(req) = rx.recv().await {
-                let res = this.send_transaction(req.da_data).await;
+                let res = this.send_transaction(req.tx_request).await;
                 let _ = req.notify.send(res);
             }
         });
@@ -530,6 +544,12 @@ impl DaService for MockDaService {
         _sequencer_da_pub_key: &[u8],
     ) -> Vec<SequencerCommitment> {
         vec![]
+    }
+
+    fn block_to_short_header_proof(
+        _block: Self::FilteredBlock,
+    ) -> <Self::Spec as DaSpec>::ShortHeaderProof {
+        unimplemented!()
     }
 }
 
@@ -640,7 +660,7 @@ mod tests {
 
         for i in 0..num_blocks {
             let proof = vec![i as u8; i + 1];
-            let published_blob = DaData::ZKProof(proof.clone());
+            let published_blob = DaTxRequest::ZKProof(proof.clone());
             let height = (i + 1) as u64;
 
             da.send_transaction(published_blob.clone()).await.unwrap();
@@ -691,7 +711,7 @@ mod tests {
         for (i, blob) in blobs.iter().enumerate() {
             let height = (i + 1) as u64;
             // Send transaction should pass
-            da.send_transaction(DaData::ZKProof(blob.to_owned()))
+            da.send_transaction(DaTxRequest::ZKProof(blob.to_owned()))
                 .await
                 .unwrap();
             let last_finalized_block_response = da.get_last_finalized_block_header().await;
@@ -713,7 +733,7 @@ mod tests {
         for (i, blob) in blobs.into_iter().enumerate() {
             let i = (i + 1) as u64;
 
-            let mut fetched_block = da.get_block_at(i).await.unwrap();
+            let fetched_block = da.get_block_at(i).await.unwrap();
             assert_eq!(i, fetched_block.header().height());
 
             let last_finalized_header = da.get_last_finalized_block_header().await.unwrap();
@@ -777,13 +797,13 @@ mod tests {
 
             // 1 -> 2 -> 3
 
-            da.send_transaction(DaData::ZKProof(vec![1, 2, 3, 4]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![1, 2, 3, 4]))
                 .await
                 .unwrap();
-            da.send_transaction(DaData::ZKProof(vec![4, 5, 6, 7]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![4, 5, 6, 7]))
                 .await
                 .unwrap();
-            da.send_transaction(DaData::ZKProof(vec![8, 9, 0, 1]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![8, 9, 0, 1]))
                 .await
                 .unwrap();
 
@@ -834,19 +854,19 @@ mod tests {
             //      \ -> 3.2 -> 4.2
 
             // 1
-            da.send_transaction(DaData::ZKProof(vec![1, 2, 3, 4]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![1, 2, 3, 4]))
                 .await
                 .unwrap();
             // 2
-            da.send_transaction(DaData::ZKProof(vec![4, 5, 6, 7]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![4, 5, 6, 7]))
                 .await
                 .unwrap();
             // 3.1
-            da.send_transaction(DaData::ZKProof(vec![8, 9, 0, 1]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![8, 9, 0, 1]))
                 .await
                 .unwrap();
             // 4.1
-            da.send_transaction(DaData::ZKProof(vec![2, 3, 4, 5]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![2, 3, 4, 5]))
                 .await
                 .unwrap();
 
@@ -876,16 +896,16 @@ mod tests {
 
             // 1 -> 2 -> 3 -> 4
 
-            da.send_transaction(DaData::ZKProof(vec![1, 2, 3, 4]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![1, 2, 3, 4]))
                 .await
                 .unwrap();
-            da.send_transaction(DaData::ZKProof(vec![4, 5, 6, 7]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![4, 5, 6, 7]))
                 .await
                 .unwrap();
-            da.send_transaction(DaData::ZKProof(vec![8, 9, 0, 1]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![8, 9, 0, 1]))
                 .await
                 .unwrap();
-            da.send_transaction(DaData::ZKProof(vec![2, 3, 4, 5]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![2, 3, 4, 5]))
                 .await
                 .unwrap();
 
@@ -945,13 +965,13 @@ mod tests {
                 assert!(has_planned_fork.is_some());
             }
 
-            da.send_transaction(DaData::ZKProof(vec![1, 2, 3, 4]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![1, 2, 3, 4]))
                 .await
                 .unwrap();
-            da.send_transaction(DaData::ZKProof(vec![4, 5, 6, 7]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![4, 5, 6, 7]))
                 .await
                 .unwrap();
-            da.send_transaction(DaData::ZKProof(vec![8, 9, 0, 1]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![8, 9, 0, 1]))
                 .await
                 .unwrap();
 
@@ -983,19 +1003,19 @@ mod tests {
                 PlannedFork::new(4, 2, vec![vec![13, 13, 13, 13], vec![14, 14, 14, 14]]);
             da.set_planned_fork(planned_fork).await.unwrap();
 
-            da.send_transaction(DaData::ZKProof(vec![1, 1, 1, 1]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![1, 1, 1, 1]))
                 .await
                 .unwrap();
-            da.send_transaction(DaData::ZKProof(vec![2, 2, 2, 2]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![2, 2, 2, 2]))
                 .await
                 .unwrap();
-            da.send_transaction(DaData::ZKProof(vec![3, 3, 3, 3]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![3, 3, 3, 3]))
                 .await
                 .unwrap();
-            da.send_transaction(DaData::ZKProof(vec![4, 4, 4, 4]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![4, 4, 4, 4]))
                 .await
                 .unwrap();
-            da.send_transaction(DaData::ZKProof(vec![5, 5, 5, 5]))
+            da.send_transaction(DaTxRequest::ZKProof(vec![5, 5, 5, 5]))
                 .await
                 .unwrap();
 

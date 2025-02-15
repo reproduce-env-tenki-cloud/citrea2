@@ -1,5 +1,7 @@
+use sov_modules_api::prelude::*;
 use sov_modules_api::{
-    prelude::*, CallResponse, Context, Error, Module, ModuleInfo, StateValue, WorkingSet,
+    CallResponse, Context, Module, ModuleInfo, SoftConfirmationModuleCallError, StateValue,
+    WorkingSet,
 };
 
 pub mod first_test_module {
@@ -15,39 +17,26 @@ pub mod first_test_module {
     }
 
     impl<C: Context> FirstTestStruct<C> {
-        pub fn get_state_value(&self, working_set: &mut WorkingSet<C>) -> u8 {
+        pub fn get_state_value(&self, working_set: &mut WorkingSet<C::Storage>) -> u8 {
             self.state_in_first_struct.get(working_set).unwrap()
         }
-    }
-
-    #[derive(borsh::BorshDeserialize, borsh::BorshSerialize, Debug, PartialEq)]
-    pub enum Event {
-        FirstModuleEnum1(u64),
-        FirstModuleEnum2,
-        FirstModuleEnum3(Vec<u8>),
     }
 
     impl<C: Context> Module for FirstTestStruct<C> {
         type Context = C;
         type Config = ();
         type CallMessage = u8;
-        type Event = Event;
 
-        fn genesis(
-            &self,
-            _config: &Self::Config,
-            working_set: &mut WorkingSet<C>,
-        ) -> Result<(), Error> {
+        fn genesis(&self, _config: &Self::Config, working_set: &mut WorkingSet<C::Storage>) {
             self.state_in_first_struct.set(&1, working_set);
-            Ok(())
         }
 
         fn call(
             &mut self,
             msg: Self::CallMessage,
             _context: &Self::Context,
-            working_set: &mut WorkingSet<C>,
-        ) -> Result<CallResponse, Error> {
+            working_set: &mut WorkingSet<C::Storage>,
+        ) -> Result<CallResponse, SoftConfirmationModuleCallError> {
             self.state_in_first_struct.set(&msg, working_set);
             Ok(CallResponse::default())
         }
@@ -67,37 +56,26 @@ pub mod second_test_module {
     }
 
     impl<C: Context> SecondTestStruct<C> {
-        pub fn get_state_value(&self, working_set: &mut WorkingSet<C>) -> u8 {
+        pub fn get_state_value(&self, working_set: &mut WorkingSet<C::Storage>) -> u8 {
             self.state_in_second_struct.get(working_set).unwrap()
         }
-    }
-
-    #[derive(borsh::BorshDeserialize, borsh::BorshSerialize, Debug, PartialEq)]
-    pub enum Event {
-        SecondModuleEnum,
     }
 
     impl<Ctx: Context> Module for SecondTestStruct<Ctx> {
         type Context = Ctx;
         type Config = ();
         type CallMessage = u8;
-        type Event = Event;
 
-        fn genesis(
-            &self,
-            _config: &Self::Config,
-            working_set: &mut WorkingSet<Ctx>,
-        ) -> Result<(), Error> {
+        fn genesis(&self, _config: &Self::Config, working_set: &mut WorkingSet<Ctx::Storage>) {
             self.state_in_second_struct.set(&2, working_set);
-            Ok(())
         }
 
         fn call(
             &mut self,
             msg: Self::CallMessage,
             _context: &Self::Context,
-            working_set: &mut WorkingSet<Ctx>,
-        ) -> Result<CallResponse, Error> {
+            working_set: &mut WorkingSet<Ctx::Storage>,
+        ) -> Result<CallResponse, SoftConfirmationModuleCallError> {
             self.state_in_second_struct.set(&msg, working_set);
             Ok(CallResponse::default())
         }
@@ -124,7 +102,10 @@ pub mod third_test_module {
     }
 
     impl<Ctx: Context, OtherGeneric: ModuleThreeStorable> ThirdTestStruct<Ctx, OtherGeneric> {
-        pub fn get_state_value(&self, working_set: &mut WorkingSet<Ctx>) -> Option<OtherGeneric> {
+        pub fn get_state_value(
+            &self,
+            working_set: &mut WorkingSet<Ctx::Storage>,
+        ) -> Option<OtherGeneric> {
             self.state_in_third_struct.get(working_set)
         }
     }
@@ -135,24 +116,18 @@ pub mod third_test_module {
         type Context = Ctx;
         type Config = ();
         type CallMessage = OtherGeneric;
-        type Event = ();
 
-        fn genesis(
-            &self,
-            _config: &Self::Config,
-            working_set: &mut WorkingSet<Ctx>,
-        ) -> Result<(), Error> {
+        fn genesis(&self, _config: &Self::Config, working_set: &mut WorkingSet<Ctx::Storage>) {
             self.state_in_third_struct
                 .set(&Default::default(), working_set);
-            Ok(())
         }
 
         fn call(
             &mut self,
             msg: Self::CallMessage,
             _context: &Self::Context,
-            working_set: &mut WorkingSet<Ctx>,
-        ) -> Result<CallResponse, Error> {
+            working_set: &mut WorkingSet<Ctx::Storage>,
+        ) -> Result<CallResponse, SoftConfirmationModuleCallError> {
             self.state_in_third_struct.set(&msg, working_set);
             Ok(CallResponse::default())
         }

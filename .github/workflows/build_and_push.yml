@@ -1,0 +1,79 @@
+name: Build and Push Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      testing:
+        description: "Build with testing features"
+        type: boolean
+        default: false
+        required: false
+  push:
+    branches:
+      - nightly
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  linux_amd64_binary_extraction:
+    runs-on: ubicloud-standard-30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          sudo apt update && sudo apt -y install curl gcc cpp cmake clang llvm
+          sudo apt -y autoremove && sudo apt clean && sudo rm -rf /var/lib/apt/lists/*
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          rustup install 1.81.0
+          rustup default 1.81.0
+
+      - name: Install risc0
+        uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Project
+        id: build
+        run: |
+          if ${{ github.event_name == 'workflow_dispatch' && inputs.testing == 'true' }} || ${{ github.ref == 'refs/heads/nightly' }}; then
+            cargo build --features testing
+            echo "image_name=citrea-test" >> $GITHUB_OUTPUT
+          else
+            cargo build
+            echo "image_name=citrea-dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Copy binary to build-push/nightly
+        run: |
+          cp target/debug/citrea docker/build-push/nightly/citrea
+          chmod +x docker/build-push/nightly/citrea
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          file: ./docker/build-push/nightly/Dockerfile
+          context: ./docker/build-push/nightly
+          tags: ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.build.outputs.image_name }}:${{ env.IMAGE_TAG }}
+          platforms: linux/amd64
+          push: true
+          load: false
+          provenance: false

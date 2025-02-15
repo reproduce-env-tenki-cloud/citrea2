@@ -3,11 +3,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use alloy_primitives::U64;
+use anyhow::anyhow;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::{Address, BlockHash, Transaction, Txid};
 use bitcoincore_rpc::json::GetTransactionResult;
 use bitcoincore_rpc::{Client, RpcApi};
+use citrea_common::FromEnv;
+use citrea_primitives::{TO_BATCH_PROOF_PREFIX, TO_LIGHT_CLIENT_PREFIX};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::select;
@@ -16,33 +20,35 @@ use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument};
 
+use crate::helpers::parsers::{parse_batch_proof_transaction, parse_light_client_transaction};
 use crate::service::FINALITY_DEPTH;
 use crate::spec::utxo::UTXO;
-
-const DEFAULT_CHECK_INTERVAL: u64 = 60;
-const DEFAULT_HISTORY_LIMIT: usize = 1_000; // Keep track of last 1k txs
-const DEFAULT_MAX_HISTORY_SIZE: usize = 200_000_000; // Default max monitored tx total size to 200mb
 
 type BlockHeight = u64;
 type Result<T> = std::result::Result<T, MonitorError>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum TxStatus {
+    #[serde(rename_all = "camelCase")]
     Pending {
         in_mempool: bool,
-        base_fee: u64,
-        timestamp: u64,
+        base_fee: U64,
+        timestamp: U64,
     },
+    #[serde(rename_all = "camelCase")]
     Confirmed {
         block_hash: BlockHash,
-        block_height: BlockHeight,
-        confirmations: u64,
+        block_height: U64,
+        confirmations: U64,
     },
+    #[serde(rename_all = "camelCase")]
     Finalized {
         block_hash: BlockHash,
-        block_height: BlockHeight,
-        confirmations: u64,
+        block_height: U64,
+        confirmations: U64,
     },
+    #[serde(rename_all = "camelCase")]
     Replaced {
         by_txid: Txid,
     },
@@ -74,7 +80,7 @@ impl MonitoredTx {
         let confirmations = match self.status {
             TxStatus::Pending { .. } => 0,
             TxStatus::Confirmed { confirmations, .. }
-            | TxStatus::Finalized { confirmations, .. } => confirmations,
+            | TxStatus::Finalized { confirmations, .. } => confirmations.to(),
             _ => return None,
         };
 
@@ -124,19 +130,62 @@ pub enum MonitorError {
     BitcoinEncodeError(#[from] bitcoin::consensus::encode::Error),
 }
 
+mod monitoring_defaults {
+    pub const fn check_interval() -> u64 {
+        60
+    }
+
+    pub const fn history_limit() -> usize {
+        1_000 // Keep track of last 1k txs
+    }
+
+    pub const fn max_history_size() -> usize {
+        200_000_000 // Default max monitored tx total size to 200mb
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct MonitoringConfig {
+    #[serde(default = "monitoring_defaults::check_interval")]
     pub check_interval: u64,
+    #[serde(default = "monitoring_defaults::history_limit")]
     pub history_limit: usize,
+    #[serde(default = "monitoring_defaults::max_history_size")]
     pub max_history_size: usize,
 }
 
 impl Default for MonitoringConfig {
     fn default() -> Self {
         Self {
-            check_interval: DEFAULT_CHECK_INTERVAL,
-            history_limit: DEFAULT_HISTORY_LIMIT,
-            max_history_size: DEFAULT_MAX_HISTORY_SIZE,
+            check_interval: monitoring_defaults::check_interval(),
+            history_limit: monitoring_defaults::history_limit(),
+            max_history_size: monitoring_defaults::max_history_size(),
+        }
+    }
+}
+
+impl FromEnv for MonitoringConfig {
+    fn from_env() -> anyhow::Result<Self> {
+        match (
+            std::env::var("DA_MONITORING_CHECK_INTERVAL"),
+            std::env::var("DA_MONITORING_HISTORY_LIMIT"),
+            std::env::var("DA_MONITORING_MAX_HISTORY_SIZE"),
+        ) {
+            (Err(_), Err(_), Err(_)) => Err(anyhow!("Missing monitoring config")),
+            (check_interval, history_limit, max_history_size) => Ok(MonitoringConfig {
+                check_interval: check_interval.map_or_else(
+                    |_| Ok(monitoring_defaults::check_interval()),
+                    |v| v.parse().map_err(Into::<anyhow::Error>::into),
+                )?,
+                history_limit: history_limit.map_or_else(
+                    |_| Ok(monitoring_defaults::history_limit()),
+                    |v| v.parse().map_err(Into::<anyhow::Error>::into),
+                )?,
+                max_history_size: max_history_size.map_or_else(
+                    |_| Ok(monitoring_defaults::max_history_size()),
+                    |v| v.parse().map_err(Into::<anyhow::Error>::into),
+                )?,
+            }),
         }
     }
 }
@@ -149,7 +198,7 @@ pub struct MonitoringService {
     config: MonitoringConfig,
     // Last tx in queue
     last_tx: Mutex<Option<Txid>>,
-    // Keep track of total monitored transaciton size
+    // Keep track of total monitored transaction size
     // Only takes into account inner tx field from MonitoredTx
     total_size: AtomicUsize,
 }
@@ -168,7 +217,7 @@ impl MonitoringService {
 
     pub async fn restore(&self) -> Result<()> {
         self.initialize_chainstate().await?;
-        self.restore_from_mempool().await
+        self.restore_from_utxos().await
     }
 
     async fn initialize_chainstate(&self) -> Result<()> {
@@ -193,7 +242,8 @@ impl MonitoringService {
         Ok(())
     }
 
-    async fn restore_from_mempool(&self) -> Result<()> {
+    // Restore TX chain from utxos using list_unspent in range [0..FINALITY_DEPTH] confirmations
+    async fn restore_from_utxos(&self) -> Result<()> {
         let mut unspent = self
             .client
             .list_unspent(None, Some(FINALITY_DEPTH as usize), None, None, None)
@@ -202,8 +252,37 @@ impl MonitoringService {
         unspent.sort_unstable_by_key(|utxo| {
             utxo.ancestor_count.unwrap_or(0) as i64 - utxo.confirmations as i64 - utxo.vout as i64
         });
+        tracing::trace!("[restore_from_utxos] {unspent:?}");
 
-        let txids = unspent.into_iter().map(|utxo| utxo.txid).collect();
+        let mut txids = Vec::new();
+        for tx in &unspent {
+            let txid = tx.txid;
+            let tx = self
+                .client
+                .get_transaction(&txid, None)
+                .await?
+                .transaction()
+                .unwrap();
+
+            let reveal_wtxid = tx.compute_wtxid();
+            let reveal_hash = reveal_wtxid.as_raw_hash().to_byte_array();
+
+            // Assumes that no wallet can hold both batch_proof_transaction and light_client_transaction utxos
+            if reveal_hash.starts_with(TO_BATCH_PROOF_PREFIX)
+                && parse_batch_proof_transaction(&tx).is_ok()
+            {
+                txids.push(tx.input[0].previous_output.txid);
+                txids.push(txid);
+            }
+            if reveal_hash.starts_with(TO_LIGHT_CLIENT_PREFIX)
+                && parse_light_client_transaction(&tx).is_ok()
+            {
+                txids.push(tx.input[0].previous_output.txid);
+                txids.push(txid);
+            }
+        }
+
+        tracing::trace!("[restore_from_utxos] {txids:?}");
 
         self.monitor_transaction_chain(txids).await
     }
@@ -422,7 +501,7 @@ impl MonitoringService {
 
         for (txid, tx) in txs.iter_mut() {
             if let TxStatus::Confirmed { confirmations, .. } = tx.status {
-                if confirmations <= depth {
+                if confirmations.to::<u64>() <= depth {
                     let tx_result = self.client.get_transaction(txid, None).await?;
                     tx.status = self.determine_tx_status(&tx_result).await?;
 
@@ -479,27 +558,29 @@ impl MonitoringService {
             if confirmations >= FINALITY_DEPTH {
                 TxStatus::Finalized {
                     block_hash,
-                    block_height,
-                    confirmations,
+                    block_height: U64::from(block_height),
+                    confirmations: U64::from(confirmations),
                 }
             } else {
                 TxStatus::Confirmed {
                     block_hash,
-                    block_height,
-                    confirmations,
+                    block_height: U64::from(block_height),
+                    confirmations: U64::from(confirmations),
                 }
             }
         } else {
             match self.client.get_mempool_entry(&tx_result.info.txid).await {
                 Ok(entry) => {
-                    let base_fee = entry.fees.base.to_sat();
+                    let base_fee = U64::from(entry.fees.base.to_sat());
                     TxStatus::Pending {
                         in_mempool: true,
                         base_fee,
-                        timestamp: SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs(),
+                        timestamp: U64::from(
+                            SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs(),
+                        ),
                     }
                 }
                 Err(_) => TxStatus::Evicted,

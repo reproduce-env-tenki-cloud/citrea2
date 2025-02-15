@@ -1,6 +1,7 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use jmt::storage::{NodeBatch, TreeWriter};
+use jmt::storage::{NodeBatch, StaleNodeIndex, TreeWriter};
 use jmt::{JellyfishMerkleTree, KeyHash, Version};
 use sov_db::native_db::NativeDB;
 use sov_db::schema::{QueryManager, ReadOnlyDbSnapshot};
@@ -10,6 +11,7 @@ use sov_modules_core::{
     StorageValue, Witness,
 };
 use sov_rollup_interface::stf::{StateDiff, StateRootTransition};
+use sov_rollup_interface::zk::StorageRootHash;
 
 use crate::config::Config;
 use crate::{DefaultHasher, DefaultWitness};
@@ -67,6 +69,7 @@ where
 pub struct ProverStateUpdate {
     pub(crate) node_batch: NodeBatch,
     pub key_preimages: Vec<(KeyHash, CacheKey)>,
+    pub stale_state: BTreeSet<StaleNodeIndex>,
 }
 
 impl<Q> Storage for ProverStorage<Q>
@@ -75,8 +78,6 @@ where
 {
     type Witness = DefaultWitness;
     type RuntimeConfig = Config;
-    type Proof = jmt::proof::SparseMerkleProof<DefaultHasher>;
-    type Root = jmt::RootHash;
     type StateUpdate = ProverStateUpdate;
 
     fn get(
@@ -86,7 +87,7 @@ where
         witness: &mut Self::Witness,
     ) -> Option<StorageValue> {
         let val = self.read_value(key, version);
-        witness.add_hint(val.clone());
+        witness.add_hint(&val);
         val
     }
 
@@ -96,19 +97,19 @@ where
         version: Option<Version>,
         witness: &mut Self::Witness,
     ) -> Option<StorageValue> {
-        let version_to_use = version.unwrap_or_else(|| self.db.get_next_version() - 1);
+        let version_to_use = version.unwrap_or_else(|| self.version());
         let val = self
             .native_db
             .get_value_option(key.as_ref(), version_to_use)
             .unwrap()
             .map(Into::into);
-        witness.add_hint(val.clone());
+        witness.add_hint(&val);
         val
     }
 
     #[cfg(feature = "native")]
     fn get_accessory(&self, key: &StorageKey, version: Option<Version>) -> Option<StorageValue> {
-        let version_to_use = version.unwrap_or_else(|| self.db.get_next_version() - 1);
+        let version_to_use = version.unwrap_or_else(|| self.version());
         self.native_db
             .get_value_option(key.as_ref(), version_to_use)
             .unwrap()
@@ -119,24 +120,16 @@ where
         &self,
         state_accesses: OrderedReadsAndWrites,
         witness: &mut Self::Witness,
-    ) -> Result<
-        (
-            StateRootTransition<Self::Root>,
-            Self::StateUpdate,
-            StateDiff,
-        ),
-        anyhow::Error,
-    > {
-        let latest_version = self.db.get_next_version() - 1;
+    ) -> Result<(StateRootTransition, Self::StateUpdate, StateDiff), anyhow::Error> {
+        let latest_version = self.version();
         let jmt = JellyfishMerkleTree::<_, DefaultHasher>::new(&self.db);
 
         // Handle empty jmt
         // TODO: Fix this before introducing snapshots!
         if jmt.get_root_hash_option(latest_version)?.is_none() {
             assert_eq!(latest_version, 0);
-            let empty_batch = Vec::default().into_iter();
             let (_, tree_update) = jmt
-                .put_value_set(empty_batch, latest_version)
+                .put_value_set([], latest_version)
                 .expect("JMT update must succeed");
 
             self.db
@@ -146,7 +139,7 @@ where
         let prev_root = jmt
             .get_root_hash(latest_version)
             .expect("Previous root hash was just populated");
-        witness.add_hint(prev_root.0);
+        witness.add_hint(&prev_root.0);
 
         // For each value that's been read from the tree, read it from the logged JMT to populate hints
         for (key, read_value) in state_accesses.ordered_reads {
@@ -156,12 +149,12 @@ where
             if result.as_ref() != read_value.as_ref().map(|f| f.value.as_ref()) {
                 anyhow::bail!("Bug! Incorrect value read from jmt");
             }
-            witness.add_hint(proof);
+            witness.add_hint(&proof);
         }
 
         let mut key_preimages = Vec::with_capacity(state_accesses.ordered_writes.len());
 
-        let mut diff = vec![];
+        let mut diff = Vec::with_capacity(state_accesses.ordered_writes.len());
 
         // Compute the jmt update from the write batch
         let batch = state_accesses
@@ -187,12 +180,13 @@ where
             .put_value_set_with_proof(batch, next_version)
             .expect("JMT update must succeed");
 
-        witness.add_hint(update_proof);
-        witness.add_hint(new_root.0);
+        witness.add_hint(&update_proof);
+        witness.add_hint(&new_root.0);
 
         let state_update = ProverStateUpdate {
             node_batch: tree_update.node_batch,
             key_preimages,
+            stale_state: tree_update.stale_node_index_batch,
         };
 
         // We need the state diff to be calculated only inside zk context.
@@ -200,8 +194,8 @@ where
         // And constructing the tree from the diff.
         Ok((
             StateRootTransition {
-                init_root: prev_root,
-                final_root: new_root,
+                init_root: prev_root.into(),
+                final_root: new_root.into(),
             },
             state_update,
             diff,
@@ -214,7 +208,7 @@ where
         accessory_writes: &OrderedReadsAndWrites,
         offchain_writes: &OrderedReadsAndWrites,
     ) {
-        let latest_version = self.db.get_next_version() - 1;
+        let latest_version = self.version();
         self.db
             .put_preimages(
                 state_update
@@ -251,18 +245,27 @@ where
             .write_node_batch(&state_update.node_batch)
             .expect("db write must succeed");
 
+        // Write the stale state nodes which will be used by the pruner at a later stage for cleanup.
+        self.db
+            .set_stale_nodes(&state_update.stale_state)
+            .expect("db set stale nodes must succeed");
+
         // Finally, update our in-memory view of the current item numbers
         self.db.inc_next_version();
     }
 
     fn open_proof(
-        state_root: Self::Root,
-        state_proof: StorageProof<Self::Proof>,
+        state_root: StorageRootHash,
+        state_proof: StorageProof,
     ) -> Result<(StorageKey, Option<StorageValue>), anyhow::Error> {
         let StorageProof { key, value, proof } = state_proof;
         let key_hash = KeyHash::with::<DefaultHasher>(key.as_ref());
 
-        proof.verify(state_root, key_hash, value.as_ref().map(|v| v.value()))?;
+        proof.verify(
+            jmt::RootHash(state_root),
+            key_hash,
+            value.as_ref().map(|v| v.value()),
+        )?;
         Ok((key, value))
     }
 
@@ -276,13 +279,13 @@ impl<Q> NativeStorage for ProverStorage<Q>
 where
     Q: QueryManager,
 {
-    fn get_with_proof(&self, key: StorageKey) -> StorageProof<Self::Proof> {
+    fn version(&self) -> u64 {
+        self.db.get_next_version().saturating_sub(1)
+    }
+    fn get_with_proof(&self, key: StorageKey, version: Version) -> StorageProof {
         let merkle = JellyfishMerkleTree::<StateDB<Q>, DefaultHasher>::new(&self.db);
         let (val_opt, proof) = merkle
-            .get_with_proof(
-                KeyHash::with::<DefaultHasher>(key.as_ref()),
-                self.db.get_next_version() - 1,
-            )
+            .get_with_proof(KeyHash::with::<DefaultHasher>(key.as_ref()), version)
             .unwrap();
         StorageProof {
             key,
@@ -291,9 +294,9 @@ where
         }
     }
 
-    fn get_root_hash(&self, version: Version) -> anyhow::Result<jmt::RootHash> {
+    fn get_root_hash(&self, version: Version) -> anyhow::Result<StorageRootHash> {
         let temp_merkle: JellyfishMerkleTree<'_, StateDB<Q>, DefaultHasher> =
             JellyfishMerkleTree::new(&self.db);
-        temp_merkle.get_root_hash(version)
+        temp_merkle.get_root_hash(version).map(Into::into)
     }
 }

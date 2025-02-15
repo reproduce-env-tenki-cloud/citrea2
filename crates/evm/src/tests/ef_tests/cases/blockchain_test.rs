@@ -17,7 +17,6 @@ use sov_prover_storage_manager::SnapshotManager;
 use sov_rollup_interface::spec::SpecId as SovSpecId;
 use sov_state::ProverStorage;
 
-use crate::evm::DbAccount;
 use crate::primitive_types::Block;
 use crate::tests::ef_tests::models::{BlockchainTest, ForkSpec};
 use crate::tests::ef_tests::{Case, Error, Suite};
@@ -53,15 +52,20 @@ pub struct BlockchainTestCase {
 }
 
 impl BlockchainTestCase {
+    #[allow(clippy::too_many_arguments)]
     fn execute_transactions(
         &self,
         evm: &mut Evm<DefaultContext>,
         txs: Vec<RlpEvmTransaction>,
-        mut working_set: WorkingSet<DefaultContext>,
+        mut working_set: WorkingSet<ProverStorage<SnapshotManager>>,
         storage: ProverStorage<SnapshotManager>,
         root: &[u8; 32],
         l2_height: u64,
-    ) -> (WorkingSet<DefaultContext>, ProverStorage<SnapshotManager>) {
+        current_spec: SovSpecId,
+    ) -> (
+        WorkingSet<ProverStorage<SnapshotManager>>,
+        ProverStorage<SnapshotManager>,
+    ) {
         let l1_fee_rate = 0;
         // Call begin_soft_confirmation_hook
         let soft_confirmation_info = HookSoftConfirmationInfo {
@@ -69,8 +73,8 @@ impl BlockchainTestCase {
             da_slot_hash: [0u8; 32],
             da_slot_height: 0,
             da_slot_txs_commitment: [0u8; 32],
-            pre_state_root: root.to_vec(),
-            current_spec: SovSpecId::Genesis,
+            pre_state_root: *root,
+            current_spec,
             pub_key: vec![],
             deposit_data: vec![],
             l1_fee_rate,
@@ -79,20 +83,13 @@ impl BlockchainTestCase {
         evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
 
         let dummy_address = generate_address::<DefaultContext>("dummy");
-        let sequencer_address = generate_address::<DefaultContext>("sequencer");
-        let context = DefaultContext::new(
-            dummy_address,
-            sequencer_address,
-            l2_height,
-            SovSpecId::Genesis,
-            l1_fee_rate,
-        );
+        let context = DefaultContext::new(dummy_address, l2_height, current_spec, l1_fee_rate);
         let _ = evm.execute_call(txs, &context, &mut working_set);
 
         evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
         let root = commit(working_set, storage.clone());
-        let mut working_set: WorkingSet<DefaultContext> = WorkingSet::new(storage.clone());
-        evm.finalize_hook(&root.into(), &mut working_set.accessory_state());
+        let mut working_set = WorkingSet::new(storage.clone());
+        evm.finalize_hook(&root, &mut working_set.accessory_state());
 
         (working_set, storage)
     }
@@ -128,13 +125,13 @@ impl Case for BlockchainTestCase {
         // Iterate through test cases, filtering by the network type to exclude specific forks.
         self.tests
             .values()
-            .filter(|case| matches!(case.network, ForkSpec::Shanghai))
+            .filter(|case| case.network <= ForkSpec::Cancun || case.network == ForkSpec::Unknown)
             .par_bridge()
             .try_for_each(|case| {
                 let mut evm_config = EvmConfig::default();
                 config_push_contracts(&mut evm_config, None);
                 // Set this base fee based on what's set in genesis.
-                let header = reth_primitives::Header {
+                let header = crate::primitive_types::DoNotUseHeader {
                     parent_hash: case.genesis_block_header.parent_hash,
                     ommers_hash: EMPTY_OMMER_ROOT_HASH,
                     beneficiary: evm_config.coinbase,
@@ -202,26 +199,32 @@ impl Case for BlockchainTestCase {
                 );
                 evm.head.set(&block, &mut working_set);
                 evm.pending_head
-                    .set(&block, &mut working_set.accessory_state());
+                    .set(&block.into(), &mut working_set.accessory_state());
                 evm.finalize_hook(
-                    &case.genesis_block_header.state_root.0.into(),
+                    &case.genesis_block_header.state_root.0,
                     &mut working_set.accessory_state(),
                 );
 
                 let root = case.genesis_block_header.state_root;
 
+                let current_spec = if case.network == ForkSpec::Cancun {
+                    SovSpecId::Kumquat
+                } else {
+                    SovSpecId::Genesis
+                };
                 // Decode and insert blocks, creating a chain of blocks for the test case.
                 for block in case.blocks.iter() {
                     let decoded = SealedBlock::decode(&mut block.rlp.as_ref())?;
-                    let txs: Vec<RlpEvmTransaction> = decoded
+                    let txs = decoded
                         .body
+                        .transactions
                         .iter()
                         .map(|t| {
                             let mut buffer = Vec::<u8>::new();
                             t.encode(&mut buffer);
                             RlpEvmTransaction { rlp: buffer }
                         })
-                        .collect();
+                        .collect::<Vec<_>>();
 
                     (working_set, storage) = self.execute_transactions(
                         &mut evm,
@@ -230,6 +233,7 @@ impl Case for BlockchainTestCase {
                         storage,
                         &root,
                         l2_height,
+                        current_spec,
                     );
 
                     l2_height += 1;
@@ -241,15 +245,19 @@ impl Case for BlockchainTestCase {
                         // Validate accounts in the state against the provider's database.
                         for (&address, account) in state.iter() {
                             if let Some(account_state) =
-                                evm.accounts.get(&address, &mut working_set)
+                                evm.account_info(&address, current_spec, &mut working_set)
                             {
                                 assert_eq!(U256::from(account_state.nonce), account.nonce);
                                 assert_eq!(account_state.balance, account.balance);
                                 assert_eq!(*account_state.code_hash.unwrap(), **account.code);
-                                let db_account = DbAccount::new(address);
                                 for (key, value) in account.storage.iter() {
                                     assert_eq!(
-                                        db_account.storage.get(key, &mut working_set),
+                                        evm.storage_get(
+                                            &address,
+                                            key,
+                                            current_spec,
+                                            &mut working_set
+                                        ),
                                         Some(value).copied()
                                     );
                                 }
@@ -317,9 +325,15 @@ pub fn should_skip(path: &Path) -> bool {
         | "loopMul.json"
         | "CALLBlake2f_MaxRounds.json"
         | "shiftCombinations.json"
+
+        // In VMTests/vmIOandFlowOperations, returns state root instead of latest state,
+        // hence we can't test it due to us using different tree than Ethereum
+        | "jumpToPush.json"
     )
-    // Ignore outdated EOF tests that haven't been updated for Cancun yet.
-    || path_contains(path_str, &["EIPTests", "stEOF"])
+    // We don't support blob transactions
+    || path_contains(path_str, &["Cancun", "stEIP4844-blobtransactions"])
+    || path_contains(path_str, &["Pyspecs", "cancun", "eip4844_blobs"])
+    || path_contains(path_str, &["Pyspecs", "cancun", "eip7516_blobgasfee"])
 }
 
 /// `str::contains` but for a path. Takes into account the OS path separator (`/` or `\`).

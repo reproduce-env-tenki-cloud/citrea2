@@ -1,10 +1,9 @@
 use alloy_eips::eip1559::BaseFeeParams;
+use alloy_primitives::hex_literal::hex;
+use alloy_primitives::{Address, Bloom, Bytes, B256, B64, U256};
 use lazy_static::lazy_static;
 use reth_primitives::constants::{EMPTY_RECEIPTS, EMPTY_TRANSACTIONS, ETHEREUM_BLOCK_GAS_LIMIT};
-use reth_primitives::hex_literal::hex;
-use reth_primitives::{
-    Address, Bloom, Bytes, Header, SealedHeader, B256, EMPTY_OMMER_ROOT_HASH, U256,
-};
+use reth_primitives::{Header, SealedHeader, EMPTY_OMMER_ROOT_HASH};
 use revm::primitives::SpecId;
 use sov_modules_api::prelude::*;
 
@@ -22,20 +21,18 @@ lazy_static! {
 #[test]
 fn genesis_data() {
     let config = get_evm_test_config();
-    let (evm, mut working_set) = get_evm(&config);
+    let (evm, mut working_set, spec_id) = get_evm(&config);
 
     let account = &config.data[0];
 
     let db_account = evm
-        .accounts
-        .get(&account.address, &mut working_set)
+        .account_info(&account.address, spec_id, &mut working_set)
         .unwrap();
 
     let contract = &config.data[1];
 
     let contract_account = evm
-        .accounts
-        .get(&contract.address, &mut working_set)
+        .account_info(&contract.address, spec_id, &mut working_set)
         .unwrap();
 
     let contract_storage1 = evm
@@ -92,7 +89,7 @@ fn genesis_data() {
 
 #[test]
 fn genesis_cfg() {
-    let (evm, mut working_set) = get_evm(&get_evm_test_config());
+    let (evm, mut working_set, _spec_id) = get_evm(&get_evm_test_config());
 
     let cfg = evm.cfg.get(&mut working_set).unwrap();
     assert_eq!(
@@ -110,7 +107,7 @@ fn genesis_cfg() {
 
 #[test]
 fn genesis_block() {
-    let (evm, mut working_set) = get_evm(&get_evm_test_config());
+    let (evm, mut working_set, _spec_id) = get_evm(&get_evm_test_config());
 
     let mut accessory_state = working_set.accessory_state();
 
@@ -120,7 +117,7 @@ fn genesis_block() {
         .unwrap();
 
     let block = evm
-        .blocks
+        .blocks_rlp
         .get(block_number as usize, &mut accessory_state)
         .unwrap();
 
@@ -143,7 +140,7 @@ fn genesis_block() {
                     timestamp: 0,
                     extra_data: Bytes::default(),
                     mix_hash: B256::default(),
-                    nonce: 0,
+                    nonce: B64::ZERO,
                     base_fee_per_gas: Some(1000000000),
                     ommers_hash: EMPTY_OMMER_ROOT_HASH,
                     beneficiary: *BENEFICIARY,
@@ -164,11 +161,11 @@ fn genesis_block() {
 
 #[test]
 fn genesis_head() {
-    let (evm, mut working_set) = get_evm(&get_evm_test_config());
-    let head = evm.head.get(&mut working_set).unwrap();
+    let (evm, mut working_set, _spec_id) = get_evm(&get_evm_test_config());
+    let head = evm.head_rlp.get(&mut working_set).unwrap();
     assert_eq!(head.header.parent_hash, *GENESIS_HASH);
     let genesis_block = evm
-        .blocks
+        .blocks_rlp
         .get(0, &mut working_set.accessory_state())
         .unwrap();
 
@@ -187,7 +184,7 @@ fn genesis_head() {
             timestamp: 0,
             extra_data: Bytes::default(),
             mix_hash: B256::default(),
-            nonce: 0,
+            nonce: B64::ZERO,
             base_fee_per_gas: Some(1000000000),
             ommers_hash: EMPTY_OMMER_ROOT_HASH,
             beneficiary: *BENEFICIARY,
