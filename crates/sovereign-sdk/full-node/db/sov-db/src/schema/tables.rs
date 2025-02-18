@@ -67,6 +67,7 @@ pub const SEQUENCER_LEDGER_TABLES: &[&str] = &[
     VerifiedBatchProofsBySlotNumber::table_name(),
     ProverLastScannedSlot::table_name(),
     SlotByHash::table_name(),
+    ShortHeaderProofBySlotHash::table_name(),
     CommitmentMerkleRoots::table_name(),
     // ########
     #[cfg(test)]
@@ -82,6 +83,7 @@ pub const FULL_NODE_LEDGER_TABLES: &[&str] = &[
     SlotByHash::table_name(),
     SoftConfirmationByNumber::table_name(),
     SoftConfirmationByHash::table_name(),
+    ShortHeaderProofBySlotHash::table_name(),
     L2RangeByL1Height::table_name(),
     L2GenesisStateRoot::table_name(),
     LastSequencerCommitmentSent::table_name(),
@@ -103,6 +105,7 @@ pub const BATCH_PROVER_LEDGER_TABLES: &[&str] = &[
     SlotByHash::table_name(),
     SoftConfirmationByNumber::table_name(),
     SoftConfirmationByHash::table_name(),
+    ShortHeaderProofBySlotHash::table_name(),
     L2RangeByL1Height::table_name(),
     L2Witness::table_name(),
     L2GenesisStateRoot::table_name(),
@@ -152,6 +155,7 @@ pub const LEDGER_TABLES: &[&str] = &[
     LastSequencerCommitmentSent::table_name(),
     ProverLastScannedSlot::table_name(),
     SoftConfirmationStatus::table_name(),
+    ShortHeaderProofBySlotHash::table_name(),
     CommitmentsByNumber::table_name(),
     ProofsBySlotNumber::table_name(),
     ProofsBySlotNumberV2::table_name(),
@@ -344,6 +348,11 @@ define_table_with_seek_key_codec!(
 define_table_with_default_codec!(
     /// A "secondary index" for soft confirmation data by hash
     (SoftConfirmationByHash) DbHash => SoftConfirmationNumber
+);
+
+define_table_with_default_codec!(
+    /// A "secondary index" for soft confirmation data by hash
+    (ShortHeaderProofBySlotHash) DbHash => Vec<u8>
 );
 
 define_table_with_default_codec!(
