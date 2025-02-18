@@ -12,7 +12,6 @@ use sov_db::schema::tables::{
     SEQUENCER_LEDGER_TABLES,
 };
 use sov_db::state_db::StateDB;
-use sov_prover_storage_manager::SnapshotManager;
 use tracing::{debug, info};
 
 #[derive(Copy, Clone, ValueEnum)]
@@ -50,12 +49,13 @@ pub(crate) async fn prune(
 
     let rocksdb_config = RocksdbConfig::new(&db_path, None, Some(column_families.to_vec()));
     let ledger_db = LedgerDB::with_config(&rocksdb_config)?;
-    let native_db = NativeDB::<SnapshotManager>::setup_schema_db(&rocksdb_config)?;
-    let state_db = StateDB::<SnapshotManager>::setup_schema_db(&rocksdb_config)?;
+    let native_db = NativeDB::setup_schema_db(&rocksdb_config)?;
+    let state_db = StateDB::setup_schema_db(&rocksdb_config)?;
 
     let Some(soft_confirmation_number) = ledger_db.get_head_soft_confirmation_height()? else {
         return Ok(());
     };
+    let last_pruned_block_number = ledger_db.get_last_pruned_l2_height()?.unwrap_or(0);
 
     debug!(
         "Pruning up to latest soft confirmation number: {}, taking into consideration the configured distance of {}",
@@ -68,10 +68,11 @@ pub(crate) async fn prune(
         Arc::new(state_db),
         Arc::new(native_db),
     );
-    pruner
-        .prune(node_type.into(), soft_confirmation_number)
-        .await;
-
+    if let Some(up_to_block) =
+        pruner.should_prune(last_pruned_block_number, soft_confirmation_number)
+    {
+        pruner.prune(node_type.into(), up_to_block).await;
+    }
     Ok(())
 }
 

@@ -22,6 +22,7 @@ serde = { workspace = true, features = ["rc"] }
 sov-rollup-interface = { path = "../../rollup-interface" }
 sov-modules-core = { path = "../sov-modules-core" }
 sov-db = { path = "../../full-node/db/sov-db", optional = true }
+sov-schema-db = { path = "../../full-node/db/sov-schema-db", optional = true }
 jmt = { workspace = true }
 sha2 = { workspace = true }
 
@@ -31,4 +32,4 @@ proptest = { workspace = true }
 
 [features]
 default = []
-native = ["sov-db"]
+native = ["sov-db", "sov-schema-db"]

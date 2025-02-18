@@ -98,8 +98,8 @@ pub(crate) fn build_post_state(ordered_writes: &[(CacheKey, Option<CacheValue>)]
                 });
             }
             _ => {
-                let key_bytes = (*key).clone();
-                let value_bytes = value.map(|v| (*v).clone());
+                let key_bytes = key.to_vec();
+                let value_bytes = value.map(|v| v.to_vec());
 
                 untyped.push((key_bytes, value_bytes));
             }

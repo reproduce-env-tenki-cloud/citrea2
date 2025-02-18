@@ -11,7 +11,7 @@ use sov_rollup_interface::stf::{StateDiff, StateRootTransition};
 use sov_rollup_interface::zk::{SparseMerkleProofSha2, StorageRootHash};
 use sov_rollup_interface::RefCount;
 
-use crate::common::{AlignedVec, Prefix, Version, Witness};
+use crate::common::{Prefix, Version, Witness};
 
 mod cache;
 mod codec;
@@ -29,7 +29,7 @@ pub use scratchpad::*;
     derive(Serialize, serde::Deserialize, BorshDeserialize, BorshSerialize)
 )]
 pub struct StorageKey {
-    key: RefCount<Vec<u8>>,
+    key: RefCount<[u8]>,
 }
 
 impl From<CacheKey> for StorageKey {
@@ -40,7 +40,7 @@ impl From<CacheKey> for StorageKey {
 
 impl StorageKey {
     /// Returns a new [`RefCount`] reference to the bytes of this key.
-    pub fn key(&self) -> RefCount<Vec<u8>> {
+    pub fn key(&self) -> RefCount<[u8]> {
         self.key.clone()
     }
 
@@ -59,9 +59,9 @@ impl StorageKey {
             },
             Some(v) => {
                 let mut bytes = v.to_be_bytes().to_vec();
-                bytes.extend((*self.key).clone());
+                bytes.extend_from_slice(&self.key);
                 CacheKey {
-                    key: RefCount::new(bytes),
+                    key: RefCount::from(bytes),
                 }
             }
         }
@@ -73,8 +73,8 @@ impl StorageKey {
     }
 }
 
-impl AsRef<Vec<u8>> for StorageKey {
-    fn as_ref(&self) -> &Vec<u8> {
+impl AsRef<[u8]> for StorageKey {
+    fn as_ref(&self) -> &[u8] {
         &self.key
     }
 }
@@ -93,22 +93,20 @@ impl StorageKey {
         Q: ?Sized,
     {
         let encoded_key = codec.encode_key_like(key);
-        let encoded_key = AlignedVec::new(encoded_key);
 
-        let full_key = Vec::<u8>::with_capacity(prefix.len() + encoded_key.len());
-        let mut full_key = AlignedVec::new(full_key);
-        full_key.extend(prefix.as_aligned_vec());
+        let mut full_key = Vec::<u8>::with_capacity(prefix.len() + encoded_key.len());
+        full_key.extend(prefix.as_vec());
         full_key.extend(&encoded_key);
 
         Self {
-            key: RefCount::new(full_key.into_inner()),
+            key: RefCount::from(full_key),
         }
     }
 
     /// Creates a new [`StorageKey`] that combines a prefix and a key.
     pub fn singleton(prefix: &Prefix) -> Self {
         Self {
-            key: RefCount::new(prefix.as_aligned_vec().clone().into_inner()),
+            key: RefCount::from(prefix.to_vec()),
         }
     }
 }
@@ -121,7 +119,7 @@ impl StorageKey {
     derive(Serialize, serde::Deserialize, BorshDeserialize, BorshSerialize)
 )]
 pub struct StorageValue {
-    value: RefCount<Vec<u8>>,
+    value: RefCount<[u8]>,
 }
 
 impl From<CacheValue> for StorageValue {
@@ -135,7 +133,7 @@ impl From<CacheValue> for StorageValue {
 impl From<Vec<u8>> for StorageValue {
     fn from(value: Vec<u8>) -> Self {
         Self {
-            value: RefCount::new(value),
+            value: RefCount::from(value),
         }
     }
 }
@@ -148,7 +146,7 @@ impl StorageValue {
     {
         let encoded_value = codec.encode_value(value);
         Self {
-            value: RefCount::new(encoded_value),
+            value: RefCount::from(encoded_value),
         }
     }
 
@@ -190,12 +188,7 @@ pub trait Storage: Clone {
     type StateUpdate;
 
     /// Returns the value corresponding to the key or None if key is absent.
-    fn get(
-        &self,
-        key: &StorageKey,
-        version: Option<Version>,
-        witness: &mut Self::Witness,
-    ) -> Option<StorageValue>;
+    fn get(&self, key: &StorageKey, witness: &mut Self::Witness) -> Option<StorageValue>;
 
     /// Returns the value corresponding to the key or None if key is absent.
     ///
@@ -204,7 +197,7 @@ pub trait Storage: Clone {
     /// execution environments** (i.e. outside of the zmVM) **SHOULD** override
     /// this method to return a value. This is because accessory state **MUST
     /// NOT** be readable from within the zmVM.
-    fn get_accessory(&self, _key: &StorageKey, _version: Option<Version>) -> Option<StorageValue> {
+    fn get_accessory(&self, _key: &StorageKey) -> Option<StorageValue> {
         None
     }
 
@@ -212,7 +205,6 @@ pub trait Storage: Clone {
     fn get_offchain(
         &self,
         _key: &StorageKey,
-        _version: Option<Version>,
         _witness: &mut Self::Witness,
     ) -> Option<StorageValue> {
         None
@@ -284,13 +276,23 @@ pub trait Storage: Clone {
     /// Indicates if storage is empty or not.
     /// Useful during initialization.
     fn is_empty(&self) -> bool;
+
+    /// Clone self with the given version. This is useful to
+    /// hard clone the storage to not overwrite the version of cloned
+    /// storage.
+    fn clone_with_version(&self, version: Version) -> Self;
+
+    /// Get the last pruned l2 height. Blanket implemented to return [`Ok(None)`].
+    fn get_last_pruned_l2_height(&self) -> Result<Option<u64>, anyhow::Error> {
+        Ok(None)
+    }
 }
 
 /// Used only in tests.
 impl From<&str> for StorageKey {
     fn from(key: &str) -> Self {
         Self {
-            key: RefCount::new(key.as_bytes().to_vec()),
+            key: RefCount::from(key.as_bytes()),
         }
     }
 }
@@ -299,7 +301,7 @@ impl From<&str> for StorageKey {
 impl From<&str> for StorageValue {
     fn from(value: &str) -> Self {
         Self {
-            value: RefCount::new(value.as_bytes().to_vec()),
+            value: RefCount::from(value.as_bytes()),
         }
     }
 }
@@ -309,6 +311,10 @@ impl From<&str> for StorageValue {
 pub trait NativeStorage: Storage {
     /// Return current version (0 if empty).
     fn version(&self) -> u64;
+
+    /// Return initialized version (0 if empty).
+    fn init_version(&self) -> u64;
+
     /// Returns the value corresponding to the key or None if key is absent and a proof to
     /// get the value.
     fn get_with_proof(&self, key: StorageKey, version: Version) -> StorageProof;

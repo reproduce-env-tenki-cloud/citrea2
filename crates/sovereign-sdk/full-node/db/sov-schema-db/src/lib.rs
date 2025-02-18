@@ -18,9 +18,9 @@ mod iterator;
 mod metrics;
 pub mod schema;
 mod schema_batch;
-pub mod snapshot;
 #[cfg(feature = "test-utils")]
 pub mod test;
+pub mod transaction;
 
 use std::path::Path;
 use std::time::Instant;
@@ -30,7 +30,7 @@ use anyhow::format_err;
 pub use iterator::{RawDbReverseIterator, ScanDirection, SchemaIterator, SeekKeyEncoder};
 pub use rocksdb;
 pub use rocksdb::DEFAULT_COLUMN_FAMILY_NAME;
-use rocksdb::{DBIterator, ReadOptions};
+use rocksdb::{DBIterator, ReadOptions, WriteBatch};
 use thiserror::Error;
 use tracing::info;
 
@@ -48,6 +48,31 @@ pub struct DB {
 }
 
 impl DB {
+    /// Opens the DB with a tempdir. Should only be used in tests
+    #[cfg(feature = "test-utils")]
+    pub fn open_temp(
+        name: &'static str,
+        column_families: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        let mut options = RawRocksdbOptions::default();
+        options.db_options.create_if_missing(true);
+        options.db_options.create_missing_column_families(true);
+
+        let tmpdir = tempfile::tempdir().unwrap();
+        DB::open_with_cfds(
+            &options.db_options,
+            tmpdir.path(),
+            name,
+            column_families.into_iter().map(|cf_name| {
+                let mut cf_opts = rocksdb::Options::default();
+                cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+                cf_opts.set_block_based_table_factory(&options.block_options);
+                rocksdb::ColumnFamilyDescriptor::new(cf_name, cf_opts)
+            }),
+        )
+        .unwrap()
+    }
+
     /// Opens a database backed by RocksDB, using the provided column family names and default
     /// column family options.
     pub fn open(
@@ -344,6 +369,11 @@ impl DB {
         Ok(())
     }
 
+    /// Write raw rocksdb WriteBatch
+    pub fn write(&self, batch: WriteBatch) -> anyhow::Result<()> {
+        Ok(self.inner.write(batch)?)
+    }
+
     /// Returns the handle for a rocksdb column family.
     pub fn get_cf_handle(&self, cf_name: &str) -> anyhow::Result<&rocksdb::ColumnFamily> {
         self.inner.cf_handle(cf_name).ok_or_else(|| {
@@ -411,6 +441,7 @@ impl DB {
 
 /// Raw rocksdb config wrapper. Useful to convert user provided config into
 /// the actual rocksdb config with all defaults set.
+#[derive(Default)]
 pub struct RawRocksdbOptions {
     /// Global db options
     pub db_options: rocksdb::Options,

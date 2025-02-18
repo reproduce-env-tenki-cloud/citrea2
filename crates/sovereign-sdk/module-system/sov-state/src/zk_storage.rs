@@ -6,7 +6,6 @@ use sov_modules_core::{
 };
 use sov_rollup_interface::stf::{StateDiff, StateRootTransition};
 use sov_rollup_interface::zk::StorageRootHash;
-use sov_rollup_interface::RefCount;
 
 use crate::DefaultHasher;
 
@@ -50,21 +49,11 @@ where
     type RuntimeConfig = ();
     type StateUpdate = ();
 
-    fn get(
-        &self,
-        _key: &StorageKey,
-        _version: Option<u64>,
-        witness: &mut Self::Witness,
-    ) -> Option<StorageValue> {
+    fn get(&self, _key: &StorageKey, witness: &mut Self::Witness) -> Option<StorageValue> {
         witness.get_hint()
     }
 
-    fn get_offchain(
-        &self,
-        _key: &StorageKey,
-        _version: Option<jmt::Version>,
-        witness: &mut Self::Witness,
-    ) -> Option<StorageValue> {
+    fn get_offchain(&self, _key: &StorageKey, witness: &mut Self::Witness) -> Option<StorageValue> {
         witness.get_hint()
     }
 
@@ -105,10 +94,10 @@ where
             .map(|(key, value)| {
                 let key_hash = KeyHash::with::<DefaultHasher>(key.key.as_ref());
 
-                let key_bytes = RefCount::try_unwrap(key.key).unwrap_or_else(|arc| (*arc).clone());
-                let value_bytes = value
-                    .map(|v| RefCount::try_unwrap(v.value).unwrap_or_else(|arc| (*arc).clone()));
+                let key_bytes = key.key.clone();
+                let value_bytes = value.map(|v| v.value.clone());
 
+                // Seems like we can get rid of the extra clone here
                 diff.push((key_bytes, value_bytes.clone()));
 
                 (key_hash, value_bytes)
@@ -160,5 +149,9 @@ where
 
     fn is_empty(&self) -> bool {
         unimplemented!("Needs simplification in JellyfishMerkleTree: https://github.com/Sovereign-Labs/sovereign-sdk/issues/362")
+    }
+
+    fn clone_with_version(&self, _version: jmt::Version) -> Self {
+        unimplemented!("ZkStorage::clone_with_version should never be called")
     }
 }

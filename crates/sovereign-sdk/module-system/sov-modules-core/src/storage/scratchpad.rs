@@ -20,6 +20,10 @@ pub trait StateReaderAndWriter {
     /// Get a value from the storage.
     fn get(&mut self, key: &StorageKey) -> Option<StorageValue>;
 
+    /// Get a value from the storage with cache info.
+    /// true if the value is read from the cache, false otherwise.
+    fn get_with_cache_info(&mut self, key: &StorageKey) -> (Option<StorageValue>, bool);
+
     /// Replaces a storage value.
     fn set(&mut self, key: &StorageKey, value: StorageValue);
 
@@ -86,6 +90,32 @@ pub trait StateReaderAndWriter {
     {
         let storage_key = StorageKey::new(prefix, storage_key, codec.key_codec());
         self.get_decoded(&storage_key, codec)
+    }
+
+    /// Same thing as `get_value`, but also verifies the value with a given function only when the
+    /// value is not found in the cache and read from the storage.
+    fn get_value_with_cache_info<Q, K, V, Codec>(
+        &mut self,
+        prefix: &Prefix,
+        storage_key: &Q,
+        codec: &Codec,
+    ) -> (Option<V>, bool)
+    where
+        Q: ?Sized,
+        Codec: StateCodec,
+        Codec::KeyCodec: EncodeKeyLike<Q, K>,
+        Codec::ValueCodec: StateValueCodec<V>,
+    {
+        let storage_key = StorageKey::new(prefix, storage_key, codec.key_codec());
+        let (storage_value, read_from_cache) = self.get_with_cache_info(&storage_key);
+
+        let value = storage_value.map(|storage_value| {
+            codec
+                .value_codec()
+                .decode_value_unwrap(storage_value.value())
+        });
+
+        (value, read_from_cache)
     }
 
     /// Get a singleton value from the storage. For more information, check [StorageKey::singleton].
@@ -210,7 +240,7 @@ impl<S: Storage> StateReaderAndWriter for StateDelta<S> {
         match self.cache_log.get_value(&cache_key) {
             ValueExists::Yes(value) => value.map(Into::into),
             ValueExists::No => {
-                let storage_value = self.storage.get(key, self.version, &mut self.witness);
+                let storage_value = self.storage.get(key, &mut self.witness);
                 let cache_value = storage_value.as_ref().map(|v| v.clone().into_cache_value());
 
                 self.cache_log
@@ -233,6 +263,10 @@ impl<S: Storage> StateReaderAndWriter for StateDelta<S> {
     fn delete(&mut self, key: &StorageKey) {
         self.uncommitted_writes
             .insert(key.to_cache_key_version(self.version), None);
+    }
+
+    fn get_with_cache_info(&mut self, _key: &StorageKey) -> (Option<StorageValue>, bool) {
+        unimplemented!("Only Offchain state supports get_with_cache_info")
     }
 }
 
@@ -285,7 +319,7 @@ impl<S: Storage> StateReaderAndWriter for AccessoryDelta<S> {
             return value.as_ref().cloned().map(Into::into);
         }
 
-        self.storage.get_accessory(key, self.version)
+        self.storage.get_accessory(key)
     }
 
     fn set(&mut self, key: &StorageKey, value: StorageValue) {
@@ -298,6 +332,10 @@ impl<S: Storage> StateReaderAndWriter for AccessoryDelta<S> {
     fn delete(&mut self, key: &StorageKey) {
         self.uncommitted_writes
             .insert(key.to_cache_key_version(self.version), None);
+    }
+
+    fn get_with_cache_info(&mut self, _key: &StorageKey) -> (Option<StorageValue>, bool) {
+        unimplemented!("Only Offchain state supports get_with_cache_info")
     }
 }
 
@@ -361,9 +399,7 @@ impl<S: Storage> StateReaderAndWriter for OffchainDelta<S> {
         match self.cache_log.get_value(&cache_key) {
             ValueExists::Yes(value) => value.map(Into::into),
             ValueExists::No => {
-                let storage_value = self
-                    .storage
-                    .get_offchain(key, self.version, &mut self.witness);
+                let storage_value = self.storage.get_offchain(key, &mut self.witness);
                 let cache_value = storage_value.as_ref().map(|v| v.clone().into_cache_value());
 
                 self.cache_log
@@ -385,6 +421,28 @@ impl<S: Storage> StateReaderAndWriter for OffchainDelta<S> {
     fn delete(&mut self, key: &StorageKey) {
         self.uncommitted_writes
             .insert(key.to_cache_key_version(self.version), None);
+    }
+
+    fn get_with_cache_info(&mut self, key: &StorageKey) -> (Option<StorageValue>, bool) {
+        let cache_key = key.to_cache_key_version(self.version);
+
+        if let Some(value) = self.uncommitted_writes.get(&cache_key) {
+            return (value.as_ref().cloned().map(Into::into), true);
+        }
+
+        match self.cache_log.get_value(&cache_key) {
+            ValueExists::Yes(value) => (value.map(Into::into), true),
+            ValueExists::No => {
+                let storage_value = self.storage.get_offchain(key, &mut self.witness);
+                let cache_value = storage_value.as_ref().map(|v| v.clone().into_cache_value());
+
+                self.cache_log
+                    .add_read(cache_key, cache_value)
+                    .expect("Read from CacheLog failed");
+
+                (storage_value, false)
+            }
+        }
     }
 }
 
@@ -508,17 +566,20 @@ impl<S: Storage> WorkingSet<S> {
 
     /// Returns a handler for the archival state (JMT state).
     fn archival_state(&mut self, version: Version) -> ArchivalJmtWorkingSet<S> {
-        ArchivalJmtWorkingSet::new(&self.delta.storage, version)
+        let storage = self.delta.storage.clone_with_version(version);
+        ArchivalJmtWorkingSet::new(storage, version)
     }
 
     /// Returns a handler for the archival offchain state.
     fn archival_offchain_state(&mut self, version: Version) -> ArchivalOffchainWorkingSet<S> {
-        ArchivalOffchainWorkingSet::new(&self.offchain_delta.storage, version)
+        let storage = self.offchain_delta.storage.clone_with_version(version);
+        ArchivalOffchainWorkingSet::new(storage, version)
     }
 
     /// Returns a handler for the archival accessory state (non-JMT state).
     fn archival_accessory_state(&mut self, version: Version) -> ArchivalAccessoryWorkingSet<S> {
-        ArchivalAccessoryWorkingSet::new(&self.accessory_delta.storage, version)
+        let storage = self.accessory_delta.storage.clone_with_version(version);
+        ArchivalAccessoryWorkingSet::new(storage, version)
     }
 
     /// Sets archival version for a working set
@@ -573,6 +634,11 @@ impl<S: Storage> WorkingSet<S> {
         // First inner is `RevertableWriter` and second inner is actually a `Storage` instance
         self.delta.storage.get_root_hash(version)
     }
+
+    /// Get the last pruned L2 height.
+    pub fn get_last_pruned_l2_height(&mut self) -> Result<Option<u64>, anyhow::Error> {
+        self.delta.storage.get_last_pruned_l2_height()
+    }
 }
 
 impl<S: Storage> StateReaderAndWriter for WorkingSet<S> {
@@ -584,13 +650,19 @@ impl<S: Storage> StateReaderAndWriter for WorkingSet<S> {
     }
 
     fn set(&mut self, key: &StorageKey, value: StorageValue) {
+        // FIXME: ^ this is a hack
+        fn fits_for_statediff(key: &[u8]) -> bool {
+            key.starts_with(b"Evm/a/")
+                || key.starts_with(b"Evm/s/")
+                || key.starts_with(b"Evm/t/")
+                || key.starts_with(b"Evm/S/")
+        }
         match &mut self.archival_working_set {
             None => {
                 {
                     // Fetch prev value to populate ordered reads
                     // FIXME: ^ this is a hack
-                    let k_bytes = key.key.as_slice();
-                    if k_bytes.starts_with(b"Evm/a/") || k_bytes.starts_with(b"Evm/s/") {
+                    if fits_for_statediff(&key.key) {
                         let _ = self.delta.get(key);
                     }
                 }
@@ -601,8 +673,7 @@ impl<S: Storage> StateReaderAndWriter for WorkingSet<S> {
                 {
                     // Fetch prev value to populate ordered reads
                     // FIXME: ^ this is a hack
-                    let k_bytes = key.key.as_slice();
-                    if k_bytes.starts_with(b"Evm/a/") || k_bytes.starts_with(b"Evm/s/") {
+                    if fits_for_statediff(&key.key) {
                         let _ = archival_working_set.get(key);
                     }
                 }
@@ -616,6 +687,10 @@ impl<S: Storage> StateReaderAndWriter for WorkingSet<S> {
             None => self.delta.delete(key),
             Some(ref mut archival_working_set) => archival_working_set.delete(key),
         }
+    }
+
+    fn get_with_cache_info(&mut self, _key: &StorageKey) -> (Option<StorageValue>, bool) {
+        unimplemented!("Only Offchain state supports get_with_cache_info")
     }
 }
 
@@ -650,6 +725,10 @@ impl<'a, S: Storage> StateReaderAndWriter for AccessoryWorkingSet<'a, S> {
             Some(ref mut archival_working_set) => archival_working_set.delete(key),
         }
     }
+
+    fn get_with_cache_info(&mut self, _key: &StorageKey) -> (Option<StorageValue>, bool) {
+        unimplemented!()
+    }
 }
 
 /// A wrapper over [`WorkingSet`] that only allows access to the accessory
@@ -679,6 +758,13 @@ impl<'a, S: Storage> StateReaderAndWriter for OffchainWorkingSet<'a, S> {
             Some(ref mut archival_working_set) => archival_working_set.delete(key),
         }
     }
+
+    fn get_with_cache_info(&mut self, key: &StorageKey) -> (Option<StorageValue>, bool) {
+        match &mut self.ws.archival_offchain_working_set {
+            None => self.ws.offchain_delta.get_with_cache_info(key),
+            Some(ref mut archival_working_set) => archival_working_set.get_with_cache_info(key),
+        }
+    }
 }
 
 /// Module for archival state
@@ -692,9 +778,9 @@ pub mod archival_state {
 
     impl<S: Storage> ArchivalJmtWorkingSet<S> {
         /// create a new instance of ArchivalJmtWorkingSet
-        pub fn new(inner: &S, version: Version) -> Self {
+        pub fn new(inner: S, version: Version) -> Self {
             Self {
-                delta: StateDelta::new(inner.clone(), Some(version)),
+                delta: StateDelta::new(inner, Some(version)),
             }
         }
     }
@@ -706,9 +792,9 @@ pub mod archival_state {
 
     impl<S: Storage> ArchivalAccessoryWorkingSet<S> {
         /// create a new instance of ArchivalAccessoryWorkingSet
-        pub fn new(inner: &S, version: Version) -> Self {
+        pub fn new(inner: S, version: Version) -> Self {
             Self {
-                delta: AccessoryDelta::new(inner.clone(), Some(version)),
+                delta: AccessoryDelta::new(inner, Some(version)),
             }
         }
     }
@@ -724,6 +810,10 @@ pub mod archival_state {
 
         fn delete(&mut self, key: &StorageKey) {
             self.delta.delete(key)
+        }
+
+        fn get_with_cache_info(&mut self, _key: &StorageKey) -> (Option<StorageValue>, bool) {
+            unimplemented!("Only Offchain state supports get_with_cache_info")
         }
     }
 
@@ -743,6 +833,10 @@ pub mod archival_state {
         fn delete(&mut self, key: &StorageKey) {
             self.delta.delete(key)
         }
+
+        fn get_with_cache_info(&mut self, _key: &StorageKey) -> (Option<StorageValue>, bool) {
+            unimplemented!("Only Offchain state supports get_with_cache_info")
+        }
     }
 
     /// Archival Offchain
@@ -752,9 +846,9 @@ pub mod archival_state {
 
     impl<S: Storage> ArchivalOffchainWorkingSet<S> {
         /// create a new instance of ArchivalOffchainWorkingSet
-        pub fn new(inner: &S, version: Version) -> Self {
+        pub fn new(inner: S, version: Version) -> Self {
             Self {
-                delta: OffchainDelta::new(inner.clone(), Some(version)),
+                delta: OffchainDelta::new(inner, Some(version)),
             }
         }
     }
@@ -774,6 +868,10 @@ pub mod archival_state {
 
         fn delete(&mut self, key: &StorageKey) {
             self.delta.delete(key)
+        }
+
+        fn get_with_cache_info(&mut self, key: &StorageKey) -> (Option<StorageValue>, bool) {
+            self.delta.get_with_cache_info(key)
         }
     }
 }
