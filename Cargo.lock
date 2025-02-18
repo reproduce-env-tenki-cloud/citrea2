@@ -1903,6 +1903,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "backoff",
+ "borsh",
  "citrea-primitives",
  "citrea-storage-ops",
  "futures",
@@ -1912,6 +1913,7 @@ dependencies = [
  "lru",
  "metrics",
  "rocksdb",
+ "rs_merkle",
  "serde",
  "serde_json",
  "sov-db",
@@ -8046,6 +8048,7 @@ version = "0.6.0"
 dependencies = [
  "anyhow",
  "borsh",
+ "citrea-primitives",
  "hex",
  "itertools 0.13.0",
  "jmt",
