@@ -1875,6 +1875,7 @@ dependencies = [
  "sov-modules-stf-blueprint",
  "sov-prover-storage-manager",
  "sov-rollup-interface",
+ "sov-state",
  "tempfile",
  "tokio",
  "tokio-util",
