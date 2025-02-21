@@ -34,7 +34,7 @@ use sov_rollup_interface::stf::{
 };
 use sov_rollup_interface::zk::batch_proof::output::CumulativeStateDiff;
 use sov_rollup_interface::zk::{StorageRootHash, ZkvmGuest};
-use sov_state::{ReadWriteLog, Storage};
+use sov_state::{ReadWriteLog, Storage, Witness};
 
 mod stf_blueprint;
 
@@ -250,11 +250,8 @@ where
         _current_spec: SpecId,
         working_set: WorkingSet<C::Storage>,
         pre_state: <Self as StateTransitionFunction<Da>>::PreState,
-    ) -> SoftConfirmationResult<
-        C::Storage,
-        <C::Storage as Storage>::Witness,
-        <Self as StateTransitionFunction<Da>>::StateLog,
-    > {
+    ) -> SoftConfirmationResult<C::Storage, Witness, <Self as StateTransitionFunction<Da>>::StateLog>
+    {
         let (
             state_root_transition,
             state_log,
@@ -322,7 +319,7 @@ where
     type ChangeSet = C::Storage;
     type StateLog = ReadWriteLog;
 
-    type Witness = <C::Storage as Storage>::Witness;
+    type Witness = Witness;
 
     fn init_chain(
         &self,
@@ -484,17 +481,12 @@ where
 
                 let spec_id = fork_manager.active_fork().spec_id;
                 let (l2_block, state_witness, offchain_witness) = if spec_id >= SpecId::Kumquat {
-                    guest.read_from_host::<(
-                        L2Block<Self::Transaction>,
-                        <C::Storage as Storage>::Witness,
-                        <C::Storage as Storage>::Witness,
-                    )>()
+                    guest.read_from_host::<(L2Block<Self::Transaction>, Witness, Witness)>()
                 } else {
-                    let (l2_block, state_witness, offchain_witness) = guest.read_from_host::<(
-                        L2Block<PreFork2Transaction<C>>,
-                        <C::Storage as Storage>::Witness,
-                        <C::Storage as Storage>::Witness,
-                    )>();
+                    let (l2_block, state_witness, offchain_witness) =
+                        guest
+                            .read_from_host::<(L2Block<PreFork2Transaction<C>>, Witness, Witness)>(
+                            );
                     let (parsed_txs, blobs): (Vec<Self::Transaction>, Vec<Vec<u8>>) = l2_block
                         .txs
                         .iter()
