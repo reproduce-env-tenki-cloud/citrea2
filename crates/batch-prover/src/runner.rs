@@ -190,6 +190,7 @@ where
 
         let l2_height = soft_confirmation.l2_height;
 
+        // TODO: this is a problem after sequencer puts set block info system transactions in blocks
         let current_l1_block = get_da_block_at_height(
             &self.da_service,
             soft_confirmation.da_slot_height,

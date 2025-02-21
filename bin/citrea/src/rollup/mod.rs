@@ -18,9 +18,6 @@ use citrea_sequencer::CitreaSequencer;
 use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use citrea_storage_ops::pruning::PrunerService;
 use jsonrpsee::RpcModule;
-use short_header_proof_provider::{
-    NativeShortHeaderProofProviderService, SHORT_HEADER_PROOF_PROVIDER,
-};
 use sov_db::ledger_db::migrations::{LedgerDBMigrator, Migrations};
 use sov_db::ledger_db::{LedgerDB, SharedLedgerOps, LEDGER_DB_PATH_SUFFIX};
 use sov_db::native_db::NativeDB;
@@ -204,14 +201,6 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         FullNodeL1BlockHandler<Self::Vm, Self::DaService, LedgerDB>,
         Option<PrunerService>,
     )> {
-        match SHORT_HEADER_PROOF_PROVIDER.set(Box::new(NativeShortHeaderProofProviderService::<
-            Self::DaSpec,
-        >::new(ledger_db.clone())))
-        {
-            Ok(_) => tracing::debug!("Short header proof provider set"),
-            Err(_) => tracing::error!("Short header proof provider already set"),
-        };
-
         let runner_config = rollup_config.runner.expect("Runner config is missing");
 
         let native_stf = StfBlueprint::new();
@@ -263,14 +252,6 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         BatchProverL1BlockHandler<Self::Vm, Self::DaService, LedgerDB>,
         RpcModule<()>,
     )> {
-        match SHORT_HEADER_PROOF_PROVIDER.set(Box::new(NativeShortHeaderProofProviderService::<
-            Self::DaSpec,
-        >::new(ledger_db.clone())))
-        {
-            Ok(_) => tracing::debug!("Short header proof provider set"),
-            Err(_) => tracing::error!("Short header proof provider already set"),
-        };
-
         let runner_config = rollup_config.runner.expect("Runner config is missing");
 
         let native_stf = StfBlueprint::new();
