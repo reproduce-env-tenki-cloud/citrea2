@@ -310,8 +310,8 @@ impl<C: sov_modules_api::Context> Evm<C> {
         // Specs from https://ethereum.org/en/developers/docs/apis/json-rpc
         let balance = self
             .account_info(&address, citrea_spec, working_set)
-            .map(|info| info.balance)
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .balance;
 
         Ok(balance)
     }
