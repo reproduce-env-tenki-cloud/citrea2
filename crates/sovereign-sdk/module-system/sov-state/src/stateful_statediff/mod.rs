@@ -17,7 +17,7 @@ pub(crate) struct PreState {
     evm_storage: BTreeMap<Address, BTreeMap<U256, Option<U256>>>,
 }
 
-pub(crate) fn build_pre_state(ordered_reads: Vec<(CacheKey, Option<CacheValue>)>) -> PreState {
+pub(crate) fn build_pre_state(ordered_reads: &[(CacheKey, Option<CacheValue>)]) -> PreState {
     // We need the first values we read. So we traverse from the beginning.
     // We are only interested in keys -> values only when we see them the first time.
     // And we need only Evm accounts and storage, because that's the only
@@ -26,7 +26,7 @@ pub(crate) fn build_pre_state(ordered_reads: Vec<(CacheKey, Option<CacheValue>)>
     let mut evm_storage: BTreeMap<Address, _> = BTreeMap::new();
 
     for (k, v) in ordered_reads {
-        let (key, value) = (k.key, v.map(|v| v.value));
+        let (key, value) = (k.key.as_ref(), v.as_ref().map(|v| v.value.as_ref()));
         match &key[..6] {
             _account @ b"Evm/a/" => {
                 let address: Address = bcs::from_bytes(&key[6..]).unwrap();
@@ -65,13 +65,15 @@ pub(crate) struct PostState {
     untyped: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 }
 
-pub(crate) fn build_post_state(ordered_writes: &[(CacheKey, Option<CacheValue>)]) -> PostState {
+pub(crate) fn build_post_state<'a>(
+    ordered_writes: impl Iterator<Item = (&'a CacheKey, &'a Option<CacheValue>)>,
+) -> PostState {
     // We need the last values we write. So we traverse from the end.
     let mut evm_accounts: BTreeMap<Address, Option<DbAccountInfo>> = BTreeMap::new();
     let mut evm_storage: BTreeMap<Address, _> = BTreeMap::new();
     let mut untyped = Vec::new();
 
-    for (k, v) in ordered_writes.iter().rev() {
+    for (k, v) in ordered_writes.into_iter() {
         let (key, value) = (k.key.clone(), v.clone().map(|v| v.value));
         match &key[..6] {
             _account @ b"Evm/a/" => {

@@ -111,8 +111,6 @@ where
 
         let header = L2Header::new(
             val.l2_height,
-            val.da_slot_height,
-            val.da_slot_hash,
             val.da_slot_txs_commitment,
             val.prev_hash,
             val.state_root,
@@ -132,6 +130,8 @@ where
             parsed_txs.into(),
             blobs.into(),
             val.deposit_data.into_iter().map(|tx| tx.tx).collect(),
+            val.da_slot_height,
+            val.da_slot_hash,
         );
         Ok(res)
     }
@@ -356,6 +356,9 @@ pub struct BatchProofOutputRpcResponse {
     /// The last processed l2 height in the processed sequencer commitments.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_l2_height: Option<U64>,
+    /// L1 hashes that were added to the Bitcoin light client contract
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub l1_hashes_added_to_light_client_contract: Vec<SerializableHash>,
 }
 
 /// Custom serialization for BTreeMap

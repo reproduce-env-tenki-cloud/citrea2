@@ -68,6 +68,7 @@ where
                 pre_state,
                 data.sequencer_commitments,
                 data.da_block_headers_of_soft_confirmations,
+                &data.cache_prune_l2_heights,
                 forks,
             );
 
@@ -80,6 +81,10 @@ where
             state_diff,
             last_l2_height,
             sequencer_commitment_merkle_roots,
+            l1_hashes_added_to_light_client_contract: SHORT_HEADER_PROOF_PROVIDER
+                .get()
+                .unwrap()
+                .take_queried_hashes(0..=0), // range does not matter for zk implementation
         }
     }
 }
