@@ -1,5 +1,6 @@
 use jmt::KeyHash;
 use sov_modules_core::{OrderedWrites, ReadWriteLog, Storage, StorageKey, StorageValue};
+use sov_rollup_interface::stateful_statediff;
 use sov_rollup_interface::stf::{StateDiff, StateRootTransition};
 use sov_rollup_interface::witness::Witness;
 use sov_rollup_interface::zk::StorageRootHash;
@@ -66,11 +67,19 @@ impl Storage for ZkStorage {
             proof.verify(jmt::RootHash(prev_state_root), key_hash, value)?;
         }
 
-        let pre_state = crate::stateful_statediff::build_pre_state(state_log.ordered_reads());
+        let pre_state =
+            stateful_statediff::build_pre_state(state_log.ordered_reads().iter().map(|(k, v)| {
+                let k = k.key.clone();
+                let v = v.as_ref().map(|v| v.value.clone());
+                (k, v)
+            }));
         let post_state =
-            crate::stateful_statediff::build_post_state(state_log.iter_ordered_writes());
-
-        let _st_statediff = crate::stateful_statediff::compress_state(pre_state, post_state);
+            stateful_statediff::build_post_state(state_log.iter_ordered_writes().map(|(k, v)| {
+                let k = k.key.clone();
+                let v = v.as_ref().map(|v| v.value.clone());
+                (k, v)
+            }));
+        let st_statediff = stateful_statediff::compress_state(pre_state, post_state);
 
         let mut diff = vec![];
 
@@ -100,13 +109,14 @@ impl Storage for ZkStorage {
             )
             .expect("Updates must be valid");
 
-        let unparsed_len: usize = _st_statediff
+        let unparsed_len: usize = st_statediff
             .unparsed
             .iter()
             .map(|(_k, v)| if let Some(x) = v { x.len() } else { 0 })
             .sum();
-        let ststdiff = borsh::to_vec(&_st_statediff).unwrap();
+        let ststdiff = borsh::to_vec(&st_statediff).unwrap();
         let prevdiff = borsh::to_vec(&diff).unwrap();
+        let _ = st_statediff;
 
         println!(
             "zk: ststdiff: {} bytes, diff: {} bytes, ststdiff unparsed: {} bytes \n",
