@@ -237,10 +237,12 @@ where
     /// End a soft confirmation
     pub fn end_soft_confirmation(
         &mut self,
-        soft_confirmation_info: HookSoftConfirmationInfo,
+        l1_hash: [u8; 32],
+        l1_fee_rate: u128,
+        current_spec: SpecId,
         working_set: &mut WorkingSet<C::Storage>,
     ) -> Result<(), StateTransitionError> {
-        self.end_soft_confirmation_inner(soft_confirmation_info, working_set)
+        self.end_soft_confirmation_inner(l1_hash, l1_fee_rate, current_spec, working_set)
             .map_err(StateTransitionError::HookError)
     }
 
@@ -406,7 +408,12 @@ where
             &mut working_set,
         )?;
 
-        self.end_soft_confirmation(soft_confirmation_info, &mut working_set)?;
+        self.end_soft_confirmation(
+            slot_header.hash().into(),
+            soft_confirmation_info.l1_fee_rate,
+            soft_confirmation_info.current_spec,
+            &mut working_set,
+        )?;
 
         let res = self.finalize_soft_confirmation(current_spec, working_set, pre_state);
 

@@ -84,7 +84,10 @@ impl<C: sov_modules_api::Context> Evm<C> {
         // populate system events if active citrea spec is below fork2
         if current_spec < CitreaSpecId::Fork2 {
             system_events = populate_system_events(
-                soft_confirmation_info,
+                soft_confirmation_info.deposit_data.as_slice(),
+                soft_confirmation_info.da_slot_hash,
+                soft_confirmation_info.da_slot_txs_commitment,
+                soft_confirmation_info.da_slot_height,
                 self.last_l1_hash.get(working_set),
                 PRE_FORK2_BRIDGE_INITIALIZE_PARAMS,
             )
@@ -147,8 +150,11 @@ impl<C: sov_modules_api::Context> Evm<C> {
                 .remove(&(self.block_env.number - U256::from(257)), working_set);
         }
 
-        self.last_l1_hash
-            .set(&soft_confirmation_info.da_slot_hash.into(), working_set);
+        // Soft confirmation won't have da info after fork2
+        if soft_confirmation_info.current_spec < CitreaSpecId::Fork2 {
+            self.last_l1_hash
+                .set(&soft_confirmation_info.da_slot_hash.into(), working_set);
+        }
     }
 
     /// Logic executed at the end of the slot. Here, we generate an authenticated block and set it as the new head of the chain.
@@ -156,13 +162,11 @@ impl<C: sov_modules_api::Context> Evm<C> {
     #[cfg_attr(feature = "native", instrument(level = "trace", skip_all, ret))]
     pub fn end_soft_confirmation_hook(
         &mut self,
-        soft_confirmation_info: &HookSoftConfirmationInfo,
+        l1_hash: [u8; 32],
+        l1_fee_rate: u128,
+        current_spec: CitreaSpecId,
         working_set: &mut WorkingSet<C::Storage>,
     ) {
-        let l1_hash = soft_confirmation_info.da_slot_hash;
-
-        let current_spec = soft_confirmation_info.current_spec;
-
         let parent_block = if current_spec >= CitreaSpecId::Kumquat {
             match self.head_rlp.get(working_set) {
                 Some(block) => block.seal(),
@@ -234,16 +238,12 @@ impl<C: sov_modules_api::Context> Evm<C> {
             extra_data: Bytes::default(),
             // EIP-4844 related fields
             // https://github.com/Sovereign-Labs/sovereign-sdk/issues/912
-            blob_gas_used: if citrea_spec_id_to_evm_spec_id(soft_confirmation_info.current_spec)
-                >= SpecId::CANCUN
-            {
+            blob_gas_used: if citrea_spec_id_to_evm_spec_id(current_spec) >= SpecId::CANCUN {
                 Some(0)
             } else {
                 None
             },
-            excess_blob_gas: if citrea_spec_id_to_evm_spec_id(soft_confirmation_info.current_spec)
-                >= SpecId::CANCUN
-            {
+            excess_blob_gas: if citrea_spec_id_to_evm_spec_id(current_spec) >= SpecId::CANCUN {
                 Some(0)
             } else {
                 None
@@ -256,7 +256,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         let block = Block {
             header,
-            l1_fee_rate: soft_confirmation_info.l1_fee_rate(),
+            l1_fee_rate,
             l1_hash: l1_hash.into(),
             transactions: start_tx_index..start_tx_index + pending_transactions.len() as u64,
         };
@@ -383,36 +383,35 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
 /// Populates system events based on the current soft confirmation info.
 pub fn populate_system_events<'a>(
-    soft_confirmation_info: &HookSoftConfirmationInfo,
+    deposit_data: &[Vec<u8>],
+    current_slot_hash: [u8; 32],
+    current_da_txs_commitment: [u8; 32],
+    current_da_height: u64,
     last_l1_hash_of_evm: Option<B256>,
     bridge_initialize_params: &'a [u8],
 ) -> Vec<SystemEvent<'a>> {
     let mut system_events = vec![];
+
     if let Some(last_l1_hash) = last_l1_hash_of_evm {
-        if last_l1_hash != soft_confirmation_info.da_slot_hash {
+        if last_l1_hash != current_slot_hash {
             // That's a new L1 block
             system_events.push(SystemEvent::BitcoinLightClientSetBlockInfo(
-                soft_confirmation_info.da_slot_hash,
-                soft_confirmation_info.da_slot_txs_commitment,
+                current_slot_hash,
+                current_da_txs_commitment,
             ));
         }
     } else {
         // That's the first L2 block in the first seen L1 block.
-        system_events.push(SystemEvent::BitcoinLightClientInitialize(
-            soft_confirmation_info.da_slot_height,
-        ));
+        system_events.push(SystemEvent::BitcoinLightClientInitialize(current_da_height));
         system_events.push(SystemEvent::BitcoinLightClientSetBlockInfo(
-            soft_confirmation_info.da_slot_hash,
-            soft_confirmation_info.da_slot_txs_commitment,
+            current_slot_hash,
+            current_da_txs_commitment,
         ));
         system_events.push(SystemEvent::BridgeInitialize(bridge_initialize_params));
     }
 
-    soft_confirmation_info
-        .deposit_data
-        .iter()
-        .for_each(|params| {
-            system_events.push(SystemEvent::BridgeDeposit(params.clone()));
-        });
+    deposit_data.iter().for_each(|params| {
+        system_events.push(SystemEvent::BridgeDeposit(params.clone()));
+    });
     system_events
 }

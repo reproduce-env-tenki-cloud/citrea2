@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use std::vec;
 
 use alloy_eips::eip2718::Encodable2718;
-use alloy_primitives::{Address, Bytes, TxHash, U256};
+use alloy_primitives::{keccak256, Address, Bytes, TxHash, U256};
 use anyhow::{anyhow, bail};
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
@@ -13,8 +13,8 @@ use citrea_common::utils::{compute_tx_hashes, compute_tx_merkle_root};
 use citrea_common::{InitParams, RollupPublicKeys, SequencerConfig};
 use citrea_evm::system_events::create_system_transactions;
 use citrea_evm::{
-    populate_system_events, AccountInfo, CallMessage, RlpEvmTransaction, MIN_TRANSACTION_GAS,
-    SYSTEM_SIGNER,
+    populate_system_events, AccountInfo, CallMessage, RlpEvmTransaction,
+    BITCOIN_LIGHT_CLIENT_CONTRACT_ADDRESS, MIN_TRANSACTION_GAS, SYSTEM_SIGNER,
 };
 use citrea_primitives::basefee::calculate_next_block_base_fee;
 use citrea_primitives::types::SoftConfirmationHash;
@@ -170,9 +170,8 @@ where
             let mut working_set_to_discard = WorkingSet::new(prestate.clone());
 
             let evm = citrea_evm::Evm::<DefaultContext>::default();
-            // TODO: after L2Block refactor PR, we'll need to use L1 block and
-            // Bitcoin light client contract state for this
-            let mut last_l1_hash_of_evm = evm.last_l1_hash.get(&mut working_set_to_discard);
+
+            // Read last l1 hash from bitcoin light client contract
             if let Err(err) = self.stf.begin_soft_confirmation(
                 pub_key,
                 &mut working_set_to_discard,
@@ -191,14 +190,41 @@ where
 
             let mut system_transactions = vec![];
             if soft_confirmation_info.current_spec >= SpecId::Fork2 {
+                let last_l1_height_in_contract = evm
+                    .storage_get(
+                        &BITCOIN_LIGHT_CLIENT_CONTRACT_ADDRESS,
+                        &U256::ZERO,
+                        soft_confirmation_info.current_spec,
+                        &mut working_set_to_discard,
+                    )
+                    .unwrap_or(U256::ZERO);
+                let mut bytes = [0u8; 64];
+                bytes[0..32].copy_from_slice(
+                    &(last_l1_height_in_contract.saturating_sub(U256::from(1u64)))
+                        .to_be_bytes::<32>(),
+                );
+                // counter intuitively the contract stores next block height (expected on setBlockInfo)x
+                bytes[32..64].copy_from_slice(&U256::from(1).to_be_bytes::<32>());
+                let mut l1_hash_in_contract = evm
+                    .storage_get(
+                        &BITCOIN_LIGHT_CLIENT_CONTRACT_ADDRESS,
+                        &keccak256(bytes).into(),
+                        soft_confirmation_info.current_spec,
+                        &mut working_set_to_discard,
+                    )
+                    .map(Into::into);
+
                 if soft_confirmation_info.l2_height == 1 {
-                    last_l1_hash_of_evm = None;
+                    l1_hash_in_contract = None;
                 }
                 let bridge_init_param = hex::decode(self.config.bridge_initialize_params.clone())
                     .expect("should deserialize");
                 let system_events = populate_system_events(
-                    &soft_confirmation_info,
-                    last_l1_hash_of_evm,
+                    &soft_confirmation_info.deposit_data,
+                    da_block_header.hash().into(),
+                    da_block_header.txs_commitment().into(),
+                    da_block_header.height(),
+                    l1_hash_in_contract,
                     bridge_init_param.as_slice(),
                 );
                 let system_signer = evm
@@ -545,8 +571,12 @@ where
             .apply_soft_confirmation_txs(&soft_confirmation_info, &blobs, &txs, &mut working_set)
             .expect("dry_run_transactions should have already checked this");
 
-        self.stf
-            .end_soft_confirmation(soft_confirmation_info, &mut working_set)?;
+        self.stf.end_soft_confirmation(
+            da_block.header().hash().into(),
+            soft_confirmation_info.l1_fee_rate,
+            soft_confirmation_info.current_spec,
+            &mut working_set,
+        )?;
 
         // Finalize soft confirmation
         let soft_confirmation_result =
@@ -725,6 +755,7 @@ where
 
         let target_block_time = Duration::from_millis(self.config.block_production_interval_ms);
 
+        // TODO: If there are more thane one missed da blocks we can put the set block info txs to the latest block that will be produced instead of putting them all to separate blocks
         // In case the sequencer falls behind on DA blocks, we need to produce at least 1
         // empty block per DA block. Which means that we have to keep count of missed blocks
         // and only resume normal operations once the sequencer has caught up.

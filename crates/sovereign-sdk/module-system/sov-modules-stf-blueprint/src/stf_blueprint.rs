@@ -150,12 +150,14 @@ where
     #[cfg_attr(feature = "native", instrument(level = "trace", skip_all))]
     pub fn end_soft_confirmation_inner(
         &mut self,
-        hook_soft_confirmation_info: HookSoftConfirmationInfo,
+        l1_hash: [u8; 32],
+        l1_fee_rate: u128,
+        current_spec: SpecId,
         working_set: &mut WorkingSet<C::Storage>,
     ) -> Result<(), SoftConfirmationHookError> {
-        if let Err(e) = self
-            .runtime
-            .end_soft_confirmation_hook(hook_soft_confirmation_info, working_set)
+        if let Err(e) =
+            self.runtime
+                .end_soft_confirmation_hook(l1_hash, l1_fee_rate, current_spec, working_set)
         {
             // TODO: will be covered in https://github.com/Sovereign-Labs/sovereign-sdk/issues/421
             native_error!("Failed on `end_soft_confirmation_hook`: {:?}", e);

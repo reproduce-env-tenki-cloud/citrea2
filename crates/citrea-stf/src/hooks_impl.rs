@@ -78,11 +78,13 @@ impl<C: Context, Da: DaSpec> ApplySoftConfirmationHooks<Da> for CitreaRuntime<C,
     #[cfg_attr(feature = "native", instrument(level = "trace", skip_all, err, ret))]
     fn end_soft_confirmation_hook(
         &mut self,
-        soft_confirmation_info: HookSoftConfirmationInfo,
+        l1_hash: [u8; 32],
+        l1_fee_rate: u128,
+        current_spec: SpecId,
         working_set: &mut WorkingSet<C::Storage>,
     ) -> Result<(), SoftConfirmationHookError> {
         self.evm
-            .end_soft_confirmation_hook(&soft_confirmation_info, working_set);
+            .end_soft_confirmation_hook(l1_hash, l1_fee_rate, current_spec, working_set);
         Ok(())
     }
 }
