@@ -2,6 +2,7 @@
 
 /// Compression primitives
 pub mod compression;
+mod merge;
 
 use std::collections::BTreeMap;
 use std::io::{Error, ErrorKind, Read, Write};
@@ -217,7 +218,7 @@ pub fn build_post_state(
 }
 
 /// Reflects account change
-#[derive(Debug, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Copy, BorshSerialize, BorshDeserialize)]
 pub struct AccountChange {
     balance: SlotChange,
     nonce: SlotChange,
@@ -225,7 +226,7 @@ pub struct AccountChange {
 }
 
 /// Reflects storage change
-#[derive(Debug, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct StorageChange {
     #[borsh(serialize_with = "ser_btree_u256", deserialize_with = "der_btree_u256")]
     storage: BTreeMap<U256, Option<SlotChange>>,
@@ -275,6 +276,13 @@ pub struct StatefulStateDiff {
 
     /// All unparsed diff goes here.
     pub unparsed: UnparsedStateDiff,
+}
+
+impl StatefulStateDiff {
+    /// Merge two state diffs
+    pub fn merge(self, other: Self) -> Self {
+        crate::stateful_statediff::merge::Merge::merge(self, other)
+    }
 }
 
 /// Create a StatefulStateDiff which reflects the state diff after applying changes
@@ -423,7 +431,7 @@ pub fn compress_state(pre_state: PreState, post_state: PostState) -> StatefulSta
     }
 }
 
-#[derive(Default, Debug, BorshSerialize, BorshDeserialize, Deserialize, Serialize)]
+#[derive(Default, Clone, Debug, BorshSerialize, BorshDeserialize, Deserialize, Serialize)]
 struct DbAccountInfo {
     #[borsh(serialize_with = "ser_u256", deserialize_with = "der_u256")]
     balance: U256,
