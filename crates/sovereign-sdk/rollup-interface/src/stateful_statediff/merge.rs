@@ -328,11 +328,10 @@ mod tests {
                 compress_two_best_strategy(*x, *y)
             })
             .collect();
-        let final_change = changes.into_iter().fold(
+        changes.into_iter().fold(
             SlotChange::AddInlined(CompressionAddInlined { diff: 0 }),
             |init, elem| init.merge(elem),
-        );
-        final_change
+        )
     }
 
     fn apply_slot_change(val: U256, change: SlotChange) -> U256 {
@@ -390,10 +389,9 @@ mod tests {
                 compress_two_code_hash(*x, *y)
             })
             .collect();
-        let final_change = changes
+        changes
             .into_iter()
-            .fold(CodeHashChange::Removed, |init, elem| init.merge(elem));
-        final_change
+            .fold(CodeHashChange::Removed, |init, elem| init.merge(elem))
     }
 
     fn apply_code_change(val: Option<B256>, change: CodeHashChange) -> Option<B256> {

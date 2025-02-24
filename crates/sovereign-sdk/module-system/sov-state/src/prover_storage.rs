@@ -140,7 +140,14 @@ impl Storage for ProverStorage {
         &self,
         state_log: &ReadWriteLog,
         witness: &mut Witness,
-    ) -> Result<(StateRootTransition, Self::StateUpdate, StateDiff), anyhow::Error> {
+    ) -> Result<
+        (
+            StateRootTransition,
+            Self::StateUpdate,
+            (StateDiff, StatefulStateDiff),
+        ),
+        anyhow::Error,
+    > {
         let version = self.version();
         let jmt = JellyfishMerkleTree::<_, DefaultHasher>::new(&self.db);
 
@@ -242,7 +249,7 @@ impl Storage for ProverStorage {
                 final_root: new_root.into(),
             },
             state_update,
-            diff,
+            (diff, st_statediff),
         ))
     }
 

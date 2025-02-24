@@ -218,7 +218,7 @@ pub fn build_post_state(
 }
 
 /// Reflects account change
-#[derive(Debug, Clone, Copy, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Copy, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct AccountChange {
     balance: SlotChange,
     nonce: SlotChange,
@@ -226,7 +226,7 @@ pub struct AccountChange {
 }
 
 /// Reflects storage change
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct StorageChange {
     #[borsh(serialize_with = "ser_btree_u256", deserialize_with = "der_btree_u256")]
     storage: BTreeMap<U256, Option<SlotChange>>,
@@ -234,7 +234,7 @@ pub struct StorageChange {
 
 /// Reflects new Evm.latest_block_hashes
 // TODO maybe keep (u64, B256) in StatefulStateDiff but compress on borsh serde?
-#[derive(Debug, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct LatestBlockHashes {
     starting_block_number: u64,
     #[borsh(serialize_with = "ser_vec_b256", deserialize_with = "der_vec_b256")]
@@ -242,7 +242,7 @@ pub struct LatestBlockHashes {
 }
 
 /// Reflects all state change
-#[derive(Debug, Default, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Default, Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct StatefulStateDiff {
     // TODO: Remove before mainnet
     #[borsh(

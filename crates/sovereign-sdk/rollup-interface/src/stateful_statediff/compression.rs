@@ -2,9 +2,10 @@
 
 use alloy_primitives::{B256, U256};
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
 
 /// diff(a, b) = Add(a+b)
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompressionAdd {
     pub(crate) diff: U256,
     pub(crate) size: u8,
@@ -24,7 +25,7 @@ impl CompressionAdd {
 }
 
 /// A special case when Add(x) for x <= 31 to fit into 1 serialized byte
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompressionAddInlined {
     pub(crate) diff: u8,
 }
@@ -43,7 +44,7 @@ impl CompressionAddInlined {
 }
 
 /// diff(a, b) = Sub(a - b)
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompressionSub {
     pub(crate) diff: U256,
     pub(crate) size: u8,
@@ -63,7 +64,7 @@ impl CompressionSub {
 }
 
 /// Only try to remove leading zeroes.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompressionTransform {
     pub(crate) diff: U256,
     pub(crate) size: u8,
@@ -83,7 +84,7 @@ impl CompressionTransform {
 }
 
 /// It's a special case when we store diff as is (32 bytes)
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompressionAbsent {
     pub(crate) diff: U256,
 }
@@ -97,7 +98,7 @@ impl CompressionAbsent {
 }
 
 /// All possible diffs of a slot of U256
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlotChange {
     /// Add
     Add(CompressionAdd),
@@ -253,7 +254,7 @@ pub fn compress_one_best_strategy(new_value: U256) -> SlotChange {
 }
 
 /// All possible diffs of a slot of Option<B256>
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CodeHashChange {
     /// Same
     Same,

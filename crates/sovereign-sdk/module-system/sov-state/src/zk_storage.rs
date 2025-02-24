@@ -1,6 +1,6 @@
 use jmt::KeyHash;
 use sov_modules_core::{OrderedWrites, ReadWriteLog, Storage, StorageKey, StorageValue};
-use sov_rollup_interface::stateful_statediff;
+use sov_rollup_interface::stateful_statediff::{self, StatefulStateDiff};
 use sov_rollup_interface::stf::{StateDiff, StateRootTransition};
 use sov_rollup_interface::witness::Witness;
 use sov_rollup_interface::zk::StorageRootHash;
@@ -55,7 +55,14 @@ impl Storage for ZkStorage {
         &self,
         state_log: &ReadWriteLog,
         witness: &mut Witness,
-    ) -> Result<(StateRootTransition, Self::StateUpdate, StateDiff), anyhow::Error> {
+    ) -> Result<
+        (
+            StateRootTransition,
+            Self::StateUpdate,
+            (StateDiff, StatefulStateDiff),
+        ),
+        anyhow::Error,
+    > {
         let prev_state_root = witness.get_hint();
 
         // For each value that's been read from the tree, verify the provided jmt proof
@@ -116,7 +123,6 @@ impl Storage for ZkStorage {
             .sum();
         let ststdiff = borsh::to_vec(&st_statediff).unwrap();
         let prevdiff = borsh::to_vec(&diff).unwrap();
-        let _ = st_statediff;
 
         println!(
             "zk: ststdiff: {} bytes, diff: {} bytes, ststdiff unparsed: {} bytes \n",
@@ -131,7 +137,7 @@ impl Storage for ZkStorage {
                 final_root: new_root,
             },
             (),
-            diff,
+            (diff, st_statediff),
         ))
     }
 
