@@ -132,7 +132,7 @@ impl ZkvmHost for Risc0BonsaiHost {
         #[cfg(feature = "testing")]
         {
             if self.network == Network::TestNetworkWithForks {
-                env.env_var("ALL_FORK", "1");
+                env.env_var("ALL_FORKS", "1");
             }
         }
 
