@@ -15,6 +15,6 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github_token }}
       run: | 
         curl -L https://risczero.com/install | bash
-        source ~/.bashrc
+        source $HOME/.bashrc
         rzup install
 
