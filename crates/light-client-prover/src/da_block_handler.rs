@@ -466,7 +466,6 @@ where
                 input: borsh::to_vec(&circuit_input)?,
                 assumptions,
                 elf: light_client_elf,
-                is_post_genesis_batch: false,
             })
             .await;
 
