@@ -32,6 +32,8 @@ secp256k1 = { git = "https://github.com/Sovereign-Labs/rust-secp256k1.git", bran
 tiny-keccak = { git = "https://github.com/risc0/tiny-keccak", tag = "tiny-keccak/v2.0.2-risczero.0" }
 k256 = { git = "https://github.com/risc0/RustCrypto-elliptic-curves", tag = "k256/v0.13.4-risczero.1" }
 p256 = { git = "https://github.com/risc0/RustCrypto-elliptic-curves", tag = "p256/v0.13.2-risczero.0" }
+# TODO: Update to tag when it's available
+substrate-bn = { git = "https://github.com/risc0/paritytech-bn", rev = "77f8a3f5d8576137a8c316d5781cdb724441b8fa" }
 
 [profile.release]
 debug = 0

@@ -1769,7 +1769,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "once_cell",
- "risc0-bigint2",
+ "risc0-bigint2 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serdect",
  "sha2",
  "signature",
@@ -2074,7 +2074,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "primeorder",
- "risc0-bigint2",
+ "risc0-bigint2 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "sha2",
 ]
 
@@ -2171,7 +2171,7 @@ source = "git+https://github.com/risc0/RustCrypto-elliptic-curves?tag=p256/v0.13
 dependencies = [
  "bytemuck",
  "elliptic-curve",
- "risc0-bigint2",
+ "risc0-bigint2 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2593,6 +2593,15 @@ name = "risc0-bigint2"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7549b31ad8d81afea787c807803a592bc73151926bbb951a6823e23d998c34f0"
+dependencies = [
+ "include_bytes_aligned",
+ "stability",
+]
+
+[[package]]
+name = "risc0-bigint2"
+version = "1.2.1"
+source = "git+https://github.com/risc0/risc0.git?rev=ac029674f588d6f913dab3f5ea96683c6a71b869#ac029674f588d6f913dab3f5ea96683c6a71b869"
 dependencies = [
  "include_bytes_aligned",
  "stability",
@@ -3335,13 +3344,15 @@ dependencies = [
 [[package]]
 name = "substrate-bn"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b5bbfa79abbae15dd642ea8176a21a635ff3c00059961d1ea27ad04e5b441c"
+source = "git+https://github.com/risc0/paritytech-bn?rev=77f8a3f5d8576137a8c316d5781cdb724441b8fa#77f8a3f5d8576137a8c316d5781cdb724441b8fa"
 dependencies = [
+ "bytemuck",
  "byteorder",
  "crunchy",
+ "crypto-bigint",
  "lazy_static",
  "rand",
+ "risc0-bigint2 1.2.1 (git+https://github.com/risc0/risc0.git?rev=ac029674f588d6f913dab3f5ea96683c6a71b869)",
  "rustc-hex",
 ]
 
