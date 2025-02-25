@@ -15,6 +15,6 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github_token }}
       run: | 
         curl -L https://risczero.com/install | bash
-        source $HOME/.bashrc
+        export PATH="$PATH:$HOME/.risc0/bin"
         rzup install
 
