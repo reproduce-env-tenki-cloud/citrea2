@@ -1,6 +1,7 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
-use risc0_build::{embed_methods_with_options, DockerOptions, GuestOptions};
+use risc0_build::{embed_methods_with_options, DockerOptionsBuilder, GuestOptionsBuilder};
 
 fn main() {
     // Build environment variables
@@ -62,17 +63,28 @@ fn get_guest_options() -> HashMap<&'static str, risc0_build::GuestOptions> {
     let use_docker = if std::env::var("REPR_GUEST_BUILD_LATEST").is_ok() {
         let this_package_dir = std::env!("CARGO_MANIFEST_DIR");
         let root_dir = format!("{this_package_dir}/../../../");
-        Some(DockerOptions {
-            root_dir: Some(root_dir.into()),
-        })
+        let opts = DockerOptionsBuilder::default()
+            .root_dir(PathBuf::from(root_dir))
+            .build()
+            .unwrap();
+
+        Some(opts)
     } else {
         println!("cargo:warning=Guest code is not built in docker");
         None
     };
 
-    let opts = GuestOptions {
-        features,
-        use_docker,
+    let opts = if let Some(use_docker) = use_docker {
+        GuestOptionsBuilder::default()
+            .features(features)
+            .use_docker(use_docker)
+            .build()
+            .unwrap()
+    } else {
+        GuestOptionsBuilder::default()
+            .features(features)
+            .build()
+            .unwrap()
     };
 
     guest_pkg_to_options.insert("batch-proof-bitcoin", opts.clone());
