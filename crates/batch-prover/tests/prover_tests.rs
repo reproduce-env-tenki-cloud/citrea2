@@ -10,6 +10,7 @@ use sov_mock_zkvm::MockZkvm;
 use sov_rollup_interface::da::Time;
 use sov_rollup_interface::zk::batch_proof::input::BatchProofCircuitInput;
 use sov_rollup_interface::zk::{Proof, ZkvmHost};
+use sov_state::Witness;
 use tokio::sync::oneshot;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -30,7 +31,6 @@ async fn test_successful_prover_execution() {
             input: borsh::to_vec(&make_transition_data(header_hash)).unwrap(),
             assumptions: vec![],
             elf: vec![],
-            is_post_genesis_batch: false,
         })
         .await;
 
@@ -71,7 +71,6 @@ async fn test_parallel_proofs_equal_to_limit() {
             input: borsh::to_vec(&make_transition_data(header_hash_1)).unwrap(),
             assumptions: vec![],
             elf: vec![],
-            is_post_genesis_batch: false,
         })
         .await;
     // 2nd proof
@@ -81,7 +80,6 @@ async fn test_parallel_proofs_equal_to_limit() {
             input: borsh::to_vec(&make_transition_data(header_hash_2)).unwrap(),
             assumptions: vec![],
             elf: vec![],
-            is_post_genesis_batch: false,
         })
         .await;
 
@@ -127,7 +125,6 @@ async fn test_parallel_proofs_higher_than_limit() {
             input: borsh::to_vec(&make_transition_data(header_hash_1)).unwrap(),
             assumptions: vec![],
             elf: vec![],
-            is_post_genesis_batch: false,
         })
         .await;
     // 2nd proof
@@ -137,7 +134,6 @@ async fn test_parallel_proofs_higher_than_limit() {
             input: borsh::to_vec(&make_transition_data(header_hash_2)).unwrap(),
             assumptions: vec![],
             elf: vec![],
-            is_post_genesis_batch: false,
         })
         .await;
     // 3rd proof
@@ -147,7 +143,6 @@ async fn test_parallel_proofs_higher_than_limit() {
             input: borsh::to_vec(&make_transition_data(header_hash_3)).unwrap(),
             assumptions: vec![],
             elf: vec![],
-            is_post_genesis_batch: false,
         })
         .await;
     // 4th proof
@@ -157,7 +152,6 @@ async fn test_parallel_proofs_higher_than_limit() {
             input: borsh::to_vec(&make_transition_data(header_hash_4)).unwrap(),
             assumptions: vec![],
             elf: vec![],
-            is_post_genesis_batch: false,
         })
         .await;
     // 5th proof
@@ -167,7 +161,6 @@ async fn test_parallel_proofs_higher_than_limit() {
             input: borsh::to_vec(&make_transition_data(header_hash_5)).unwrap(),
             assumptions: vec![],
             elf: vec![],
-            is_post_genesis_batch: false,
         })
         .await;
 
@@ -235,7 +228,6 @@ async fn test_multiple_parallel_proof_run() {
             input: borsh::to_vec(&make_transition_data(header_hash_1)).unwrap(),
             assumptions: vec![],
             elf: vec![],
-            is_post_genesis_batch: false,
         })
         .await;
     // 2nd proof
@@ -245,7 +237,6 @@ async fn test_multiple_parallel_proof_run() {
             input: borsh::to_vec(&make_transition_data(header_hash_2)).unwrap(),
             assumptions: vec![],
             elf: vec![],
-            is_post_genesis_batch: false,
         })
         .await;
 
@@ -271,7 +262,6 @@ async fn test_multiple_parallel_proof_run() {
             input: borsh::to_vec(&make_transition_data(header_hash_3)).unwrap(),
             assumptions: vec![],
             elf: vec![],
-            is_post_genesis_batch: false,
         })
         .await;
     // 2nd proof
@@ -281,7 +271,6 @@ async fn test_multiple_parallel_proof_run() {
             input: borsh::to_vec(&make_transition_data(header_hash_4)).unwrap(),
             assumptions: vec![],
             elf: vec![],
-            is_post_genesis_batch: false,
         })
         .await;
     // 3rd proof
@@ -291,7 +280,6 @@ async fn test_multiple_parallel_proof_run() {
             input: borsh::to_vec(&make_transition_data(header_hash_5)).unwrap(),
             assumptions: vec![],
             elf: vec![],
-            is_post_genesis_batch: false,
         })
         .await;
 
@@ -365,6 +353,7 @@ fn make_transition_data(header_hash: MockHash) -> BatchProofCircuitInput<'static
         final_state_root: [0; 32],
         sequencer_commitments: vec![],
         cache_prune_l2_heights: vec![],
+        last_l1_hash_witness: Witness::default(),
     }
 }
 

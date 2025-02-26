@@ -611,8 +611,8 @@ impl TestCase for LightClientBatchProofMethodIdUpdateTest {
                 BatchProofMethodIdRpcResponse {
                     height: U64::from(100),
                     method_id: [
-                        2404201023, 1946196330, 3482951800, 4144215782, 3393405637, 2574851036,
-                        248465296, 3556276186
+                        2964727933, 2511287864, 172809710, 3985899245, 1451479689, 3494736368,
+                        3097495824, 56383634,
                     ]
                     .into()
                 },
@@ -672,8 +672,8 @@ impl TestCase for LightClientBatchProofMethodIdUpdateTest {
                 BatchProofMethodIdRpcResponse {
                     height: U64::from(100),
                     method_id: [
-                        2404201023, 1946196330, 3482951800, 4144215782, 3393405637, 2574851036,
-                        248465296, 3556276186
+                        2964727933, 2511287864, 172809710, 3985899245, 1451479689, 3494736368,
+                        3097495824, 56383634,
                     ]
                     .into()
                 },
@@ -706,8 +706,8 @@ impl TestCase for LightClientBatchProofMethodIdUpdateTest {
                 BatchProofMethodIdRpcResponse {
                     height: U64::from(100),
                     method_id: [
-                        2404201023, 1946196330, 3482951800, 4144215782, 3393405637, 2574851036,
-                        248465296, 3556276186
+                        2964727933, 2511287864, 172809710, 3985899245, 1451479689, 3494736368,
+                        3097495824, 56383634,
                     ]
                     .into()
                 },
@@ -752,8 +752,8 @@ impl TestCase for LightClientBatchProofMethodIdUpdateTest {
                 BatchProofMethodIdRpcResponse {
                     height: U64::from(100),
                     method_id: [
-                        2404201023, 1946196330, 3482951800, 4144215782, 3393405637, 2574851036,
-                        248465296, 3556276186
+                        2964727933, 2511287864, 172809710, 3985899245, 1451479689, 3494736368,
+                        3097495824, 56383634,
                     ]
                     .into()
                 },
@@ -1363,7 +1363,7 @@ fn create_serialized_fake_receipt_batch_proof(
         final_soft_confirmation_hash: [0u8; 32],
         state_diff: state_diff.unwrap_or_default(),
         sequencer_commitment_merkle_roots: vec![],
-        l1_hashes_added_to_light_client_contract: vec![],
+        last_l1_hash_on_bitcoin_light_client_contract: [0; 32],
     };
     let mut output_serialized = borsh::to_vec(&batch_proof_output).unwrap();
 

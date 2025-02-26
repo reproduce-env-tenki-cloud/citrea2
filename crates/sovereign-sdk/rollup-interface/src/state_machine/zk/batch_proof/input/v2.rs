@@ -1,27 +1,35 @@
 use std::collections::VecDeque;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshSerialize;
 
 use crate::da::DaSpec;
-use crate::soft_confirmation::SignedSoftConfirmation;
+use crate::soft_confirmation::L2Block;
 use crate::witness::PreFork2Witness;
 use crate::zk::StorageRootHash;
 
-#[derive(BorshDeserialize, BorshSerialize)]
 /// Second part of the Kumquat elf input
 /// This is going to be read per-need basis to not go out of memory
 /// in the zkvm
 pub struct BatchProofCircuitInputV2Part2<'txs, Tx: Clone + BorshSerialize>(
-    pub  VecDeque<
-        Vec<(
-            SignedSoftConfirmation<'txs, Tx>,
-            PreFork2Witness,
-            PreFork2Witness,
-        )>,
-    >,
+    pub VecDeque<Vec<(L2Block<'txs, Tx>, PreFork2Witness, PreFork2Witness)>>,
 );
 
-#[derive(BorshDeserialize, BorshSerialize)]
+impl<'txs, Tx: Clone + BorshSerialize> BorshSerialize for BatchProofCircuitInputV2Part2<'txs, Tx> {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        BorshSerialize::serialize(&(self.0.len() as u32), writer)?;
+        for blocks in &self.0 {
+            BorshSerialize::serialize(&(blocks.len() as u32), writer)?;
+            for (block, w1, w2) in blocks {
+                block.serialize_v2(writer)?;
+                w1.serialize(writer)?;
+                w2.serialize(writer)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(BorshSerialize)]
 // Prevent serde from generating spurious trait bounds. The correct serde bounds are already enforced by the
 // StateTransitionFunction, DA, and Zkvm traits.
 /// First part of the Kumquat elf input
@@ -32,8 +40,6 @@ pub struct BatchProofCircuitInputV2Part1<Da: DaSpec> {
     pub final_state_root: StorageRootHash,
     /// The hash before the state transition
     pub prev_soft_confirmation_hash: [u8; 32],
-    /// The `crate::da::DaData` that are being processed as blobs. Everything that's not `crate::da::DaData::SequencerCommitment` will be ignored.
-    pub da_data: Vec<Da::BlobTransaction>,
     /// DA block header that the sequencer commitments were found in.
     pub da_block_header_of_commitments: Da::BlockHeader,
     /// The inclusion proof for all DA data.

@@ -18,18 +18,14 @@ use sov_modules_api::hooks::{
 };
 use sov_modules_api::transaction::Transaction;
 use sov_modules_api::{
-    native_debug, BasicAddress, Context, DaSpec, DispatchCall, Genesis, Signature, Spec,
-    UnsignedSoftConfirmation, WorkingSet,
+    native_debug, Context, DaSpec, DispatchCall, Genesis, Signature, Spec, WorkingSet,
 };
 use sov_rollup_interface::da::SequencerCommitment;
 use sov_rollup_interface::fork::ForkManager;
-use sov_rollup_interface::soft_confirmation::{
-    L2Block, SignedL2Header, UnsignedSoftConfirmationV1,
-};
+use sov_rollup_interface::soft_confirmation::{L2Block, SignedL2Header};
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::stf::{
-    ApplySequencerCommitmentsOutput, SoftConfirmationError, SoftConfirmationResult,
-    StateTransitionError,
+    SoftConfirmationError, SoftConfirmationResult, StateTransitionError,
 };
 use sov_rollup_interface::zk::batch_proof::output::CumulativeStateDiff;
 use sov_rollup_interface::zk::{StorageRootHash, ZkvmGuest};
@@ -80,38 +76,26 @@ pub trait Runtime<C: Context, Da: DaSpec>:
     ) -> Result<Self::GenesisConfig, anyhow::Error>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-/// Represents the different outcomes that can occur for a sequencer after batch processing.
-pub enum SequencerOutcome<A: BasicAddress> {
-    /// Sequencer receives reward amount in defined token and can withdraw its deposit
-    Rewarded(u64),
-    /// Sequencer loses its deposit and receives no reward
-    Slashed {
-        /// Reason why sequencer was slashed.
-        reason: SlashingReason,
-        #[serde(bound(deserialize = ""))]
-        /// Sequencer address on DA.
-        sequencer_da_address: A,
-    },
-    /// Batch was ignored, sequencer deposit left untouched.
-    Ignored,
-}
-
 /// Genesis parameters for a blueprint
 pub struct GenesisParams<RT> {
     /// The runtime genesis parameters
     pub runtime: RT,
 }
 
-/// Reason why sequencer was slashed.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum SlashingReason {
-    /// This status indicates problem with batch deserialization.
-    InvalidBatchEncoding,
-    /// Stateless verification failed, for example deserialized transactions have invalid signatures.
-    StatelessVerificationFailed,
-    /// This status indicates problem with transaction deserialization.
-    InvalidTransactionEncoding,
+/// The output of the function that applies sequencer commitments to the state in the verifier
+pub struct ApplySequencerCommitmentsOutput {
+    /// Final state root after all sequencer commitments were applied
+    pub final_state_root: StorageRootHash,
+    /// State diff generated after applying
+    pub state_diff: CumulativeStateDiff,
+    /// Last processed L2 block height
+    pub last_l2_height: u64,
+    /// Last soft confirmation hash
+    pub final_soft_confirmation_hash: [u8; 32],
+    /// Sequencer commitment hashes
+    pub sequencer_commitment_merkle_roots: Vec<[u8; 32]>,
+    /// Cumulative state log
+    pub cumulative_state_log: ReadWriteLog,
 }
 
 impl<C, RT, Da> StfBlueprint<C, Da, RT>
@@ -135,18 +119,24 @@ where
             ));
         };
 
-        // then verify da hashes match
-        if soft_confirmation_info.da_slot_hash() != slot_header.hash().into() {
-            return Err(StateTransitionError::SoftConfirmationError(
-                SoftConfirmationError::InvalidDaHash,
-            ));
+        if soft_confirmation_info.current_spec() < SpecId::Fork2 {
+            // then verify da hashes match
+            if soft_confirmation_info.da_slot_hash().unwrap() != slot_header.hash().into() {
+                return Err(StateTransitionError::SoftConfirmationError(
+                    SoftConfirmationError::InvalidDaHash,
+                ));
+            }
         }
 
-        // then verify da transactions commitment match
-        if soft_confirmation_info.da_slot_txs_commitment() != slot_header.txs_commitment().into() {
-            return Err(StateTransitionError::SoftConfirmationError(
-                SoftConfirmationError::InvalidDaTxsCommitment,
-            ));
+        if soft_confirmation_info.current_spec() < SpecId::Fork2 {
+            // then verify da transactions commitment match
+            if soft_confirmation_info.da_slot_txs_commitment().unwrap()
+                != slot_header.txs_commitment().into()
+            {
+                return Err(StateTransitionError::SoftConfirmationError(
+                    SoftConfirmationError::InvalidDaTxsCommitment,
+                ));
+            }
         }
 
         self.begin_soft_confirmation_inner(working_set, soft_confirmation_info)
@@ -169,6 +159,8 @@ where
         current_spec: SpecId,
         l2_block: &L2Block<Transaction>,
         sequencer_public_key: &[u8],
+        da_slot_height: u64,
+        da_slot_hash: [u8; 32],
     ) -> Result<(), StateTransitionError> {
         let l2_header = &l2_block.header;
 
@@ -178,15 +170,23 @@ where
 
         match current_spec {
             SpecId::Genesis => {
-                // PreFork2Transaction
-                let unsigned = UnsignedSoftConfirmationV1::from(l2_block);
-                let raw = borsh::to_vec(&unsigned).map_err(|_| {
-                    StateTransitionError::SoftConfirmationError(
-                        SoftConfirmationError::NonSerializableSovTx,
-                    )
-                })?;
+                let blobs = l2_block.compute_blobs();
 
-                let expected_hash: [u8; 32] = <C as Spec>::Hasher::digest(&raw).into();
+                let Ok((expected_hash, raw)) = l2_header
+                    .inner
+                    .hash_v1::<<C as Spec>::Hasher>(
+                        da_slot_height,
+                        da_slot_hash,
+                        blobs,
+                        l2_block.deposit_data().to_owned(),
+                    )
+                    .map(|(hash, raw)| (Into::<[u8; 32]>::into(hash), raw))
+                else {
+                    return Err(StateTransitionError::SoftConfirmationError(
+                        SoftConfirmationError::InvalidDaHash,
+                    ));
+                };
+
                 if l2_block.hash() != expected_hash {
                     return Err(StateTransitionError::SoftConfirmationError(
                         SoftConfirmationError::InvalidSoftConfirmationHash,
@@ -196,9 +196,16 @@ where
                 verify_genesis_signature(&raw, &l2_header.signature, sequencer_public_key)
             }
             SpecId::Kumquat => {
-                let unsigned = UnsignedSoftConfirmation::from(l2_block);
-                let expected_hash =
-                    Into::<[u8; 32]>::into(unsigned.compute_digest::<<C as Spec>::Hasher>());
+                let blobs = l2_block.compute_blobs();
+                let expected_hash: [u8; 32] = l2_header
+                    .inner
+                    .hash_v2::<<C as Spec>::Hasher>(
+                        da_slot_height,
+                        da_slot_hash,
+                        blobs,
+                        l2_block.deposit_data().to_owned(),
+                    )
+                    .into();
 
                 if l2_block.hash() != expected_hash {
                     return Err(StateTransitionError::SoftConfirmationError(
@@ -372,7 +379,13 @@ where
 
         native_debug!("Applying soft confirmation in STF Blueprint");
 
-        self.verify_soft_confirmation(current_spec, l2_block, sequencer_public_key)?;
+        self.verify_soft_confirmation(
+            current_spec,
+            l2_block,
+            sequencer_public_key,
+            slot_header.height(),
+            slot_header.hash().into(),
+        )?;
 
         self.begin_soft_confirmation(
             sequencer_public_key,
@@ -611,6 +624,7 @@ where
             last_l2_height: last_commitment_end_height.unwrap(),
             final_soft_confirmation_hash: prev_soft_confirmation_hash.unwrap(),
             sequencer_commitment_merkle_roots,
+            cumulative_state_log: cumulative_state_log.unwrap(),
         }
     }
 }
