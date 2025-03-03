@@ -546,6 +546,7 @@ name = "citrea-light-client-prover"
 version = "0.6.0"
 dependencies = [
  "borsh",
+ "jmt",
  "sov-modules-api",
  "sov-rollup-interface",
 ]

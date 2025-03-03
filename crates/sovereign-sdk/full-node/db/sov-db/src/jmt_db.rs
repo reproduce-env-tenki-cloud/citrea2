@@ -104,16 +104,4 @@ impl JmtDB {
 
         Ok(update_proof)
     }
-
-    pub fn verify_update(
-        update_proof: UpdateMerkleProofSha2,
-        prev_root: [u8; 32],
-        new_root: [u8; 32],
-        key: &[u8],
-        value: &[u8],
-    ) -> anyhow::Result<()> {
-        let key_hash = Self::hash_key(key);
-
-        update_proof.verify_update(prev_root.into(), new_root.into(), [(key_hash, Some(value))])
-    }
 }

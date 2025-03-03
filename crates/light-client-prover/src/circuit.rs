@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
 use borsh::BorshDeserialize;
-use sov_db::jmt_db::JmtDB;
 use sov_modules_api::da::BlockHeaderTrait;
 use sov_modules_api::BlobReaderTrait;
 use sov_rollup_interface::da::{BatchProofMethodId, DaDataLightClient, DaNamespace, DaVerifier};
+use sov_rollup_interface::jmt::verify_jmt_update;
 use sov_rollup_interface::mmr::{MMRChunk, MMRGuest, Wtxid};
 use sov_rollup_interface::zk::batch_proof::output::v1::BatchProofCircuitOutputV1;
 use sov_rollup_interface::zk::batch_proof::output::v2::BatchProofCircuitOutputV2;
@@ -82,7 +82,7 @@ pub fn run_circuit<DaV: DaVerifier, G: ZkvmGuest>(
         let current_block_hash = input.da_block_header.hash().into();
         let update_proof = input.jmt_update_proof;
 
-        if JmtDB::verify_update(
+        if verify_jmt_update(
             update_proof,
             prev_jmt_root,
             input.jmt_root,

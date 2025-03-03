@@ -13,6 +13,7 @@ pub const CITREA_VERSION: &str = "v0.6.5";
 
 /// Fork module
 pub mod fork;
+pub mod jmt;
 pub mod mmr;
 mod network;
 mod node;
