@@ -8,6 +8,7 @@ use citrea_common::da::sync_l1;
 use citrea_common::LightClientProverConfig;
 use citrea_primitives::forks::fork_from_block_number;
 use prover_services::{ParallelProverService, ProofData};
+use sov_db::jmt_db::JmtDB;
 use sov_db::ledger_db::{LightClientProverLedgerOps, SharedLedgerOps};
 use sov_db::mmr_db::MmrDB;
 use sov_db::schema::types::light_client_proof::StoredLightClientProofOutput;
@@ -54,6 +55,7 @@ where
     queued_l1_blocks: Arc<Mutex<VecDeque<<Da as DaService>::FilteredBlock>>>,
     mmr_native: MMRNative<MmrDB>,
     backup_manager: Arc<BackupManager>,
+    jmt_db: JmtDB,
 }
 
 impl<Vm, Da, DB> L1BlockHandler<Vm, Da, DB>
@@ -74,6 +76,7 @@ where
         light_client_proof_elfs: HashMap<SpecId, Vec<u8>>,
         mmr_db: MmrDB,
         backup_manager: Arc<BackupManager>,
+        jmt_db: JmtDB,
     ) -> Self {
         let mmr_native = MMRNative::new(mmr_db);
         Self {
@@ -89,6 +92,7 @@ where
             queued_l1_blocks: Arc::new(Mutex::new(VecDeque::new())),
             mmr_native,
             backup_manager,
+            jmt_db,
         }
     }
 
@@ -161,6 +165,9 @@ where
         self.ledger_db
             .set_l1_height_of_l1_hash(l1_hash, l1_height)
             .expect("Setting l1 height of l1 hash in ledger db");
+
+        let new_jmt_root = self.jmt_db.insert(&l1_hash, &[])?;
+        let jmt_update_proof = self.jmt_db.create_update_proof(&l1_hash)?;
 
         let (mut da_data, inclusion_proof, completeness_proof) = self
             .da_service
@@ -348,6 +355,8 @@ where
             previous_light_client_proof_journal: light_client_proof_journal,
             mmr_hints: mmr_hints.into(),
             expected_to_fail_hint,
+            jmt_root: new_jmt_root,
+            jmt_update_proof,
         };
 
         let proof = self

@@ -4,6 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::da::DaSpec;
 use crate::mmr::{MMRChunk, MMRInclusionProof};
+use crate::zk::UpdateMerkleProofSha2;
 
 /// The input of light client proof
 #[derive(BorshDeserialize, BorshSerialize)]
@@ -29,4 +30,8 @@ pub struct LightClientCircuitInput<Da: DaSpec> {
     /// on a DA block. However storing them as u32 is more efficient in zkVMs
     /// and just to be sure we don't overflow u8.
     pub expected_to_fail_hint: Vec<u32>,
+    /// JMT Root hash resulting from appyling associated DA block hash
+    pub jmt_root: [u8; 32],
+    /// DA block hash JMT update proof
+    pub jmt_update_proof: UpdateMerkleProofSha2,
 }

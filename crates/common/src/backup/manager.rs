@@ -6,6 +6,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{bail, ensure, Context};
 use rocksdb::backup::BackupEngineInfo;
 use serde::{Deserialize, Serialize};
+use sov_db::jmt_db::JmtDB;
 use sov_db::ledger_db::{LedgerDB, SharedLedgerOps, LEDGER_DB_PATH_SUFFIX};
 use sov_db::mmr_db::MmrDB;
 use sov_db::native_db::NativeDB;
@@ -32,6 +33,7 @@ impl BackupConfig {
 
         if node_kind == "light-client-prover" {
             backup_dirs.push(MmrDB::DB_PATH_SUFFIX.to_string());
+            backup_dirs.push(JmtDB::DB_PATH_SUFFIX.to_string());
         }
 
         Self { backup_dirs }

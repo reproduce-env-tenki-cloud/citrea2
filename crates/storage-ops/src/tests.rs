@@ -421,6 +421,7 @@ fn prepare_slots_data(ledger_db: &DB) {
                         last_l2_height: da_slot_height,
                         batch_proof_method_ids: vec![],
                         mmr_guest: MMRGuest::new(),
+                        jmt_root: [0u8; 32],
                     },
                 },
             )

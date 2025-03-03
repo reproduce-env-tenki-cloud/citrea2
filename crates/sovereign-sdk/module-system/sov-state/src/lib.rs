@@ -23,5 +23,6 @@ pub use sov_rollup_interface::witness::Witness;
 /// The default Witness type used in merkle proofs for storage access, typically found as a type parameter for [`ProverStorage`].
 /// The default Hasher type used in merkle proofs for storage access, typically found as a type parameter for [`ProverStorage`].
 pub type DefaultHasher = sha2::Sha256;
+
 /// A hashed key used to index a JellyfishMerkleTree.
 pub type KeyHash = jmt::KeyHash;

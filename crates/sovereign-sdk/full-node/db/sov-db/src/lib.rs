@@ -21,6 +21,8 @@ pub mod state_db;
 
 pub mod mmr_db;
 
+pub mod jmt_db;
+
 /// Implements a wrapper around RocksDB meant for storing state only accessible
 /// outside of the zkVM execution environment, as this data is not included in
 /// the JMT and does not contribute to proofs of execution.

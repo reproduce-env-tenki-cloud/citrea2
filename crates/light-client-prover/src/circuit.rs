@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
 use borsh::BorshDeserialize;
+use sov_db::jmt_db::JmtDB;
+use sov_modules_api::da::BlockHeaderTrait;
 use sov_modules_api::BlobReaderTrait;
 use sov_rollup_interface::da::{BatchProofMethodId, DaDataLightClient, DaNamespace, DaVerifier};
 use sov_rollup_interface::mmr::{MMRChunk, MMRGuest, Wtxid};
@@ -23,6 +25,7 @@ pub enum LightClientVerificationError<DaV: DaVerifier> {
     DaTxsCouldntBeVerified(DaV::Error),
     HeaderChainVerificationFailed(DaV::Error),
     InvalidPreviousLightClientProof,
+    JmtVerificationFailed,
 }
 
 // L2 activation height of the fork, and the batch proof method ID
@@ -70,6 +73,29 @@ pub fn run_circuit<DaV: DaVerifier, G: ZkvmGuest>(
             network,
         )
         .map_err(|err| LightClientVerificationError::HeaderChainVerificationFailed(err))?;
+
+    // Verify the input JMT root against the previous root using update proof
+    if let Some(prev_jmt_root) = previous_light_client_proof_output
+        .as_ref()
+        .map(|output| output.jmt_root)
+    {
+        let current_block_hash = input.da_block_header.hash().into();
+        let update_proof = input.jmt_update_proof;
+
+        if JmtDB::verify_update(
+            update_proof,
+            prev_jmt_root,
+            input.jmt_root,
+            &current_block_hash,
+            &[],
+        )
+        .is_err()
+        {
+            return Err(LightClientVerificationError::<DaV>::JmtVerificationFailed);
+        }
+    }
+
+    let new_jmt_root = input.jmt_root;
 
     // Verify data from da
     let da_txs = da_verifier
@@ -297,6 +323,7 @@ pub fn run_circuit<DaV: DaVerifier, G: ZkvmGuest>(
         last_l2_height,
         batch_proof_method_ids,
         mmr_guest,
+        jmt_root: new_jmt_root,
     })
 }
 

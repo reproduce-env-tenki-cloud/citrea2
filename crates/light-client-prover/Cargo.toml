@@ -24,6 +24,7 @@ anyhow = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 borsh = { workspace = true }
 hex = { workspace = true, optional = true }
+jmt = { workspace = true }
 jsonrpsee = { workspace = true, optional = true, features = ["http-client", "server", "client"] }
 metrics = { workspace = true, optional = true }
 metrics-derive = { workspace = true, optional = true }

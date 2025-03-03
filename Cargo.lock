@@ -2053,6 +2053,7 @@ dependencies = [
  "citrea-common",
  "citrea-primitives",
  "hex",
+ "jmt",
  "jsonrpsee",
  "metrics",
  "metrics-derive",

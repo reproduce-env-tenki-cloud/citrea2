@@ -38,6 +38,22 @@ impl StateDB {
         )
     }
 
+    /// Initialize [`DB`] that should be globally used with suffix and name
+    pub fn setup_schema_db_with_path_and_suffix(
+        cfg: &RocksdbConfig,
+        db_name: &'static str,
+        db_path_suffix: &'static str,
+    ) -> anyhow::Result<sov_schema_db::DB> {
+        let raw_options = cfg.as_raw_options(false);
+        let state_db_path = cfg.path.join(db_path_suffix);
+        sov_schema_db::DB::open(
+            state_db_path,
+            db_name,
+            STATE_TABLES.iter().copied(),
+            &raw_options,
+        )
+    }
+
     /// Convert it to [`SchemaBatch`] which cannot be edited anymore
     pub fn freeze(self) -> anyhow::Result<SchemaBatch> {
         let inner = Arc::into_inner(self.db).ok_or(anyhow::anyhow!(

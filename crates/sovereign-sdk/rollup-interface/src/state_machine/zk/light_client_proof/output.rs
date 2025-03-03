@@ -25,6 +25,8 @@ pub struct LightClientCircuitOutput {
     /// MMRGuest is an impl. MMR, which only needs to hold considerably small amount of data.
     /// like 32 hashes and some u64
     pub mmr_guest: MMRGuest,
+    /// JMT root
+    pub jmt_root: [u8; 32],
 }
 
 /// The batch proof that was not verified in the light client circuit because it was missing another proof for state root chaining

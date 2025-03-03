@@ -123,3 +123,6 @@ pub type StorageRootHash = [u8; 32];
 
 /// Alias to jmt::proof::SparseMerkleProof.
 pub type SparseMerkleProofSha2 = jmt::proof::SparseMerkleProof<sha2::Sha256>;
+
+/// Alias to jmt::proof::UpdateMerkleProof.
+pub type UpdateMerkleProofSha2 = jmt::proof::UpdateMerkleProof<sha2::Sha256>;

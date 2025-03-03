@@ -50,6 +50,8 @@ pub struct StoredLightClientProofOutput {
     pub batch_proof_method_ids: Vec<(u64, [u32; 8])>,
     /// A list of unprocessed chunks
     pub mmr_guest: MMRGuest,
+    /// JMT root of L1 block hashes
+    pub jmt_root: [u8; 32],
 }
 
 impl From<StoredLightClientProofOutput> for LightClientProofOutputRpcResponse {
@@ -109,6 +111,7 @@ impl From<LightClientCircuitOutput> for StoredLightClientProofOutput {
             last_l2_height: circuit_output.last_l2_height,
             batch_proof_method_ids: circuit_output.batch_proof_method_ids,
             mmr_guest: circuit_output.mmr_guest,
+            jmt_root: circuit_output.jmt_root,
         }
     }
 }
@@ -131,6 +134,7 @@ impl From<StoredLightClientProofOutput> for LightClientCircuitOutput {
             last_l2_height: db_output.last_l2_height,
             batch_proof_method_ids: db_output.batch_proof_method_ids,
             mmr_guest: db_output.mmr_guest,
+            jmt_root: db_output.jmt_root,
         }
     }
 }
