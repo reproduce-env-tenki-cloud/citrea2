@@ -431,7 +431,7 @@ pub fn populate_system_events<'a>(
         system_events.push(SystemEvent::BridgeInitialize(bridge_initialize_params));
     }
 
-    while deposit_data.iter().next() != None {
+    while deposit_data.iter().next().is_some() {
         system_events.push(SystemEvent::BridgeDeposit(
             deposit_data.pop_front().unwrap(),
         ));
