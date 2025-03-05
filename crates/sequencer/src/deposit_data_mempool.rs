@@ -30,7 +30,7 @@ impl DepositDataMempool {
     // (i.e. if you have 500 dep tx, due to gas, they may not be included, so it panics - we don't want that)
 
     // Considering the deposit amounts to be allowed, and the block count, a limit per block is convenient
-    pub fn fetch_deposits(&mut self, limit_per_block: usize) -> Vec<Vec<u8>> {
+    pub fn fetch_deposits(&mut self, limit_per_block: usize) -> VecDeque<Vec<u8>> {
         let number_of_deposits = self.accepted_deposit_txs.len().min(limit_per_block);
         self.accepted_deposit_txs
             .drain(..number_of_deposits)

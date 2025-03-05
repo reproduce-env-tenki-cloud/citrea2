@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use alloy_consensus::Header as AlloyHeader;
 use alloy_primitives::{Bloom, Bytes, B256, B64, U256};
 use citrea_primitives::basefee::calculate_next_block_base_fee;
@@ -399,7 +401,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
 /// TODO: https://github.com/chainwayxyz/citrea/issues/2013
 /// Populates system events based on the current soft confirmation info.
 pub fn populate_system_events<'a>(
-    deposit_data: &[Vec<u8>],
+    deposit_data: &mut VecDeque<Vec<u8>>,
     current_slot_hash: [u8; 32],
     current_da_txs_commitment: [u8; 32],
     coinbase_depth: u64,
@@ -429,9 +431,12 @@ pub fn populate_system_events<'a>(
         system_events.push(SystemEvent::BridgeInitialize(bridge_initialize_params));
     }
 
-    deposit_data.iter().for_each(|params| {
-        system_events.push(SystemEvent::BridgeDeposit(params.clone()));
-    });
+    while deposit_data.iter().next() != None {
+        system_events.push(SystemEvent::BridgeDeposit(
+            deposit_data.pop_front().unwrap(),
+        ));
+    }
+
     system_events
 }
 

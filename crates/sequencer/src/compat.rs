@@ -211,10 +211,11 @@ where
 
         let timestamp = chrono::Local::now().timestamp() as u64;
 
-        let deposit_data = self
+        let deposit_data: Vec<Vec<u8>> = self
             .deposit_mempool
             .lock()
-            .fetch_deposits(self.config.deposit_mempool_fetch_limit);
+            .fetch_deposits(self.config.deposit_mempool_fetch_limit)
+            .into();
 
         // Register this new block with the fork manager to active
         // the new fork on the next block

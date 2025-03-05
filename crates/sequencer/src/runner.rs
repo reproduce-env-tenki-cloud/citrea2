@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec;
@@ -161,7 +161,7 @@ where
         pub_key: &[u8],
         prestate: ProverStorage,
         soft_confirmation_info: HookSoftConfirmationInfo,
-        deposit_data: &[Vec<u8>],
+        deposit_data: &mut VecDeque<Vec<u8>>,
         da_blocks: Vec<Da::FilteredBlock>,
     ) -> anyhow::Result<(Vec<RlpEvmTransaction>, Vec<TxHash>)> {
         let start = Instant::now();
@@ -176,32 +176,32 @@ where
                 soft_confirmation_info.current_spec(),
             )?;
 
+            if let Err(err) = self.stf.begin_soft_confirmation(
+                pub_key,
+                &mut working_set_to_discard,
+                &soft_confirmation_info,
+            ) {
+                warn!(
+                    "DryRun: Failed to apply soft confirmation hook: {:?} \n reverting batch workspace",
+                    err
+                );
+                bail!(
+                    "DryRun: Failed to apply begin soft confirmation hook: {:?}",
+                    err
+                )
+            }
+
             let evm = citrea_evm::Evm::<DefaultContext>::default();
             // Fill with system transactions
             let mut all_txs = vec![];
 
             for l1_block in da_blocks.into_iter() {
-                if let Err(err) = self.stf.begin_soft_confirmation(
-                    pub_key,
-                    &mut working_set_to_discard,
-                    &soft_confirmation_info,
-                ) {
-                    warn!(
-                        "DryRun: Failed to apply soft confirmation hook: {:?} \n reverting batch workspace",
-                        err
-                    );
-                    bail!(
-                        "DryRun: Failed to apply begin soft confirmation hook: {:?}",
-                        err
-                    )
-                }
-                let da_header = l1_block.header();
-                let coinbase_depth = l1_block.coinbase_txid_merkle_proof_height();
+                let da_header: &<<Da as DaService>::Spec as DaSpec>::BlockHeader =
+                    l1_block.header();
                 let system_transactions = self.produce_system_transactions(
                     &soft_confirmation_info,
                     &evm,
                     &mut working_set_to_discard,
-                    coinbase_depth,
                     deposit_data,
                     da_header,
                 );
@@ -390,7 +390,7 @@ where
 
         let timestamp = chrono::Local::now().timestamp() as u64;
 
-        let deposit_data = self
+        let mut deposit_data = self
             .deposit_mempool
             .lock()
             .fetch_deposits(self.config.deposit_mempool_fetch_limit);
@@ -425,7 +425,7 @@ where
                 &pub_key,
                 prestate.clone(),
                 soft_confirmation_info.clone(),
-                &deposit_data,
+                &mut deposit_data,
                 da_blocks.clone(),
             )
             .await?;
@@ -501,7 +501,7 @@ where
             active_fork_spec,
             header,
             &blobs,
-            deposit_data.clone(),
+            deposit_data.clone().into(),
             // Add dummy data for now
             // TODO: Remove these before mainnet
             None,
@@ -511,7 +511,7 @@ where
         let l2_block = L2Block::new(
             signed_header,
             txs.into(),
-            deposit_data,
+            deposit_data.into(),
             0,
             [0u8; 32],
             [0u8; 32],
@@ -1126,8 +1126,7 @@ where
         soft_confirmation_info: &HookSoftConfirmationInfo,
         evm: &Evm<DefaultContext>,
         working_set: &mut WorkingSet<<DefaultContext as Spec>::Storage>,
-        coinbase_depth: u64,
-        deposit_data: &[Vec<u8>],
+        deposit_data: &mut VecDeque<Vec<u8>>,
         da_block_header: &<Da::Spec as DaSpec>::BlockHeader,
     ) -> Vec<TransactionSignedEcRecovered> {
         // Read last l1 hash from bitcoin light client contract
@@ -1144,6 +1143,7 @@ where
         }
         let bridge_init_param =
             hex::decode(self.config.bridge_initialize_params.clone()).expect("should deserialize");
+        let coinbase_depth = da_block_header.coinbase_txid_merkle_proof_height();
         let system_events = populate_system_events(
             deposit_data,
             da_block_header.hash().into(),
