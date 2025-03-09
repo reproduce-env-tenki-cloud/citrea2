@@ -8,7 +8,6 @@ use alloy_primitives::B256;
 use alloy_rlp::{Decodable, Encodable};
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use reth_primitives::{SealedBlock, EMPTY_OMMER_ROOT_HASH};
-use revm::primitives::SpecId;
 use sov_modules_api::default_context::DefaultContext;
 use sov_modules_api::hooks::{
     HookSoftConfirmationInfo, HookSoftConfirmationInfoV1, HookSoftConfirmationInfoV2,
@@ -195,7 +194,6 @@ impl Case for BlockchainTestCase {
                     &EvmChainConfig {
                         chain_id: evm_config.chain_id,
                         limit_contract_code_size: evm_config.limit_contract_code_size,
-                        spec: vec![(0, SpecId::SHANGHAI)].into_iter().collect(),
                         coinbase: case.genesis_block_header.coinbase,
                         block_gas_limit: case.genesis_block_header.gas_limit.to(),
                         base_fee_params: evm_config.base_fee_params,

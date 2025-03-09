@@ -2,7 +2,6 @@ use alloy_eips::eip1559::BaseFeeParams;
 use alloy_primitives::{address, Address, B256, U256};
 use borsh::{BorshDeserialize, BorshSerialize};
 use revm::primitives::bitvec::view::BitViewSized;
-use revm::primitives::specification::SpecId;
 use serde::{Deserialize, Serialize};
 use sov_modules_api::{StateMap, StateVec};
 use sov_state::storage::StateValueCodec;
@@ -147,11 +146,6 @@ pub struct EvmChainConfig {
     /// By default it is 0x6000 (~25kb).
     pub limit_contract_code_size: Option<usize>,
 
-    /// DO NOT USE THIS FIELD ever again
-    ///
-    /// List of EVM hardforks by block number
-    pub spec: Vec<(u64, SpecId)>,
-
     /// Coinbase where all the fees go
     pub coinbase: Address,
 
@@ -168,7 +162,6 @@ impl Default for EvmChainConfig {
         EvmChainConfig {
             chain_id: DEFAULT_CHAIN_ID,
             limit_contract_code_size: None,
-            spec: vec![(0, SpecId::SHANGHAI)],
             coinbase: Address::ZERO,
             block_gas_limit: reth_primitives::constants::ETHEREUM_BLOCK_GAS_LIMIT,
             base_fee_params: BaseFeeParams::ethereum(),

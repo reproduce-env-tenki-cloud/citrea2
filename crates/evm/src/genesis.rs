@@ -4,7 +4,7 @@ use alloy_eips::eip1559::BaseFeeParams;
 use alloy_primitives::{keccak256, Address, Bloom, Bytes, B256, U256};
 use reth_primitives::constants::{EMPTY_OMMER_ROOT_HASH, EMPTY_RECEIPTS, EMPTY_TRANSACTIONS};
 use reth_primitives::KECCAK_EMPTY;
-use revm::primitives::{Bytecode, SpecId};
+use revm::primitives::Bytecode;
 use serde::{Deserialize, Deserializer};
 use sov_modules_api::prelude::*;
 use sov_modules_api::{SpecId as CitreaSpecId, WorkingSet};
@@ -116,9 +116,6 @@ pub struct EvmConfig {
     pub chain_id: u64,
     /// Limits size of contract code size.
     pub limit_contract_code_size: Option<usize>,
-    /// List of EVM hardforks by block number
-    /// Deactivated because we now handle forks and specs somewhere else
-    // pub spec: HashMap<u64, SpecId>,
     /// Coinbase where all the fees go
     pub coinbase: Address,
     /// Starting base fee.
@@ -195,15 +192,9 @@ impl<C: sov_modules_api::Context> Evm<C> {
         let chain_cfg = EvmChainConfig {
             chain_id: config.chain_id,
             limit_contract_code_size: config.limit_contract_code_size,
-            // spec,
             coinbase: config.coinbase,
             block_gas_limit: config.block_gas_limit,
             base_fee_params: config.base_fee_params,
-            // We initialized testnet like this
-            // Even though we won't use it anymore
-            // we still need to initialize chain like this
-            // so we get the same genesis state root.
-            spec: vec![(0, SpecId::SHANGHAI)],
         };
 
         self.cfg.set(&chain_cfg, working_set);
