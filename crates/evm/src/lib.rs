@@ -14,10 +14,6 @@ pub use genesis::*;
 pub use hooks::{
     create_initial_system_events, populate_deposit_system_events, populate_set_block_info_event,
 };
-#[cfg(feature = "native")]
-use primitive_types::DoNotUseSealedBlock;
-#[cfg(feature = "native")]
-use primitive_types::DoNotUseTransactionSignedAndRecovered;
 use sov_state::codec::BorshCodec;
 pub use system_events::SYSTEM_SIGNER;
 
@@ -49,7 +45,7 @@ use sov_state::codec::{BcsCodec, RlpCodec};
 
 #[cfg(feature = "native")]
 use crate::evm::primitive_types::SealedBlock;
-use crate::evm::primitive_types::{Block, DoNotUseHeader, Receipt, TransactionSignedAndRecovered};
+use crate::evm::primitive_types::{Block, Receipt, TransactionSignedAndRecovered};
 use crate::evm::system_events::SystemEvent;
 pub use crate::EvmConfig;
 
