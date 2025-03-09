@@ -138,10 +138,6 @@ pub struct Evm<C: sov_modules_api::Context> {
     #[state]
     pub(crate) head_rlp: sov_modules_api::StateValue<Block<AlloyHeader>, RlpCodec>,
 
-    /// Last seen L1 block hash.
-    #[state(rename = "l")]
-    pub last_l1_hash: sov_modules_api::StateValue<B256, BcsCodec>,
-
     /// Last 256 block hashes. Latest blockhash is populated in `begin_slot_hook`.
     /// Removes the oldest blockhash in `finalize_hook`
     /// Used by the EVM to calculate the `blockhash` opcode.
