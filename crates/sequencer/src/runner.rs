@@ -171,10 +171,7 @@ where
         tracing::subscriber::with_default(silent_subscriber, || {
             let mut working_set_to_discard = WorkingSet::new(prestate.clone());
 
-            let mut nonce = self.get_nonce(
-                &mut working_set_to_discard,
-                soft_confirmation_info.current_spec(),
-            )?;
+            let mut nonce = self.get_nonce(&mut working_set_to_discard)?;
 
             if let Err(err) = self.stf.begin_soft_confirmation(
                 pub_key,
@@ -337,7 +334,7 @@ where
             .unwrap_or(0)
             + 1;
         self.fork_manager.register_block(l2_height)?;
-        let result = if self.fork_manager.active_fork().spec_id >= SpecId::Fork2 {
+        let result = {
             if da_blocks.len() == 1 && da_blocks[0].header().height() == *last_used_l1_height {
                 // If we are producing regular blocks, not for missed da blocks, and if the last used L1 block is the same as the last finalized block
                 // then there is no need to pass da data to the sequencer
@@ -345,14 +342,6 @@ where
             }
             self.produce_l2_block_post_fork2(da_blocks, l1_fee_rate, l2_height, last_used_l1_height)
                 .await
-        } else {
-            self.produce_l2_block_pre_fork2(
-                da_blocks.first().expect("Should have 1 da block").clone(),
-                l1_fee_rate,
-                l2_block_mode,
-                last_used_l1_height,
-            )
-            .await
         };
 
         SEQUENCER_METRICS.block_production_execution.record(
@@ -446,7 +435,7 @@ where
 
         // if a batch failed need to refetch nonce
         // so sticking to fetching from state makes sense
-        let nonce = self.get_nonce(&mut working_set, soft_confirmation_info.current_spec())?;
+        let nonce = self.get_nonce(&mut working_set)?;
 
         let evm_txs_count = txs_to_run.len();
         if evm_txs_count > 0 {
@@ -488,17 +477,8 @@ where
             timestamp,
         );
 
-        let signed_header = self.sign_soft_confirmation(
-            active_fork_spec,
-            header,
-            &blobs,
-            deposit_data.clone(),
-            // Add dummy data for now
-            // TODO: Remove these before mainnet
-            None,
-            None,
-            None,
-        )?;
+        let signed_header = self.sign_soft_confirmation_header(header)?;
+        // TODO: cleanup l2 block structure once we decide how to pull data from the running sequencer in the existing form
         let l2_block = L2Block::new(
             signed_header,
             txs.into(),
@@ -812,38 +792,6 @@ where
         Ok(tx)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn sign_soft_confirmation(
-        &mut self,
-        active_spec: SpecId,
-        header: L2Header,
-        blobs: &[Vec<u8>],
-        deposit_data: Vec<Vec<u8>>,
-        da_slot_height: Option<u64>,
-        da_slot_hash: Option<[u8; 32]>,
-        da_slot_txs_commitment: Option<[u8; 32]>,
-    ) -> anyhow::Result<SignedL2Header> {
-        match active_spec {
-            SpecId::Genesis => self.sign_soft_confirmation_batch_v1(
-                header,
-                blobs,
-                deposit_data,
-                da_slot_height.unwrap(),
-                da_slot_hash.unwrap(),
-                da_slot_txs_commitment.unwrap(),
-            ),
-            SpecId::Kumquat => self.sign_soft_confirmation_batch_v2(
-                header,
-                blobs,
-                deposit_data,
-                da_slot_height.unwrap(),
-                da_slot_hash.unwrap(),
-                da_slot_txs_commitment.unwrap(),
-            ),
-            _ => self.sign_soft_confirmation_header(header),
-        }
-    }
-
     fn sign_soft_confirmation_header(
         &mut self,
         header: L2Header,
@@ -859,88 +807,18 @@ where
         Ok(SignedL2Header::new(header, hash, signature, pub_key))
     }
 
-    /// Signs necessary info and returns a BlockTemplate
-    fn sign_soft_confirmation_batch_v2(
-        &mut self,
-        header: L2Header,
-        blobs: &[Vec<u8>],
-        deposit_data: Vec<Vec<u8>>,
-        da_slot_height: u64,
-        da_slot_hash: [u8; 32],
-        da_slot_txs_commitment: [u8; 32],
-    ) -> anyhow::Result<SignedL2Header> {
-        let hash: [u8; 32] = header
-            .hash_v2::<<DefaultContext as sov_modules_api::Spec>::Hasher>(
-                da_slot_height,
-                da_slot_hash,
-                da_slot_txs_commitment,
-                blobs.to_owned(),
-                deposit_data,
-            )
-            .into();
-
-        let priv_key = DefaultPrivateKey::try_from(self.sov_tx_signer_priv_key.as_slice()).unwrap();
-
-        let signature = priv_key.sign(&hash);
-        let pub_key = priv_key.pub_key();
-        let signature = borsh::to_vec(&signature)?;
-        let pub_key = borsh::to_vec(&pub_key)?;
-        Ok(SignedL2Header::new(header, hash, signature, pub_key))
-    }
-
-    /// Old version of sign_soft_confirmation_batch
-    /// TODO: Remove derive(BorshSerialize) for UnsignedSoftConfirmation
-    ///   when removing this fn
-    /// FIXME: ^
-    fn sign_soft_confirmation_batch_v1(
-        &mut self,
-        header: L2Header,
-        blobs: &[Vec<u8>],
-        deposit_data: Vec<Vec<u8>>,
-        da_slot_height: u64,
-        da_slot_hash: [u8; 32],
-        da_slot_txs_commitment: [u8; 32],
-    ) -> anyhow::Result<SignedL2Header> {
-        let (hash, raw) = header
-            .hash_v1::<<DefaultContext as sov_modules_api::Spec>::Hasher>(
-                da_slot_height,
-                da_slot_hash,
-                da_slot_txs_commitment,
-                blobs.to_owned(),
-                deposit_data,
-            )
-            .map(|(hash, raw)| (Into::<[u8; 32]>::into(hash), raw))?;
-
-        let priv_key = DefaultPrivateKey::try_from(self.sov_tx_signer_priv_key.as_slice()).unwrap();
-        let signature = priv_key.sign(&raw);
-        let pub_key = priv_key.pub_key();
-
-        let signature = borsh::to_vec(&signature)?;
-        let pub_key = borsh::to_vec(&pub_key)?;
-        Ok(SignedL2Header::new(header, hash, signature, pub_key))
-    }
-
     /// Fetches nonce from state
     pub(crate) fn get_nonce(
         &self,
         working_set: &mut WorkingSet<<DefaultContext as Spec>::Storage>,
-        spec_id: SpecId,
     ) -> anyhow::Result<u64> {
         let accounts = Accounts::<DefaultContext>::default();
 
-        let pub_key = if spec_id >= SpecId::Fork2 {
-            borsh::to_vec(
-                &K256PrivateKey::try_from(self.sov_tx_signer_priv_key.as_slice())
-                    .unwrap()
-                    .pub_key(),
-            )?
-        } else {
-            borsh::to_vec(
-                &DefaultPrivateKey::try_from(self.sov_tx_signer_priv_key.as_slice())
-                    .unwrap()
-                    .pub_key(),
-            )?
-        };
+        let pub_key = borsh::to_vec(
+            &K256PrivateKey::try_from(self.sov_tx_signer_priv_key.as_slice())
+                .unwrap()
+                .pub_key(),
+        )?;
 
         match accounts
             .get_account(pub_key, working_set)
@@ -1085,32 +963,6 @@ where
         }
         // Missed DA blocks means that we produce n - 1 empty blocks, 1 per missed DA block.
         skipped_blocks
-    }
-
-    pub(crate) fn update_sequencer_authority(
-        &mut self,
-        current_spec: SpecId,
-        nonce: u64,
-    ) -> anyhow::Result<(Vec<u8>, Transaction)> {
-        let k256_priv_key =
-            K256PrivateKey::try_from(self.sov_tx_signer_priv_key.as_slice()).unwrap();
-        let new_address = k256_priv_key.to_address::<<DefaultContext as Spec>::Address>();
-
-        let rule_enforcer_call_tx = RuleEnforcerCallMessage::ChangeAuthority {
-            new_authority: new_address,
-        };
-
-        let raw_message = <CitreaRuntime<DefaultContext, Da::Spec> as EncodeCall<
-            soft_confirmation_rule_enforcer::SoftConfirmationRuleEnforcer<
-                DefaultContext,
-                <Da as DaService>::Spec,
-            >,
-        >>::encode_call(rule_enforcer_call_tx);
-
-        let signed_tx = self.sign_tx(raw_message, current_spec, nonce)?;
-        let signed_blob = signed_tx.to_blob()?;
-
-        Ok((signed_blob, signed_tx))
     }
 
     fn produce_and_run_system_transactions(
