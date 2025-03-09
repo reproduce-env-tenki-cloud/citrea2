@@ -151,7 +151,6 @@ fn genesis_block() {
                 *GENESIS_HASH
             ),
             l1_fee_rate: 0,
-            l1_hash: [0; 32].into(),
             transactions: (0u64..0u64),
         }
     );

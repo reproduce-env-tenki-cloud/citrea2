@@ -129,9 +129,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
         soft_confirmation_info: &HookSoftConfirmationInfo,
         working_set: &mut WorkingSet<C::Storage>,
     ) {
-        // TODO: https://github.com/chainwayxyz/citrea/issues/1977
-        let l1_hash = soft_confirmation_info.da_slot_hash().unwrap_or_default();
-
         let parent_block = self
             .head_rlp
             .get(working_set)
@@ -213,7 +210,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
         let block = Block {
             header,
             l1_fee_rate: soft_confirmation_info.l1_fee_rate(),
-            l1_hash: l1_hash.into(),
             transactions: start_tx_index..start_tx_index + pending_transactions.len() as u64,
         };
 

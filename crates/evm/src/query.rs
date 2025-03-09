@@ -227,16 +227,10 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         let rpc_block = AnyNetworkBlock {
             inner: block,
-            other: OtherFields::new(BTreeMap::<String, _>::from([
-                (
-                    "l1FeeRate".to_string(),
-                    format!("{:#x}", sealed_block.l1_fee_rate).into(),
-                ),
-                (
-                    "l1Hash".to_string(),
-                    serde_json::json!(sealed_block.l1_hash),
-                ),
-            ])),
+            other: OtherFields::new(BTreeMap::<String, _>::from([(
+                "l1FeeRate".to_string(),
+                format!("{:#x}", sealed_block.l1_fee_rate).into(),
+            )])),
         };
 
         Ok(Some(rpc_block))

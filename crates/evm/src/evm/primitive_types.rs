@@ -48,9 +48,6 @@ pub(crate) struct Block<H> {
     /// L1 fee rate.
     pub(crate) l1_fee_rate: u128,
 
-    /// The hash of L1 block that the L2 block corresponds to.  
-    pub(crate) l1_hash: B256,
-
     /// Transactions in this block.
     pub(crate) transactions: Range<u64>,
 }
@@ -63,7 +60,6 @@ impl Block<AlloyHeader> {
         SealedBlock {
             header: SealedHeader::new(header, seal),
             l1_fee_rate: self.l1_fee_rate,
-            l1_hash: self.l1_hash,
             transactions: self.transactions,
         }
     }
@@ -77,9 +73,6 @@ pub(crate) struct SealedBlock {
     /// L1 fee rate.
     pub(crate) l1_fee_rate: u128,
 
-    /// The hash of L1 block that the L2 block corresponds to.  
-    pub(crate) l1_hash: B256,
-
     /// Transactions in this block.
     pub(crate) transactions: Range<u64>,
 }
@@ -92,13 +85,11 @@ impl Encodable for Block<AlloyHeader> {
         };
         rlp_head.payload_length += self.header.length();
         rlp_head.payload_length += self.l1_fee_rate.length();
-        rlp_head.payload_length += self.l1_hash.length();
         rlp_head.payload_length += self.transactions.start.length();
         rlp_head.payload_length += self.transactions.end.length();
         rlp_head.encode(out);
         self.header.encode(out);
         self.l1_fee_rate.encode(out);
-        self.l1_hash.encode(out);
         self.transactions.start.encode(out);
         self.transactions.end.encode(out);
     }
@@ -115,7 +106,6 @@ impl Decodable for Block<AlloyHeader> {
 
         let header = AlloyHeader::decode(b)?;
         let l1_fee_rate = Decodable::decode(b)?;
-        let l1_hash = Decodable::decode(b)?;
         let start = Decodable::decode(b)?;
         let end = Decodable::decode(b)?;
 
@@ -131,7 +121,6 @@ impl Decodable for Block<AlloyHeader> {
         Ok(Self {
             header,
             l1_fee_rate,
-            l1_hash,
             transactions: Range { start, end },
         })
     }
@@ -145,14 +134,11 @@ impl Encodable for SealedBlock {
         };
         rlp_head.payload_length += self.header.length();
         rlp_head.payload_length += self.l1_fee_rate.length();
-        rlp_head.payload_length += self.l1_hash.length();
         rlp_head.payload_length += self.transactions.start.length();
         rlp_head.payload_length += self.transactions.end.length();
         rlp_head.encode(out);
         self.header.encode(out);
         self.l1_fee_rate.encode(out);
-        self.l1_hash.encode(out);
-        self.transactions.start.encode(out);
         self.transactions.end.encode(out);
     }
 }
@@ -168,7 +154,6 @@ impl Decodable for SealedBlock {
 
         let header = SealedHeader::decode(b)?;
         let l1_fee_rate = Decodable::decode(b)?;
-        let l1_hash = Decodable::decode(b)?;
         let start = Decodable::decode(b)?;
         let end = Decodable::decode(b)?;
 
@@ -184,7 +169,6 @@ impl Decodable for SealedBlock {
         Ok(Self {
             header,
             l1_fee_rate,
-            l1_hash,
             transactions: Range { start, end },
         })
     }

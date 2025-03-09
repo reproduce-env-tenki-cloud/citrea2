@@ -131,7 +131,6 @@ fn end_soft_confirmation_hook_sets_head() {
                 requests_root: None,
             },
             l1_fee_rate: 0,
-            l1_hash: B256::from(DA_ROOT_HASH.0),
             transactions: 3..6
         }
     );
@@ -354,7 +353,6 @@ fn finalize_hook_creates_final_block() {
         SealedBlock {
             header: reth_primitives::SealedHeader::new(header, hash),
             l1_fee_rate: 0,
-            l1_hash: B256::from(DA_ROOT_HASH.0),
             transactions: 3..6
         }
     );

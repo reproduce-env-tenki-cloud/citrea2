@@ -147,7 +147,6 @@ fn prepare_call_block_env() {
     let block = Block::<alloy_consensus::Header> {
         header: Default::default(),
         l1_fee_rate: Default::default(),
-        l1_hash: Default::default(),
         transactions: Default::default(),
     };
 

@@ -173,7 +173,6 @@ impl Case for BlockchainTestCase {
                 let block = Block {
                     header,
                     l1_fee_rate: 0,
-                    l1_hash: B256::default(),
                     transactions: 0u64..0u64,
                 };
 
