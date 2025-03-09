@@ -1956,7 +1956,7 @@ fn get_pending_block_env<C: sov_modules_api::Context>(
         .expect("Head block must be set");
 
     evm.latest_block_hashes.set(
-        &U256::from(latest_block.header.number),
+        &latest_block.header.number,
         &latest_block.header.hash(),
         working_set,
     );
@@ -1983,11 +1983,6 @@ fn get_pending_block_env<C: sov_modules_api::Context>(
         } else {
             None
         };
-
-    if citrea_spec_id < CitreaSpecId::Fork2 && block_env.number > U256::from(256) {
-        evm.latest_block_hashes
-            .remove(&(block_env.number - U256::from(257)), working_set);
-    }
 
     block_env
 }

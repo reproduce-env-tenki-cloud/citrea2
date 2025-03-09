@@ -51,7 +51,7 @@ impl<'a, C: sov_modules_api::Context> EvmDb<'a, C> {
     pub(crate) fn override_block_hash(&mut self, number: u64, hash: B256) {
         self.evm
             .latest_block_hashes
-            .set(&U256::from(number), &hash, self.working_set);
+            .set(&number, &hash, self.working_set);
     }
 
     #[cfg(feature = "native")]
@@ -125,7 +125,7 @@ impl<'a, C: sov_modules_api::Context> Database for EvmDb<'a, C> {
         let block_hash = self
             .evm
             .latest_block_hashes
-            .get(&U256::from(number), self.working_set)
+            .get(&number, self.working_set)
             .unwrap_or(B256::ZERO);
 
         Ok(block_hash)

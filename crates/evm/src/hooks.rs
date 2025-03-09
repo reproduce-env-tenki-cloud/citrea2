@@ -57,11 +57,8 @@ impl<C: sov_modules_api::Context> Evm<C> {
         let last_block_hash = sealed_parent_block.header.hash();
 
         // since we know the previous state root only here, we can set the last block hash
-        self.latest_block_hashes.set(
-            &U256::from(parent_block_number),
-            &last_block_hash,
-            working_set,
-        );
+        self.latest_block_hashes
+            .set(&parent_block_number, &last_block_hash, working_set);
 
         let cfg = self
             .cfg
@@ -102,23 +99,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
         // set early. so that if underlying calls use `self.block_env`
         // they don't use the wrong value
         self.block_env = new_pending_env.clone();
-
-        // TODO: delete this in this pr
-        if current_spec < CitreaSpecId::Fork2 {
-            // There is no reason to remove them from the state at all.
-            // We remove them only before Fork2 for backwards compatibility.
-
-            // if height > 256, start removing the oldest block
-            // keeping only 256 most recent blocks
-            // this first happens on txs in block 257
-            // remove block 0, keep blocks 1-256
-            // then on block 258
-            // remove block 1, keep blocks 2-257
-            if self.block_env.number > U256::from(256) {
-                self.latest_block_hashes
-                    .remove(&(self.block_env.number - U256::from(257)), working_set);
-            }
-        }
     }
 
     /// Logic executed at the end of the slot. Here, we generate an authenticated block and set it as the new head of the chain.

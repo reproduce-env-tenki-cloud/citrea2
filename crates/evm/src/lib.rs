@@ -127,7 +127,7 @@ pub struct Evm<C: sov_modules_api::Context> {
     /// Removes the oldest blockhash in `finalize_hook`
     /// Used by the EVM to calculate the `blockhash` opcode.
     #[state(rename = "h")]
-    pub(crate) latest_block_hashes: sov_modules_api::StateMap<U256, B256, BcsCodec>,
+    pub(crate) latest_block_hashes: sov_modules_api::StateMap<u64, B256, BcsCodec>,
 
     /// Used only by the RPC: This represents the head of the chain and is set in two distinct stages:
     /// 1. `end_slot_hook`: the pending head is populated with data from pending_transactions.

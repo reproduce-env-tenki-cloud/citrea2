@@ -5,7 +5,6 @@ use std::fs;
 use std::path::Path;
 
 use alloy_consensus::Header;
-use alloy_primitives::B256;
 use alloy_rlp::{Decodable, Encodable};
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use reth_primitives::{SealedBlock, EMPTY_OMMER_ROOT_HASH};
@@ -200,11 +199,8 @@ impl Case for BlockchainTestCase {
                     },
                     &mut working_set,
                 );
-                evm.latest_block_hashes.set(
-                    &U256::from(0),
-                    &case.genesis_block_header.hash,
-                    &mut working_set,
-                );
+                evm.latest_block_hashes
+                    .set(&0, &case.genesis_block_header.hash, &mut working_set);
                 evm.head_rlp.set(&block, &mut working_set);
                 evm.pending_head
                     .set(&block.into(), &mut working_set.accessory_state());
