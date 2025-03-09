@@ -37,19 +37,8 @@ impl<C: sov_modules_api::Context> Accounts<C> {
         working_set: &mut WorkingSet<C::Storage>,
     ) {
         for pub_key in config.pub_keys.iter() {
-            if self
-                .accounts_pre_fork2
-                .get(
-                    &DefaultPublicKey::try_from_slice(pub_key).expect("Should be a valid pub key"),
-                    working_set,
-                )
-                .is_some()
-            {
-                panic!("No account should exist in init_module");
-            }
-
             // Called only in genesis so spec id should be Genesis
-            self.create_default_account(pub_key, working_set, SpecId::Genesis)
+            self.create_default_account(pub_key, working_set)
                 .expect("Accounts should create account in init_module");
         }
     }
@@ -58,41 +47,25 @@ impl<C: sov_modules_api::Context> Accounts<C> {
         &self,
         pub_key: &[u8],
         working_set: &mut WorkingSet<C::Storage>,
-        spec_id: SpecId,
     ) -> Result<Account, SoftConfirmationHookError> {
-        let default_address: Address = if spec_id >= SpecId::Fork2 {
+        let default_address: Address = {
             let pub_key: K256PublicKey = K256PublicKey::try_from_slice(pub_key)
-                // TODO: Update error handling
-                .map_err(|_| SoftConfirmationHookError::SovTxAccountNotFound)?;
-            pub_key.to_address()
-        } else {
-            let pub_key = C::PublicKey::try_from_slice(pub_key)
                 // TODO: Update error handling
                 .map_err(|_| SoftConfirmationHookError::SovTxAccountNotFound)?;
             pub_key.to_address()
         };
 
-        self.exit_if_address_exists(&default_address, working_set, spec_id)?;
+        self.exit_if_address_exists(&default_address, working_set)?;
 
         let new_account = Account {
             addr: default_address,
             nonce: 0,
         };
 
-        if spec_id >= SpecId::Fork2 {
-            self.accounts.set(pub_key, &new_account, working_set);
+        self.accounts.set(pub_key, &new_account, working_set);
 
-            self.public_keys
-                .set(&default_address, &pub_key.to_vec(), working_set);
-        } else {
-            let pub_key =
-                DefaultPublicKey::try_from_slice(pub_key).expect("Should be valid public key");
-            self.accounts_pre_fork2
-                .set(&pub_key, &new_account, working_set);
-
-            self.public_keys_pre_fork2
-                .set(&default_address, &pub_key, working_set);
-        }
+        self.public_keys
+            .set(&default_address, &pub_key.to_vec(), working_set);
 
         Ok(new_account)
     }
@@ -101,17 +74,8 @@ impl<C: sov_modules_api::Context> Accounts<C> {
         &self,
         address: &Address,
         working_set: &mut WorkingSet<C::Storage>,
-        spec_id: SpecId,
     ) -> Result<(), SoftConfirmationHookError> {
-        if spec_id >= SpecId::Fork2 {
-            if self.public_keys.get(address, working_set).is_some() {
-                return Err(SoftConfirmationHookError::SovTxAccountAlreadyExists);
-            }
-        } else if self
-            .public_keys_pre_fork2
-            .get(address, working_set)
-            .is_some()
-        {
+        if self.public_keys.get(address, working_set).is_some() {
             return Err(SoftConfirmationHookError::SovTxAccountAlreadyExists);
         }
 

@@ -10,7 +10,6 @@ pub use query::*;
 mod tests;
 
 pub use hooks::AccountsTxHook;
-use sov_modules_api::default_signature::DefaultPublicKey;
 use sov_modules_api::{Address, Context, ModuleInfo, SoftConfirmationModuleCallError, WorkingSet};
 use sov_state::codec::BorshCodec;
 use sov_state::storage::StateValueCodec;
@@ -55,21 +54,12 @@ pub struct Accounts<C: Context> {
     pub address: C::Address,
 
     /// Mapping from an account address to a corresponding public key.
-    #[state(rename = "public_keys_post_fork2")]
+    #[state(rename = "p")]
     pub(crate) public_keys: sov_modules_api::StateMap<Address, Vec<u8>>,
 
-    /// Mapping from an account address to a corresponding public key used before fork2.
-    /// This uses address to public key object directly
-    #[state(rename = "public_keys")]
-    pub(crate) public_keys_pre_fork2: sov_modules_api::StateMap<Address, DefaultPublicKey>,
-
     /// Mapping from a public key to a corresponding account.
-    #[state(rename = "accounts_post_fork2")]
+    #[state(rename = "a")]
     pub(crate) accounts: sov_modules_api::StateMap<Vec<u8>, Account>,
-
-    /// Mapping from a public key to a corresponding account.
-    #[state(rename = "accounts")]
-    pub(crate) accounts_pre_fork2: sov_modules_api::StateMap<DefaultPublicKey, Account>,
 }
 
 impl<C: Context> sov_modules_api::Module for Accounts<C> {
