@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use alloy_consensus::Header;
 use alloy_eips::eip1559::BaseFeeParams;
 use alloy_primitives::{keccak256, Address, Bloom, Bytes, B256, U256};
 use reth_primitives::constants::{EMPTY_OMMER_ROOT_HASH, EMPTY_RECEIPTS, EMPTY_TRANSACTIONS};
@@ -199,7 +200,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         self.cfg.set(&chain_cfg, working_set);
 
-        let header = crate::primitive_types::DoNotUseHeader {
+        let header = Header {
             parent_hash: B256::default(),
             ommers_hash: EMPTY_OMMER_ROOT_HASH,
             beneficiary: config.coinbase,
@@ -215,7 +216,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
             gas_used: 0,
             timestamp: config.timestamp,
             mix_hash: B256::default(),
-            nonce: config.nonce,
+            nonce: config.nonce.into(),
             base_fee_per_gas: Some(config.starting_base_fee),
             extra_data: config.extra_data.clone(),
             // EIP-4844 related fields
@@ -236,7 +237,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
             transactions: 0u64..0u64,
         };
 
-        self.head.set(&block, working_set);
+        self.head_rlp.set(&block, working_set);
 
         #[cfg(feature = "native")]
         self.pending_head

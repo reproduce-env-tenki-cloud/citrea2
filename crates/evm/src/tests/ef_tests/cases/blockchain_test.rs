@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::Path;
 
+use alloy_consensus::Header;
 use alloy_primitives::B256;
 use alloy_rlp::{Decodable, Encodable};
 use rayon::iter::{ParallelBridge, ParallelIterator};
@@ -140,7 +141,7 @@ impl Case for BlockchainTestCase {
                 let mut evm_config = EvmConfig::default();
                 config_push_contracts(&mut evm_config, None);
                 // Set this base fee based on what's set in genesis.
-                let header = crate::primitive_types::DoNotUseHeader {
+                let header = Header {
                     parent_hash: case.genesis_block_header.parent_hash,
                     ommers_hash: EMPTY_OMMER_ROOT_HASH,
                     beneficiary: evm_config.coinbase,
@@ -205,7 +206,7 @@ impl Case for BlockchainTestCase {
                     &case.genesis_block_header.hash,
                     &mut working_set,
                 );
-                evm.head.set(&block, &mut working_set);
+                evm.head_rlp.set(&block, &mut working_set);
                 evm.pending_head
                     .set(&block.into(), &mut working_set.accessory_state());
                 evm.finalize_hook(
@@ -275,7 +276,11 @@ impl Case for BlockchainTestCase {
                     (None, Some(expected_state_root)) => {
                         // Insert state hashes into the provider based on the expected state root.
                         assert_eq!(
-                            *evm.head.get(&mut working_set).unwrap().header.state_root,
+                            *evm.head_rlp
+                                .get(&mut working_set)
+                                .unwrap()
+                                .header
+                                .state_root,
                             **expected_state_root
                         );
                     }

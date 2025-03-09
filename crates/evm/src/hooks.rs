@@ -34,15 +34,11 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         let current_spec = soft_confirmation_info.current_spec();
 
-        let parent_block = if current_spec >= CitreaSpecId::Kumquat {
-            let mut parent_block = match self.head_rlp.get(working_set) {
-                Some(block) => block,
-                None => self
-                    .head
-                    .get(working_set)
-                    .expect("Head block should always be set")
-                    .into(),
-            };
+        let parent_block = {
+            let mut parent_block = self
+                .head_rlp
+                .get(working_set)
+                .expect("Head block should always be set");
 
             parent_block.header.state_root =
                 B256::from_slice(&soft_confirmation_info.pre_state_root());
@@ -50,18 +46,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
             self.head_rlp.set(&parent_block, working_set);
 
             parent_block
-        } else {
-            let mut parent_block = self
-                .head
-                .get(working_set)
-                .expect("Head block should always be set");
-
-            parent_block.header.state_root =
-                B256::from_slice(&soft_confirmation_info.pre_state_root());
-
-            self.head.set(&parent_block, working_set);
-
-            parent_block.into()
         };
 
         let parent_block_number = parent_block.header.number;
@@ -176,26 +160,11 @@ impl<C: sov_modules_api::Context> Evm<C> {
         // TODO: https://github.com/chainwayxyz/citrea/issues/1977
         let l1_hash = soft_confirmation_info.da_slot_hash().unwrap_or_default();
 
-        let current_spec = soft_confirmation_info.current_spec();
-
-        let parent_block = if current_spec >= CitreaSpecId::Kumquat {
-            match self.head_rlp.get(working_set) {
-                Some(block) => block.seal(),
-                None => {
-                    let block: Block<AlloyHeader> = self
-                        .head
-                        .get(working_set)
-                        .expect("Head block should always be set")
-                        .into();
-                    block.seal()
-                }
-            }
-        } else {
-            self.head
-                .get(working_set)
-                .expect("Head block should always be set")
-                .seal()
-        };
+        let parent_block = self
+            .head_rlp
+            .get(working_set)
+            .expect("Head block should always be set")
+            .seal();
 
         let expected_block_number = parent_block.header.number + 1;
         assert_eq!(
@@ -276,11 +245,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
             transactions: start_tx_index..start_tx_index + pending_transactions.len() as u64,
         };
 
-        if current_spec >= CitreaSpecId::Kumquat {
-            self.head_rlp.set(&block, working_set);
-        } else {
-            self.head.set(&block.clone().into(), working_set);
-        }
+        self.head_rlp.set(&block, working_set);
 
         #[cfg(not(feature = "native"))]
         pending_transactions.clear();

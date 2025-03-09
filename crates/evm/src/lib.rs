@@ -133,11 +133,6 @@ pub struct Evm<C: sov_modules_api::Context> {
     #[memory]
     pub(crate) pending_transactions: Vec<PendingTransaction>,
 
-    /// Head of the chain. The new head is set in `end_slot_hook` but without the inclusion of the `state_root` field.
-    /// The `state_root` is added in `begin_slot_hook` of the next block because its calculation occurs after the `end_slot_hook`.
-    #[state]
-    pub(crate) head: sov_modules_api::StateValue<Block<DoNotUseHeader>, BcsCodec>,
-
     /// Head of the rlp encoded chain. The new head is set in `end_slot_hook` but without the inclusion of the `state_root` field.
     /// The `state_root` is added in `begin_slot_hook` of the next block because its calculation occurs after the `end_slot_hook`.
     #[state]
