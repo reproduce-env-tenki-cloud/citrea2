@@ -3,7 +3,7 @@ use std::str::FromStr;
 use alloy_primitives::{Address, TxKind};
 use reth_primitives::TransactionSignedEcRecovered;
 use revm::primitives::{BlockEnv, CfgEnvWithHandlerCfg, ExecutionResult, Output, SpecId, U256};
-use sov_modules_api::{SpecId as CitreaSpecId, WorkingSet};
+use sov_modules_api::WorkingSet;
 use sov_prover_storage_manager::new_orphan_storage;
 
 use self::executor::CitreaEvm;
@@ -27,7 +27,7 @@ fn simple_contract_execution_sov_state() {
     let mut working_set = WorkingSet::new(new_orphan_storage(tmpdir.path()).unwrap());
 
     let evm = Evm::<C>::default();
-    let evm_db: EvmDb<'_, C> = evm.get_db(&mut working_set, CitreaSpecId::Genesis);
+    let evm_db: EvmDb<'_, C> = evm.get_db(&mut working_set);
 
     simple_contract_execution(evm_db);
 }
@@ -157,8 +157,7 @@ pub(crate) fn execute_tx<C: sov_modules_api::Context, EXT: CitreaExternalExt>(
     config_env: CfgEnvWithHandlerCfg,
     ext: &mut EXT,
 ) -> ExecutionResult {
-    let citrea_spec = db.citrea_spec;
-    let mut evm = CitreaEvm::new(db, citrea_spec, block_env, config_env, ext);
+    let mut evm = CitreaEvm::new(db, block_env, config_env, ext);
     let res = evm.transact(tx).unwrap();
     evm.commit(res.state);
 

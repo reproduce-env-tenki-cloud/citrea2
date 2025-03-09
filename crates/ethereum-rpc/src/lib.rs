@@ -360,7 +360,6 @@ where
             evm: &Evm<C>,
             account: &Address,
             key: &U256,
-            citrea_spec: CitreaSpecId,
             version: u64,
             working_set: &mut WorkingSet<C::Storage>,
         ) -> EIP1186StorageProof
@@ -399,14 +398,7 @@ where
             let key: U256 = key.0.into();
 
             let proof = {
-                generate_storage_proof_postfork2(
-                    &evm,
-                    &address,
-                    &key,
-                    citrea_spec,
-                    version,
-                    &mut working_set,
-                )
+                generate_storage_proof_postfork2(&evm, &address, &key, version, &mut working_set)
             };
             storage_proof.push(proof);
         }

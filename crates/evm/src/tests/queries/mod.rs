@@ -366,7 +366,7 @@ pub fn init_evm_with_caller_contract() -> (Evm<C>, WorkingSet<<C as Spec>::Stora
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [0u8; 32],
-        current_spec: SovSpecId::Genesis,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -377,7 +377,7 @@ pub fn init_evm_with_caller_contract() -> (Evm<C>, WorkingSet<<C as Spec>::Stora
     {
         let sender_address = generate_address::<C>("sender");
 
-        let context = C::new(sender_address, l2_height, SovSpecId::Genesis, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
         let transactions: Vec<RlpEvmTransaction> = vec![
             create_contract_transaction(&dev_signer, 0, SimpleStorageContract::default()),
@@ -406,7 +406,7 @@ pub fn init_evm_with_caller_contract() -> (Evm<C>, WorkingSet<<C as Spec>::Stora
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [2u8; 32],
-        current_spec: SovSpecId::Genesis,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -417,7 +417,7 @@ pub fn init_evm_with_caller_contract() -> (Evm<C>, WorkingSet<<C as Spec>::Stora
     {
         let sender_address = generate_address::<C>("sender");
 
-        let context = C::new(sender_address, l2_height, SovSpecId::Genesis, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
         let transactions: Vec<RlpEvmTransaction> = vec![create_contract_transaction(
             &dev_signer,

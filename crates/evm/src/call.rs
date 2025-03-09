@@ -61,7 +61,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
             log_index_start = tx.receipt.log_index_start + tx.receipt.receipt.logs.len() as u64;
         }
 
-        let evm_db: EvmDb<'_, C> = self.get_db(working_set, context.active_spec());
+        let evm_db: EvmDb<'_, C> = self.get_db(working_set);
 
         let results = executor::execute_multiple_tx(
             evm_db,

@@ -2,13 +2,13 @@
 use std::collections::HashMap;
 
 use alloy_primitives::{keccak256, Address, B256};
-use revm::primitives::{AccountInfo as ReVmAccountInfo, Bytecode, SpecId as EvmSpecId, U256};
+use revm::primitives::{AccountInfo as ReVmAccountInfo, Bytecode, U256};
 use revm::Database;
-use sov_modules_api::{SpecId as CitreaSpecId, StateMapAccessor, WorkingSet};
+use sov_modules_api::{StateMapAccessor, WorkingSet};
 
 #[cfg(feature = "native")]
 use super::AccountInfo;
-use crate::{citrea_spec_id_to_evm_spec_id, Evm};
+use crate::Evm;
 
 // infallible
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -29,22 +29,11 @@ impl std::fmt::Display for DBError {
 pub(crate) struct EvmDb<'a, C: sov_modules_api::Context> {
     pub(crate) evm: &'a Evm<C>,
     pub(crate) working_set: &'a mut WorkingSet<C::Storage>,
-    pub(crate) citrea_spec: CitreaSpecId,
-    pub(crate) evm_spec: EvmSpecId,
 }
 
 impl<'a, C: sov_modules_api::Context> EvmDb<'a, C> {
-    pub(crate) fn new(
-        evm: &'a Evm<C>,
-        working_set: &'a mut WorkingSet<C::Storage>,
-        citrea_spec: CitreaSpecId,
-    ) -> Self {
-        Self {
-            evm,
-            working_set,
-            citrea_spec,
-            evm_spec: citrea_spec_id_to_evm_spec_id(citrea_spec),
-        }
+    pub(crate) fn new(evm: &'a Evm<C>, working_set: &'a mut WorkingSet<C::Storage>) -> Self {
+        Self { evm, working_set }
     }
 
     #[cfg(feature = "native")]
@@ -139,7 +128,6 @@ pub mod immutable {
     use alloy_primitives::{Address, B256, U256};
     use revm::primitives::{AccountInfo as ReVmAccountInfo, Bytecode};
     use revm::{Database, DatabaseRef};
-    use sov_modules_api::SpecId;
 
     use super::{DBError, EvmDb};
 
@@ -152,10 +140,6 @@ pub mod immutable {
             Self {
                 evm_db: std::cell::RefCell::new(evm_db),
             }
-        }
-
-        pub(crate) fn citrea_spec(&self) -> SpecId {
-            self.evm_db.borrow().citrea_spec
         }
     }
 

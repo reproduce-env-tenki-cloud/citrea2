@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use alloy_primitives::{Address, Sealable, B256};
+use alloy_primitives::{Address, Sealable};
 use alloy_rlp::bytes::BufMut;
 use alloy_rlp::{Decodable, Encodable, RlpDecodable, RlpEncodable};
 use reth_primitives::{Header as AlloyHeader, SealedHeader, TransactionSigned};

@@ -25,7 +25,7 @@ fn begin_soft_confirmation_hook_checks_max_l2_blocks_per_l1() {
     )
     .unwrap();
 
-    let context = C::new(sender_address, 1, SpecId::Genesis, 0);
+    let context = C::new(sender_address, 1, SpecId::Fork2, 0);
 
     let _ = soft_confirmation_rule_enforcer
         .call(call_message, &context, &mut working_set)

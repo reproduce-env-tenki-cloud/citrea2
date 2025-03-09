@@ -31,7 +31,7 @@ use reth_rpc_eth_types::error::{
 use reth_rpc_types_compat::block::from_primitive_with_hash;
 use revm::primitives::{
     BlobExcessGasAndPrice, BlockEnv, CfgEnvWithHandlerCfg, EVMError, ExecutionResult, HaltReason,
-    InvalidTransaction, SpecId, TransactTo,
+    InvalidTransaction, TransactTo,
 };
 use revm::{Database, DatabaseCommit};
 use revm_inspectors::access_list::AccessListInspector;
@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 use sov_modules_api::fork::Fork;
 use sov_modules_api::macros::rpc_gen;
 use sov_modules_api::prelude::*;
-use sov_modules_api::{SpecId as CitreaSpecId, WorkingSet};
+use sov_modules_api::WorkingSet;
 
 use crate::call::get_cfg_env;
 use crate::conversions::{create_tx_env, sealed_block_to_block_env};
@@ -295,10 +295,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
         block_id: Option<BlockId>,
         working_set: &mut WorkingSet<C::Storage>,
     ) -> RpcResult<U256> {
-        let block_number = self.block_number_from_state(block_id, working_set)?;
-
-        let citrea_spec = fork_from_block_number(block_number).spec_id;
-
         self.set_state_to_end_of_evm_block_by_block_id(block_id, working_set)?;
 
         // Specs from https://ethereum.org/en/developers/docs/apis/json-rpc
@@ -334,13 +330,9 @@ impl<C: sov_modules_api::Context> Evm<C> {
         index: U256,
         block_id: Option<BlockId>,
         working_set: &mut WorkingSet<C::Storage>,
-        fork_fn: impl Fn(u64) -> Fork,
+        _fork_fn: impl Fn(u64) -> Fork,
     ) -> RpcResult<B256> {
         // Specs from https://ethereum.org/en/developers/docs/apis/json-rpc
-
-        let block_number = self.block_number_from_state(block_id, working_set)?;
-
-        let citrea_spec = fork_fn(block_number).spec_id;
 
         self.set_state_to_end_of_evm_block_by_block_id(block_id, working_set)?;
 
@@ -360,10 +352,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
         working_set: &mut WorkingSet<C::Storage>,
     ) -> RpcResult<U64> {
         // Specs from https://ethereum.org/en/developers/docs/apis/json-rpc
-
-        let block_number = self.block_number_from_state(block_id, working_set)?;
-
-        let citrea_spec = fork_from_block_number(block_number).spec_id;
 
         self.set_state_to_end_of_evm_block_by_block_id(block_id, working_set)?;
 
@@ -391,12 +379,8 @@ impl<C: sov_modules_api::Context> Evm<C> {
         address: Address,
         block_id: Option<BlockId>,
         working_set: &mut WorkingSet<C::Storage>,
-        fork_fn: impl Fn(u64) -> Fork,
+        _fork_fn: impl Fn(u64) -> Fork,
     ) -> RpcResult<Bytes> {
-        let block_number = self.block_number_from_state(block_id, working_set)?;
-
-        let citrea_spec = fork_fn(block_number).spec_id;
-
         self.set_state_to_end_of_evm_block_by_block_id(block_id, working_set)?;
 
         let account = self.account_info(&address, working_set).unwrap_or_default();
@@ -600,7 +584,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
                         block_id.unwrap_or(BlockNumberOrTag::Latest.into()),
                     ))?;
 
-                sealed_block_to_block_env(&block.header, &fork_fn)
+                sealed_block_to_block_env(&block.header)
             }
         };
 
@@ -622,7 +606,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         let mut cfg_env = get_cfg_env(cfg, evm_spec_id);
 
-        let mut evm_db = self.get_db(working_set, citrea_spec_id);
+        let mut evm_db = self.get_db(working_set);
 
         if let Some(mut block_overrides) = block_overrides {
             apply_block_overrides(&mut block_env, &mut block_overrides, &mut evm_db);
@@ -705,10 +689,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
                     .ok_or(EthApiError::HeaderNotFound(
                         block_number.unwrap_or_default().into(),
                     ))?;
-                (
-                    block.l1_fee_rate,
-                    sealed_block_to_block_env(&block.header, &fork_fn),
-                )
+                (block.l1_fee_rate, sealed_block_to_block_env(&block.header))
             }
         };
         let block_num: u64 = block_env.number.saturating_to();
@@ -737,7 +718,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
         // <https://github.com/ethereum/go-ethereum/blob/8990c92aea01ca07801597b00c0d83d4e2d9b811/internal/ethapi/api.go#L1476-L1476>
         cfg_env.disable_base_fee = true;
 
-        let mut evm_db = self.get_db(working_set, citrea_spec_id);
+        let mut evm_db = self.get_db(working_set);
 
         let from = request.from.unwrap_or_default();
         let account = evm_db
@@ -788,7 +769,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
             l1_fee_rate,
             block_env.clone(),
             cfg_env,
-            citrea_spec_id,
             working_set,
         )?;
 
@@ -827,7 +807,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
                     ))?;
                 (
                     block.l1_fee_rate,
-                    sealed_block_to_block_env(&block.header, &fork_fn), // correct spec will be set later
+                    sealed_block_to_block_env(&block.header), // correct spec will be set later
                 )
             }
         };
@@ -841,14 +821,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         let cfg_env = get_cfg_env(cfg, evm_spec_id);
 
-        self.estimate_gas_with_env(
-            request,
-            l1_fee_rate,
-            block_env,
-            cfg_env,
-            citrea_spec_id,
-            working_set,
-        )
+        self.estimate_gas_with_env(request, l1_fee_rate, block_env, cfg_env, working_set)
     }
 
     /// Handler for: `eth_estimateGas`
@@ -953,7 +926,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
         l1_fee_rate: u128,
         block_env: BlockEnv,
         mut cfg_env: CfgEnvWithHandlerCfg,
-        citrea_spec: CitreaSpecId,
         working_set: &mut WorkingSet<C::Storage>,
     ) -> RpcResult<EstimatedTxExpenses> {
         // Disabled because eth_estimateGas is sometimes used with eoa senders
@@ -996,7 +968,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
                     tx_env.gas_limit = MIN_TRANSACTION_GAS;
 
                     let res = inspect_no_tracing(
-                        self.get_db(working_set, citrea_spec),
+                        self.get_db(working_set),
                         cfg_env.clone(),
                         block_env.clone(),
                         tx_env.clone(),
@@ -1041,7 +1013,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
         // if the provided gas limit is less than computed cap, use that
         tx_env.gas_limit = std::cmp::min(tx_env.gas_limit, highest_gas_limit); // highest_gas_limit is capped to u64::MAX
 
-        let evm_db = self.get_db(working_set, citrea_spec);
+        let evm_db = self.get_db(working_set);
 
         // execute the call without writing to db
         let result = inspect_no_tracing(
@@ -1059,7 +1031,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
             // if price or limit was included in the request then we can execute the request
             // again with the block's gas limit to check if revert is gas related or not
             if request_gas_limit.is_some() || request_gas_price.is_some() {
-                let evm_db = self.get_db(working_set, citrea_spec);
+                let evm_db = self.get_db(working_set);
                 return Err(map_out_of_gas_err(
                     block_env.clone(),
                     tx_env.clone(),
@@ -1083,7 +1055,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
                     // if price or limit was included in the request then we can execute the request
                     // again with the block's gas limit to check if revert is gas related or not
                     return if request_gas_limit.is_some() || request_gas_price.is_some() {
-                        let evm_db = self.get_db(working_set, citrea_spec);
+                        let evm_db = self.get_db(working_set);
                         Err(map_out_of_gas_err(
                             block_env.clone(),
                             tx_env.clone(),
@@ -1124,7 +1096,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
             tx_env.gas_limit = optimistic_gas_limit;
             // (result, env) = executor::transact(&mut db, env)?;
             let curr_result = inspect_no_tracing(
-                self.get_db(working_set, citrea_spec),
+                self.get_db(working_set),
                 cfg_env.clone(),
                 block_env.clone(),
                 tx_env.clone(),
@@ -1164,7 +1136,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
             let mut tx_env = tx_env.clone();
             tx_env.gas_limit = mid_gas_limit;
 
-            let evm_db = self.get_db(working_set, citrea_spec);
+            let evm_db = self.get_db(working_set);
             let result = inspect_no_tracing(
                 evm_db,
                 cfg_env.clone(),
@@ -1300,7 +1272,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
         let citrea_spec_id = fork_fn(block_number).spec_id;
         let evm_spec_id = citrea_spec_id_to_evm_spec_id(citrea_spec_id);
 
-        let block_env = sealed_block_to_block_env(&sealed_block.header, &fork_fn);
+        let block_env = sealed_block_to_block_env(&sealed_block.header);
         let cfg = self
             .cfg
             .get(working_set)
@@ -1311,7 +1283,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         // EvmDB is the replacement of revm::CacheDB because cachedb requires immutable state
         // TODO: Move to CacheDB once immutable state is implemented
-        let mut evm_db = self.get_db(working_set, citrea_spec_id);
+        let mut evm_db = self.get_db(working_set);
 
         // TODO: Convert below steps to blocking task like in reth after implementing the semaphores
         let mut traces = Vec::new();
@@ -1948,7 +1920,7 @@ fn gas_limit_to_return(block_gas_limit: U64, estimated_tx_expenses: EstimatedTxE
 fn get_pending_block_env<C: sov_modules_api::Context>(
     evm: &Evm<C>,
     working_set: &mut WorkingSet<C::Storage>,
-    fork_fn: &impl Fn(u64) -> Fork,
+    _fork_fn: &impl Fn(u64) -> Fork,
 ) -> BlockEnv {
     let latest_block = evm
         .blocks_rlp
@@ -1968,7 +1940,7 @@ fn get_pending_block_env<C: sov_modules_api::Context>(
 
     // set the lowest block id because we'll need to calculate the active spec id again
     // where this function is called
-    let mut block_env = sealed_block_to_block_env(&latest_block.header, fork_fn);
+    let mut block_env = sealed_block_to_block_env(&latest_block.header);
     block_env.number += U256::from(1);
     block_env.basefee = U256::from(calculate_next_block_base_fee(
         latest_block.header.gas_used,
@@ -1976,13 +1948,7 @@ fn get_pending_block_env<C: sov_modules_api::Context>(
         latest_block.header.base_fee_per_gas.unwrap_or_default(),
         cfg.base_fee_params,
     ));
-    let citrea_spec_id = fork_fn(block_env.number.saturating_to()).spec_id;
-    block_env.blob_excess_gas_and_price =
-        if citrea_spec_id_to_evm_spec_id(citrea_spec_id) >= SpecId::CANCUN {
-            Some(BlobExcessGasAndPrice::new(0))
-        } else {
-            None
-        };
+    block_env.blob_excess_gas_and_price = Some(BlobExcessGasAndPrice::new(0));
 
     block_env
 }

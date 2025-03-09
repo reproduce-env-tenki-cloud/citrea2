@@ -145,11 +145,8 @@ impl From<TransactionSignedAndRecovered> for TransactionSignedEcRecovered {
 #[cfg(feature = "native")]
 pub(crate) fn sealed_block_to_block_env(
     sealed_header: &reth_primitives::SealedHeader,
-    fork_fn: &impl Fn(u64) -> sov_modules_api::fork::Fork,
 ) -> revm::primitives::BlockEnv {
     use revm::primitives::BlobExcessGasAndPrice;
-
-    use crate::citrea_spec_id_to_evm_spec_id;
 
     revm::primitives::BlockEnv {
         number: U256::from(sealed_header.number),
@@ -161,15 +158,7 @@ pub(crate) fn sealed_block_to_block_env(
         difficulty: U256::from(0),
         blob_excess_gas_and_price: sealed_header
             .excess_blob_gas
-            .or_else(|| {
-                if citrea_spec_id_to_evm_spec_id(fork_fn(sealed_header.number).spec_id)
-                    >= SpecId::CANCUN
-                {
-                    Some(0)
-                } else {
-                    None
-                }
-            })
+            .or_else(|| Some(0))
             .map(BlobExcessGasAndPrice::new),
     }
 }

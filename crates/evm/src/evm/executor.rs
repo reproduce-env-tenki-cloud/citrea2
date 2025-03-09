@@ -29,17 +29,11 @@ where
     EXT: CitreaExternalExt,
 {
     /// Creates a new Citrea EVM with the given parameters.
-    pub fn new(
-        db: DB,
-        citrea_spec: CitreaSpecId,
-        block_env: BlockEnv,
-        config_env: CfgEnvWithHandlerCfg,
-        ext: EXT,
-    ) -> Self {
+    pub fn new(db: DB, block_env: BlockEnv, config_env: CfgEnvWithHandlerCfg, ext: EXT) -> Self {
         let evm_env = Env::boxed(config_env.cfg_env, block_env, Default::default());
         let evm_context = EvmContext::new_with_env(db, evm_env);
         let context = Context::new(evm_context, ext);
-        let handler = citrea_handler(citrea_spec, config_env.handler_cfg);
+        let handler = citrea_handler(config_env.handler_cfg);
         let evm = revm::Evm::new(context, handler);
         Self { evm }
     }
@@ -83,8 +77,7 @@ pub(crate) fn execute_multiple_tx<C: sov_modules_api::Context, EXT: CitreaExtern
 
     let mut cumulative_gas_used = prev_gas_used;
 
-    let citrea_spec = db.citrea_spec;
-    let mut evm = CitreaEvm::new(db, citrea_spec, block_env, config_env, ext);
+    let mut evm = CitreaEvm::new(db, block_env, config_env, ext);
 
     let mut tx_results = Vec::with_capacity(txs.len());
 
@@ -99,11 +92,6 @@ pub(crate) fn execute_multiple_tx<C: sov_modules_api::Context, EXT: CitreaExtern
                 .entered();
 
         if tx.signer() == SYSTEM_SIGNER {
-            if citrea_spec < CitreaSpecId::Fork2 {
-                native_error!("System transaction found in user txs");
-                return Err(SoftConfirmationModuleCallError::EvmMisplacedSystemTx);
-            }
-
             if should_be_end_of_sys_txs {
                 native_error!("System transaction found after user txs");
                 return Err(SoftConfirmationModuleCallError::EvmSystemTransactionPlacedAfterUserTx);
@@ -212,7 +200,6 @@ fn post_fork2_system_tx_verifier<C: sov_modules_api::Context>(
 /// Returns the last set l1 block height in bitcoin light client contract
 pub fn get_last_l1_height_in_light_client<C: sov_modules_api::Context>(
     evm: &Evm<C>,
-    spec_id: CitreaSpecId,
     working_set: &mut WorkingSet<C::Storage>,
 ) -> Option<U256> {
     evm.storage_get(

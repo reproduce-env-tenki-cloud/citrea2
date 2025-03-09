@@ -1,18 +1,17 @@
 use alloy_consensus::Header as AlloyHeader;
 use alloy_primitives::{Bloom, Bytes, B256, B64, U256};
 use citrea_primitives::basefee::calculate_next_block_base_fee;
-use revm::primitives::{BlobExcessGasAndPrice, BlockEnv, SpecId};
+use revm::primitives::{BlobExcessGasAndPrice, BlockEnv};
 use sov_modules_api::hooks::HookSoftConfirmationInfo;
 use sov_modules_api::prelude::*;
 use sov_modules_api::{AccessoryWorkingSet, WorkingSet};
-use sov_rollup_interface::spec::SpecId as CitreaSpecId;
 use sov_rollup_interface::zk::StorageRootHash;
 #[cfg(feature = "native")]
 use tracing::instrument;
 
 use crate::evm::primitive_types::Block;
 use crate::evm::system_events::SystemEvent;
-use crate::{citrea_spec_id_to_evm_spec_id, Evm};
+use crate::Evm;
 
 impl<C: sov_modules_api::Context> Evm<C> {
     /// Logic executed at the beginning of the slot. Here we set the state root of the previous head.
@@ -30,8 +29,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
         // it has implications way beyond our understanding
         // a holy line
         self.pending_transactions.clear();
-
-        let current_spec = soft_confirmation_info.current_spec();
 
         let parent_block = {
             let mut parent_block = self
@@ -71,13 +68,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
             cfg.base_fee_params,
         );
 
-        let active_evm_spec = citrea_spec_id_to_evm_spec_id(soft_confirmation_info.current_spec());
-
-        let blob_excess_gas_and_price = if active_evm_spec >= SpecId::CANCUN {
-            Some(BlobExcessGasAndPrice::new(0))
-        } else {
-            None
-        };
+        let blob_excess_gas_and_price = Some(BlobExcessGasAndPrice::new(0));
 
         let new_pending_env = BlockEnv {
             number: U256::from(parent_block_number + 1),
@@ -167,20 +158,8 @@ impl<C: sov_modules_api::Context> Evm<C> {
             extra_data: Bytes::default(),
             // EIP-4844 related fields
             // https://github.com/Sovereign-Labs/sovereign-sdk/issues/912
-            blob_gas_used: if citrea_spec_id_to_evm_spec_id(soft_confirmation_info.current_spec())
-                >= SpecId::CANCUN
-            {
-                Some(0)
-            } else {
-                None
-            },
-            excess_blob_gas: if citrea_spec_id_to_evm_spec_id(soft_confirmation_info.current_spec())
-                >= SpecId::CANCUN
-            {
-                Some(0)
-            } else {
-                None
-            },
+            blob_gas_used: Some(0),
+            excess_blob_gas: Some(0),
             // EIP-4788 related field
             // unrelated for rollups
             parent_beacon_block_root: None,

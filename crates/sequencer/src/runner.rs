@@ -639,7 +639,7 @@ where
             .unwrap_or(0);
         let spec_id = fork_from_block_number(head_l2_height).spec_id;
         let mut last_used_l1_height =
-            match get_last_l1_height_in_light_client(&evm, spec_id, &mut working_set) {
+            match get_last_l1_height_in_light_client(&evm, &mut working_set) {
                 Some(l1_height) => l1_height.to(),
                 // Set to 1 less so that we do not skip processing the first l1 block
                 None => last_finalized_height - 1,

@@ -104,7 +104,7 @@ fn test_cancun_transient_storage_activation() {
     let (config, dev_signer, contract_addr) =
         get_evm_config(U256::from_str("100000000000000000000").unwrap(), None);
 
-    let (mut evm, mut working_set, _spec_id) = get_evm_with_spec(&config, SovSpecId::Genesis);
+    let (mut evm, mut working_set, _spec_id) = get_evm_with_spec(&config, SovSpecId::Fork2);
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
@@ -114,7 +114,7 @@ fn test_cancun_transient_storage_activation() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Genesis,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -125,7 +125,7 @@ fn test_cancun_transient_storage_activation() {
     let sender_address = generate_address::<C>("sender");
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Genesis, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
         let deploy_message =
             create_contract_message(&dev_signer, 0, TransientStorageContract::default());
@@ -147,7 +147,7 @@ fn test_cancun_transient_storage_activation() {
     // Send money to transient storage contract
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Genesis, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx =
             send_money_to_contract_message(contract_addr, &dev_signer, 1, 10000000000000000000);
 
@@ -163,10 +163,10 @@ fn test_cancun_transient_storage_activation() {
 
     l2_height += 1;
 
-    // Call claim gift from transient storage contract expect to fail on genesis spec
+    // Call claim gift from transient storage contract expect to fail on Fork2 spec
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Genesis, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx =
             claim_gift_from_transient_storage_contract_transaction(contract_addr, &dev_signer, 2);
 
@@ -197,7 +197,7 @@ fn test_cancun_transient_storage_activation() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Kumquat,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -206,7 +206,7 @@ fn test_cancun_transient_storage_activation() {
 
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Kumquat, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx =
             claim_gift_from_transient_storage_contract_transaction(contract_addr, &dev_signer, 3);
 
@@ -232,7 +232,7 @@ fn test_cancun_transient_storage_activation() {
 
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Kumquat, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx =
             claim_gift_from_transient_storage_contract_transaction(contract_addr, &dev_signer, 4);
 
@@ -260,7 +260,7 @@ fn test_cancun_mcopy_activation() {
     let (config, dev_signer, contract_addr) =
         get_evm_config(U256::from_str("100000000000000000000").unwrap(), None);
 
-    let (mut evm, mut working_set, spec_id) = get_evm_with_spec(&config, SovSpecId::Genesis);
+    let (mut evm, mut working_set, spec_id) = get_evm_with_spec(&config, SovSpecId::Fork2);
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
@@ -270,7 +270,7 @@ fn test_cancun_mcopy_activation() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Genesis,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -280,7 +280,7 @@ fn test_cancun_mcopy_activation() {
     let sender_address = generate_address::<C>("sender");
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Genesis, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
         let deploy_message = create_contract_message(&dev_signer, 0, McopyContract::default());
 
@@ -301,7 +301,7 @@ fn test_cancun_mcopy_activation() {
     // Send money to transient storage contract
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Genesis, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx = call_mcopy(contract_addr, &dev_signer, 1);
 
         evm.call(
@@ -330,7 +330,7 @@ fn test_cancun_mcopy_activation() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Kumquat,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -340,7 +340,7 @@ fn test_cancun_mcopy_activation() {
     // Send money to transient storage contract
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Kumquat, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx = call_mcopy(contract_addr, &dev_signer, 2);
 
         evm.call(
@@ -388,7 +388,7 @@ fn test_self_destructing_constructor() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Kumquat,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -401,7 +401,7 @@ fn test_self_destructing_constructor() {
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
         let sender_address = generate_address::<C>("sender");
-        let context = C::new(sender_address, l2_height, SovSpecId::Kumquat, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
         // deploy selfdestruct contract
         let rlp_transactions = vec![create_contract_message_with_bytecode(
@@ -461,7 +461,7 @@ fn test_blob_base_fee_should_return_1() {
     let (config, dev_signer, contract_addr) =
         get_evm_config(U256::from_str("100000000000000000000").unwrap(), None);
 
-    let (mut evm, mut working_set, spec_id) = get_evm_with_spec(&config, SovSpecId::Genesis);
+    let (mut evm, mut working_set, spec_id) = get_evm_with_spec(&config, SovSpecId::Fork2);
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
@@ -471,7 +471,7 @@ fn test_blob_base_fee_should_return_1() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Genesis,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -481,7 +481,7 @@ fn test_blob_base_fee_should_return_1() {
     let sender_address = generate_address::<C>("sender");
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Genesis, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
         let deploy_message =
             create_contract_message(&dev_signer, 0, BlobBaseFeeContract::default());
@@ -509,7 +509,7 @@ fn test_blob_base_fee_should_return_1() {
 
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Genesis, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx = store_blob_base_fee_transaction(contract_addr, &dev_signer, 1);
 
         evm.call(
@@ -538,7 +538,7 @@ fn test_blob_base_fee_should_return_1() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Kumquat,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -547,7 +547,7 @@ fn test_blob_base_fee_should_return_1() {
 
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Kumquat, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx = store_blob_base_fee_transaction(contract_addr, &dev_signer, 2);
 
         evm.call(
@@ -590,7 +590,7 @@ fn test_kzg_point_eval_should_revert() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Kumquat,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -600,7 +600,7 @@ fn test_kzg_point_eval_should_revert() {
     let sender_address = generate_address::<C>("sender");
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Kumquat, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
         let deploy_message =
             create_contract_message(&dev_signer, 0, KZGPointEvaluationCallerContract::default());
@@ -646,7 +646,7 @@ fn test_kzg_point_eval_should_revert() {
 
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Kumquat, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
         let deploy_message = call_kzg_point_evaluation_transaction(
             contract_addr,
@@ -705,7 +705,7 @@ fn test_p256_verify() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Kumquat,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -715,14 +715,14 @@ fn test_p256_verify() {
     let sender_address = generate_address::<C>("sender");
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Kumquat, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
         let deploy_message =
             create_contract_message(&dev_signer, 0, P256VerifyCallerContract::default());
 
         let input = Bytes::from_str("b5a77e7a90aa14e0bf5f337f06f597148676424fae26e175c6e5621c34351955289f319789da424845c9eac935245fcddd805950e2f02506d09be7e411199556d262144475b1fa46ad85250728c600c53dfd10f8b3f4adf140e27241aec3c2da3a81046703fccf468b48b145f939efdbb96c3786db712b3113bb2488ef286cdcef8afe82d200a5bb36b5462166e8ce77f2d831a52ef2135b2af188110beaefb1").unwrap();
 
-        // This one should fail in Kumquat
+        // This one should fail in Fork2
         let call_message = call_p256_verify_transaction(contract_addr, &dev_signer, 1, input);
 
         evm.call(
@@ -798,24 +798,24 @@ fn test_offchain_contract_storage_evm() {
 
     let fork_fn = |num: u64| {
         if num < 3 {
-            Fork::new(SovSpecId::Genesis, 0)
+            Fork::new(SovSpecId::Fork2, 0)
         } else {
-            Fork::new(SovSpecId::Kumquat, 4)
+            Fork::new(SovSpecId::Fork2, 4)
         }
     };
 
-    let (mut evm, mut working_set, spec_id) = get_evm_with_spec(&config, SovSpecId::Genesis);
+    let (mut evm, mut working_set, spec_id) = get_evm_with_spec(&config, SovSpecId::Fork2);
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
-    // Deployed a contract in genesis fork
+    // Deployed a contract in Fork2 fork
     let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
         l2_height,
         da_slot_hash: [5u8; 32],
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Genesis,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -825,7 +825,7 @@ fn test_offchain_contract_storage_evm() {
     let sender_address = generate_address::<C>("sender");
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Genesis, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
         let deploy_message =
             create_contract_message(&dev_signer, 0, SimpleStorageContract::default());
@@ -850,17 +850,17 @@ fn test_offchain_contract_storage_evm() {
     let contract_info = evm.account_info(&contract_addr, &mut working_set);
     let code_hash = contract_info.unwrap().code_hash.unwrap();
 
-    let genesis_cont_evm_code = evm
+    let Fork2_cont_evm_code = evm
         .offchain_code
         .get(&code_hash, &mut working_set.offchain_state())
         .unwrap();
 
-    // Try to get the code from genesis fork and expect it to exist
+    // Try to get the code from Fork2 fork and expect it to exist
     let code = evm
         .get_code_inner(contract_addr, None, &mut working_set, fork_fn)
         .unwrap();
 
-    assert_eq!(*genesis_cont_evm_code.original_byte_slice(), code);
+    assert_eq!(*Fork2_cont_evm_code.original_byte_slice(), code);
 
     let offchain_code = evm
         .offchain_code
@@ -869,14 +869,14 @@ fn test_offchain_contract_storage_evm() {
     assert!(offchain_code.is_none());
 
     // activate fork and then try to get it from offchain storage and expect it to exist
-    // Deployed a contract in genesis fork
+    // Deployed a contract in Fork2 fork
     let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
         l2_height,
         da_slot_hash: [5u8; 32],
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Kumquat,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -915,7 +915,7 @@ fn test_offchain_contract_storage_evm() {
     // Deploy contract in fork1
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Kumquat, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
         let deploy_message =
             create_contract_message(&dev_signer, 1, SelfDestructorContract::default());
@@ -956,7 +956,7 @@ fn test_offchain_contract_storage_evm() {
         da_slot_height: 1,
         da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Kumquat,
+        current_spec: SovSpecId::Fork2,
         pub_key: vec![],
         deposit_data: vec![],
         l1_fee_rate,
@@ -965,7 +965,7 @@ fn test_offchain_contract_storage_evm() {
 
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
-        let context = C::new(sender_address, l2_height, SovSpecId::Kumquat, l1_fee_rate);
+        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
         let call_message = set_arg_message(contract_addr, &dev_signer, 2, 99);
 
@@ -981,17 +981,17 @@ fn test_offchain_contract_storage_evm() {
     evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
-    // Try to get the code from genesis fork and expect it to not exist because it is stored in offchain storage
+    // Try to get the code from Fork2 fork and expect it to not exist because it is stored in offchain storage
     let code = evm
         .get_code_inner(new_contract_address, None, &mut working_set, fork_fn)
         .unwrap();
     assert_eq!(code, *offchain_code.unwrap().original_byte_slice());
 
-    // Also try to get code of a contract deployed in genesis fork and expect it to exist as well
+    // Also try to get code of a contract deployed in Fork2 fork and expect it to exist as well
     let code = evm
         .get_code_inner(contract_addr, None, &mut working_set, fork_fn)
         .unwrap();
-    assert_eq!(code, *genesis_cont_evm_code.original_byte_slice());
+    assert_eq!(code, *Fork2_cont_evm_code.original_byte_slice());
 
     // Now I should be able to read the contract from offchain storage
     let contract_info = evm.account_info(&contract_addr, &mut working_set);

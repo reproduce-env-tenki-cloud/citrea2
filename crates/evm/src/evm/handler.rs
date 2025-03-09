@@ -19,7 +19,7 @@ use revm::{Context, ContextPrecompiles, Database, FrameResult, InnerEvmContext, 
 #[cfg(feature = "native")]
 use revm::{EvmContext, Inspector};
 use revm_precompile::secp256r1::P256VERIFY;
-use sov_modules_api::{native_debug, native_error, native_warn, SpecId as CitreaSpecId};
+use sov_modules_api::{native_debug, native_error, native_warn};
 #[cfg(feature = "native")]
 use tracing::instrument;
 
@@ -268,22 +268,17 @@ impl<EXT, DB: Database> CitreaEnv for &'_ mut Context<EXT, DB> {
     }
 }
 
-pub(crate) fn citrea_handler<'a, DB, EXT>(
-    citrea_spec: CitreaSpecId,
-    cfg: HandlerCfg,
-) -> EvmHandler<'a, EXT, DB>
+pub(crate) fn citrea_handler<'a, DB, EXT>(cfg: HandlerCfg) -> EvmHandler<'a, EXT, DB>
 where
     DB: Database,
     EXT: CitreaExternalExt,
 {
     let mut handler = EvmHandler::mainnet_with_spec(cfg.spec_id);
-    handler.append_handler_register(HandleRegisters::Box(citrea_handle_register(citrea_spec)));
+    handler.append_handler_register(HandleRegisters::Box(citrea_handle_register()));
     handler
 }
 
-pub(crate) fn citrea_handle_register<DB, EXT>(
-    citrea_spec: CitreaSpecId,
-) -> HandleRegisterBox<'static, EXT, DB>
+pub(crate) fn citrea_handle_register<DB, EXT>() -> HandleRegisterBox<'static, EXT, DB>
 where
     DB: Database,
     EXT: CitreaExternalExt,
@@ -298,11 +293,7 @@ where
             // validation.env =
             validation.tx_against_state =
                 Arc::new(CitreaHandler::<SPEC, EXT, DB>::validate_tx_against_state);
-            let load_precompiles = if citrea_spec >= CitreaSpecId::Fork2 {
-                CitreaHandler::<SPEC, EXT, DB>::load_precompiles_postfork2
-            } else {
-                CitreaHandler::<SPEC, EXT, DB>::load_precompiles_prefork2
-            };
+            let load_precompiles = CitreaHandler::<SPEC, EXT, DB>::load_precompiles_postfork2;
             pre_execution.load_precompiles = Arc::new(load_precompiles);
             // pre_execution.load_accounts =
             pre_execution.deduct_caller = Arc::new(CitreaHandler::<SPEC, EXT, DB>::deduct_caller);
@@ -329,23 +320,6 @@ struct CitreaHandler<SPEC, EXT, DB> {
 }
 
 impl<SPEC: Spec, EXT: CitreaExternalExt, DB: Database> CitreaHandler<SPEC, EXT, DB> {
-    fn load_precompiles_prefork2() -> ContextPrecompiles<DB> {
-        fn our_precompiles<SPEC: Spec, DB: Database>() -> ContextPrecompiles<DB> {
-            let mut precompiles = revm::handler::mainnet::load_precompiles::<SPEC, DB>();
-
-            if SPEC::enabled(SpecId::CANCUN) {
-                precompiles
-                    .to_mut()
-                    .remove(&u64_to_address(0x0A))
-                    .expect("after cancun point eval should be removed");
-            }
-
-            precompiles
-        }
-
-        our_precompiles::<SPEC, DB>()
-    }
-
     fn load_precompiles_postfork2() -> ContextPrecompiles<DB> {
         fn our_precompiles<SPEC: Spec, DB: Database>() -> ContextPrecompiles<DB> {
             let mut precompiles = revm::handler::mainnet::load_precompiles::<SPEC, DB>();

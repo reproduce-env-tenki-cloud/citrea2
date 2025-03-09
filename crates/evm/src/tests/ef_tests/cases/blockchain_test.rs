@@ -211,11 +211,7 @@ impl Case for BlockchainTestCase {
 
                 let root = case.genesis_block_header.state_root;
 
-                let current_spec = if case.network == ForkSpec::Cancun {
-                    SovSpecId::Kumquat
-                } else {
-                    SovSpecId::Genesis
-                };
+                let current_spec = SovSpecId::Fork2;
                 // Decode and insert blocks, creating a chain of blocks for the test case.
                 for block in case.blocks.iter() {
                     let decoded = SealedBlock::decode(&mut block.rlp.as_ref())?;

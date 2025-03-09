@@ -187,15 +187,14 @@ impl<C: sov_modules_api::Context> Evm<C> {
     pub(crate) fn get_db<'a>(
         &'a self,
         working_set: &'a mut WorkingSet<C::Storage>,
-        citrea_spec: CitreaSpecId,
     ) -> EvmDb<'a, C> {
-        EvmDb::new(self, working_set, citrea_spec)
+        EvmDb::new(self, working_set)
     }
 }
 
 const fn citrea_spec_id_to_evm_spec_id(spec_id: CitreaSpecId) -> EvmSpecId {
     match spec_id {
-        CitreaSpecId::Genesis => EvmSpecId::SHANGHAI,
+        // CitreaSpecId::Genesis => EvmSpecId::SHANGHAI,
         // Any other citrea spec id mapped to cancun
         _ => EvmSpecId::CANCUN,
     }

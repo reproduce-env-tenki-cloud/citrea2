@@ -16,7 +16,7 @@ use sov_rollup_interface::spec::SpecId;
 use crate::smart_contracts::SimpleStorageContract;
 use crate::tests::queries::{init_evm, init_evm_single_block};
 use crate::tests::test_signer::TestSigner;
-use crate::tests::utils::{get_fork_fn_only_fork2, get_fork_fn_only_kumquat};
+use crate::tests::utils::get_fork_fn_only_fork2;
 use crate::Evm;
 
 type C = DefaultContext;
@@ -224,7 +224,7 @@ fn call_to_nonexistent_contract() {
 
 #[test]
 fn call_with_high_gas_price() {
-    let (evm, mut working_set, _, signer, _) = init_evm(SpecId::Kumquat);
+    let (evm, mut working_set, _, signer, _) = init_evm(SpecId::Fork2);
 
     let contract = SimpleStorageContract::default();
     let contract_address = Address::from_str("0xeeb03d20dae810f52111b853b31c8be6f30f4cd3").unwrap();
@@ -244,7 +244,7 @@ fn call_with_high_gas_price() {
         None,
         None,
         &mut working_set,
-        get_fork_fn_only_kumquat(),
+        get_fork_fn_only_fork2(),
     );
 
     assert_eq!(
@@ -259,7 +259,7 @@ fn call_with_high_gas_price() {
 
 #[test]
 fn test_eip1559_fields_call() {
-    let (evm, mut working_set, _, signer, _) = init_evm(SpecId::Kumquat);
+    let (evm, mut working_set, _, signer, _) = init_evm(SpecId::Fork2);
 
     let default_result = eth_call_eip1559(
         &evm,
