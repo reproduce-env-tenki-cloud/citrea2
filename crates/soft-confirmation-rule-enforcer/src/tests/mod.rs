@@ -17,7 +17,7 @@ fn sc_info_helper() -> HookSoftConfirmationInfo {
         da_slot_hash: [1; 32],
         da_slot_txs_commitment: [0; 32],
         pre_state_root: [0; 32],
-        current_spec: SpecId::Genesis,
+        current_spec: SpecId::Fork2,
         pub_key: vec![0; 32],
         deposit_data: vec![],
         l1_fee_rate: 1,

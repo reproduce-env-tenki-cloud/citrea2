@@ -1,8 +1,6 @@
 use citrea_evm::{get_last_l1_height_and_hash_in_light_client, Evm};
 use sov_modules_api::hooks::HookSoftConfirmationInfo;
-use sov_modules_api::{
-    Context, DaSpec, SoftConfirmationHookError, SpecId, StateValueAccessor, WorkingSet,
-};
+use sov_modules_api::{Context, DaSpec, SoftConfirmationHookError, StateValueAccessor, WorkingSet};
 #[cfg(feature = "native")]
 use tracing::instrument;
 
@@ -23,9 +21,7 @@ impl<C: Context, Da: DaSpec> SoftConfirmationRuleEnforcer<C, Da> {
         counter: &mut u32,
         working_set: &mut WorkingSet<C::Storage>,
     ) -> Result<(), SoftConfirmationHookError> {
-        let da_root_hash = if soft_confirmation_info.current_spec() < SpecId::Fork2 {
-            soft_confirmation_info.da_slot_hash().unwrap()
-        } else {
+        let da_root_hash = {
             let evm = Evm::<C>::default();
             get_last_l1_height_and_hash_in_light_client(
                 &evm,
@@ -109,19 +105,6 @@ impl<C: Context, Da: DaSpec> SoftConfirmationRuleEnforcer<C, Da> {
         );
 
         Ok(())
-    }
-
-    /// Works for pre fork2 blocks
-    #[cfg_attr(
-        feature = "native",
-        instrument(level = "trace", skip(self, working_set), err, ret)
-    )]
-    pub fn begin_soft_confirmation_hook(
-        &self,
-        soft_confirmation_info: &HookSoftConfirmationInfo,
-        working_set: &mut WorkingSet<C::Storage>,
-    ) -> Result<(), SoftConfirmationHookError> {
-        self.hook_handler(soft_confirmation_info, working_set)
     }
 
     /// This is put in the end because if the block count exceeds the max L2 blocks per L1,
