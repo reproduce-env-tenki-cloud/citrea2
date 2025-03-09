@@ -159,5 +159,8 @@ pub(crate) fn execute_tx<C: sov_modules_api::Context, EXT: CitreaExternalExt>(
 ) -> ExecutionResult {
     let citrea_spec = db.citrea_spec;
     let mut evm = CitreaEvm::new(db, citrea_spec, block_env, config_env, ext);
-    evm.transact_commit(tx).unwrap()
+    let res = evm.transact(tx).unwrap();
+    evm.commit(res.state);
+
+    res.result
 }

@@ -1,7 +1,6 @@
 use alloy_consensus::Header as AlloyHeader;
 use alloy_primitives::{Bloom, Bytes, B256, B64, U256};
 use citrea_primitives::basefee::calculate_next_block_base_fee;
-use citrea_primitives::PRE_FORK2_BRIDGE_INITIALIZE_PARAMS;
 use revm::primitives::{BlobExcessGasAndPrice, BlockEnv, SpecId};
 use sov_modules_api::hooks::HookSoftConfirmationInfo;
 use sov_modules_api::prelude::*;
@@ -64,8 +63,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
             working_set,
         );
 
-        let mut system_events = vec![];
-
         let cfg = self
             .cfg
             .get(working_set)
@@ -106,18 +103,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
         // they don't use the wrong value
         self.block_env = new_pending_env.clone();
 
-        // No need to check for fork, as the system events are only populated if the active citrea spec is below Fork2
-        if !system_events.is_empty() {
-            self.execute_system_events(
-                system_events,
-                soft_confirmation_info.l1_fee_rate(),
-                cfg,
-                new_pending_env,
-                current_spec,
-                working_set,
-            );
-        }
-
+        // TODO: delete this in this pr
         if current_spec < CitreaSpecId::Fork2 {
             // There is no reason to remove them from the state at all.
             // We remove them only before Fork2 for backwards compatibility.

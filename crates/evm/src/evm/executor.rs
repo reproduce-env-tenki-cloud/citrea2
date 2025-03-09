@@ -44,22 +44,9 @@ where
         Self { evm }
     }
 
-    /// Sets all required parameters and executes a transaction.
-    pub(crate) fn transact_commit(
-        &mut self,
-        tx: &TransactionSignedEcRecovered,
-    ) -> Result<ExecutionResult, EVMError<DB::Error>>
-    where
-        DB: DatabaseCommit,
-    {
-        self.evm.context.external.set_current_tx_hash(tx.hash());
-        *self.evm.tx_mut() = create_tx_env(tx, self.evm.spec_id());
-        self.evm.transact_commit()
-    }
-
     /// Runs a single transaction in the configured environment and proceeds
     /// to return the result and state diff (without applying it).
-    fn transact(
+    pub(crate) fn transact(
         &mut self,
         tx: &TransactionSignedEcRecovered,
     ) -> Result<ResultAndState, EVMError<DB::Error>> {
@@ -69,7 +56,7 @@ where
     }
 
     /// Commits the given state diff to the database.
-    fn commit(&mut self, state: EvmState)
+    pub(crate) fn commit(&mut self, state: EvmState)
     where
         DB: DatabaseCommit,
     {
@@ -220,25 +207,6 @@ fn post_fork2_system_tx_verifier<C: sov_modules_api::Context>(
         return Err(SoftConfirmationModuleCallError::EvmSystemTxNotAllowedAfterFork2);
     }
     Ok(())
-}
-
-pub(crate) fn execute_system_txs<C: sov_modules_api::Context, EXT: CitreaExternalExt>(
-    db: EvmDb<C>,
-    block_env: BlockEnv,
-    system_txs: &[TransactionSignedEcRecovered],
-    config_env: CfgEnvWithHandlerCfg,
-    ext: &mut EXT,
-) -> Vec<ExecutionResult> {
-    let citrea_spec = db.citrea_spec;
-    let mut evm = CitreaEvm::new(db, citrea_spec, block_env, config_env, ext);
-
-    system_txs
-        .iter()
-        .map(|tx| {
-            evm.transact_commit(tx)
-                .expect("System transactions must never fail")
-        })
-        .collect()
 }
 
 /// Returns the last set l1 block height in bitcoin light client contract

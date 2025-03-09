@@ -46,7 +46,6 @@ use sov_state::codec::{BcsCodec, RlpCodec};
 #[cfg(feature = "native")]
 use crate::evm::primitive_types::SealedBlock;
 use crate::evm::primitive_types::{Block, Receipt, TransactionSignedAndRecovered};
-use crate::evm::system_events::SystemEvent;
 pub use crate::EvmConfig;
 
 #[derive(
