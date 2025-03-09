@@ -218,7 +218,6 @@ pub fn get_last_l1_height_in_light_client<C: sov_modules_api::Context>(
     evm.storage_get(
         &BITCOIN_LIGHT_CLIENT_CONTRACT_ADDRESS,
         &U256::ZERO,
-        spec_id,
         working_set,
     )
     .map(|v| v.saturating_sub(U256::from(1u64)))
@@ -227,14 +226,13 @@ pub fn get_last_l1_height_in_light_client<C: sov_modules_api::Context>(
 /// Returns the last set l1 block hash in bitcoin light client contract
 pub fn get_last_l1_height_and_hash_in_light_client<C: sov_modules_api::Context>(
     evm: &Evm<C>,
-    spec_id: CitreaSpecId,
+    _spec_id: CitreaSpecId,
     working_set: &mut WorkingSet<C::Storage>,
 ) -> (U256, Option<U256>) {
     let last_l1_height_in_contract = evm
         .storage_get(
             &BITCOIN_LIGHT_CLIENT_CONTRACT_ADDRESS,
             &U256::ZERO,
-            spec_id,
             working_set,
         )
         .unwrap_or(U256::ZERO);
@@ -247,7 +245,6 @@ pub fn get_last_l1_height_and_hash_in_light_client<C: sov_modules_api::Context>(
     let last_l1_hash = evm.storage_get(
         &BITCOIN_LIGHT_CLIENT_CONTRACT_ADDRESS,
         &keccak256(bytes).into(),
-        spec_id,
         working_set,
     );
 

@@ -361,7 +361,7 @@ fn test_cancun_mcopy_activation() {
     // Last tx should have failed because cancun is not activated
     assert!(receipts.last().unwrap().receipt.success);
     let storage_value = evm
-        .storage_get(&contract_addr, &U256::ZERO, spec_id, &mut working_set)
+        .storage_get(&contract_addr, &U256::ZERO, &mut working_set)
         .unwrap();
     assert_eq!(storage_value, U256::from(80));
 }
@@ -423,11 +423,11 @@ fn test_self_destructing_constructor() {
     evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
-    let contract_info = evm.account_info(&contract_addr, spec_id, &mut working_set);
+    let contract_info = evm.account_info(&contract_addr, &mut working_set);
     // Contract should not exist as it is created and selfdestructed in the same transaction
     assert!(contract_info.is_none());
 
-    let die_to_contract_info = evm.account_info(&die_to_address, spec_id, &mut working_set);
+    let die_to_contract_info = evm.account_info(&die_to_address, &mut working_set);
 
     // die_to_address should have the contract balance
     assert!(die_to_contract_info.is_some());
@@ -445,7 +445,9 @@ fn test_self_destructing_constructor() {
 
     let contract_code_hash = keccak256(contract_runtime_bytecode.as_slice());
 
-    let code = evm.code.get(&contract_code_hash, &mut working_set);
+    let code = evm
+        .offchain_code
+        .get(&contract_code_hash, &mut working_set.offchain_state());
     assert!(code.is_none());
 
     let off_chain_code = evm
@@ -567,7 +569,7 @@ fn test_blob_base_fee_should_return_1() {
     assert!(receipts.last().unwrap().receipt.success);
 
     let storage_value = evm
-        .storage_get(&contract_addr, &U256::ZERO, spec_id, &mut working_set)
+        .storage_get(&contract_addr, &U256::ZERO, &mut working_set)
         .unwrap();
 
     assert_eq!(storage_value, U256::from(1));
@@ -672,7 +674,7 @@ fn test_kzg_point_eval_should_revert() {
         .collect();
 
     let storage_value = evm
-        .storage_get(&contract_addr, &U256::ZERO, spec_id, &mut working_set)
+        .storage_get(&contract_addr, &U256::ZERO, &mut working_set)
         .unwrap();
     assert_ne!(
         storage_value,
@@ -742,7 +744,7 @@ fn test_p256_verify() {
         .collect();
     assert!(!receipts.last().unwrap().receipt.success);
 
-    let storage_value = evm.storage_get(&contract_addr, &U256::ZERO, spec_id, &mut working_set);
+    let storage_value = evm.storage_get(&contract_addr, &U256::ZERO, &mut working_set);
     assert!(storage_value.is_none());
 
     l2_height += 1;
@@ -783,7 +785,7 @@ fn test_p256_verify() {
         .collect();
 
     let storage_value = evm
-        .storage_get(&contract_addr, &U256::ZERO, spec_id, &mut working_set)
+        .storage_get(&contract_addr, &U256::ZERO, &mut working_set)
         .unwrap();
     assert_eq!(storage_value, U256::from(1));
     assert!(receipts.last().unwrap().receipt.success);
@@ -845,10 +847,13 @@ fn test_offchain_contract_storage_evm() {
     sleep(std::time::Duration::from_secs(2));
 
     //try to get it from offchain storage and expect it to not exist
-    let contract_info = evm.account_info(&contract_addr, spec_id, &mut working_set);
+    let contract_info = evm.account_info(&contract_addr, &mut working_set);
     let code_hash = contract_info.unwrap().code_hash.unwrap();
 
-    let genesis_cont_evm_code = evm.code.get(&code_hash, &mut working_set).unwrap();
+    let genesis_cont_evm_code = evm
+        .offchain_code
+        .get(&code_hash, &mut working_set.offchain_state())
+        .unwrap();
 
     // Try to get the code from genesis fork and expect it to exist
     let code = evm
@@ -889,7 +894,10 @@ fn test_offchain_contract_storage_evm() {
 
     assert!(offchain_code.is_none());
 
-    let evm_code = evm.code.get(&code_hash, &mut working_set).unwrap();
+    let evm_code = evm
+        .offchain_code
+        .get(&code_hash, &mut working_set.offchain_state())
+        .unwrap();
 
     let code = evm
         .get_code_inner(
@@ -927,7 +935,7 @@ fn test_offchain_contract_storage_evm() {
 
     let new_contract_address = address!("d26ff5586e488e65d86bcc3f0fe31551e381a596");
 
-    let contract_info = evm.account_info(&new_contract_address, spec_id, &mut working_set);
+    let contract_info = evm.account_info(&new_contract_address, &mut working_set);
     let code_hash = contract_info.unwrap().code_hash.unwrap();
 
     let offchain_code = evm
@@ -936,7 +944,9 @@ fn test_offchain_contract_storage_evm() {
 
     assert!(offchain_code.is_some());
 
-    let evm_code = evm.code.get(&code_hash, &mut working_set);
+    let evm_code = evm
+        .offchain_code
+        .get(&code_hash, &mut working_set.offchain_state());
     assert!(evm_code.is_none());
 
     // make tx on the contract that was deployed before fork1 and see that you can read it from offchain storage afterwards
@@ -984,7 +994,7 @@ fn test_offchain_contract_storage_evm() {
     assert_eq!(code, *genesis_cont_evm_code.original_byte_slice());
 
     // Now I should be able to read the contract from offchain storage
-    let contract_info = evm.account_info(&contract_addr, spec_id, &mut working_set);
+    let contract_info = evm.account_info(&contract_addr, &mut working_set);
     let code_hash = contract_info.unwrap().code_hash.unwrap();
 
     let offchain_code = evm
@@ -992,96 +1002,4 @@ fn test_offchain_contract_storage_evm() {
         .get(&code_hash, &mut working_set.offchain_state());
 
     assert!(offchain_code.is_some());
-}
-
-#[test]
-fn test_kumquat_to_fork2_account_migration() {
-    let (config, dev_signer, contract_addr) =
-        get_evm_config(U256::from_str("100000000000000000000").unwrap(), None);
-
-    let (mut evm, mut working_set, _spec_id) = get_evm_with_spec(&config, SovSpecId::Genesis);
-    let l1_fee_rate = 0;
-    let mut l2_height = 2;
-
-    let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
-        l2_height,
-        da_slot_hash: [5u8; 32],
-        da_slot_height: 1,
-        da_slot_txs_commitment: [42u8; 32],
-        pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Kumquat,
-        pub_key: vec![],
-        deposit_data: vec![],
-        l1_fee_rate,
-        timestamp: 0,
-    });
-
-    // Send money to a contract address
-    let sender_address = generate_address::<C>("sender");
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-    {
-        let context = C::new(sender_address, l2_height, SovSpecId::Kumquat, l1_fee_rate);
-        let call_tx = send_money_to_contract_message(contract_addr, &dev_signer, 0, 100000);
-
-        evm.call(
-            CallMessage { txs: vec![call_tx] },
-            &context,
-            &mut working_set,
-        )
-        .unwrap();
-    }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-    evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
-
-    let old_acc = evm
-        .accounts_prefork2
-        .get(&contract_addr, &mut working_set)
-        .unwrap();
-    assert_eq!(old_acc.balance, U256::from(100000));
-    let old_idx = evm.account_idxs.get(&contract_addr, &mut working_set);
-    assert!(old_idx.is_none());
-
-    l2_height += 1;
-
-    // Now trying with Fork2 spec on the next block
-    let soft_confirmation_info = HookSoftConfirmationInfo::V2(HookSoftConfirmationInfoV2 {
-        l2_height,
-        pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
-        l1_fee_rate,
-        timestamp: 0,
-    });
-
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-    {
-        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
-        let call_tx = send_money_to_contract_message(contract_addr, &dev_signer, 1, 100000);
-
-        evm.call(
-            CallMessage { txs: vec![call_tx] },
-            &context,
-            &mut working_set,
-        )
-        .unwrap();
-    }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-    evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
-
-    let old_acc = evm
-        .accounts_prefork2
-        .get(&contract_addr, &mut working_set)
-        .unwrap();
-    // Because we sent in Fork2, old account format should stay the same (but not the new account format)
-    assert_eq!(old_acc.balance, U256::from(100000));
-
-    let new_idx = evm
-        .account_idxs
-        .get(&contract_addr, &mut working_set)
-        .unwrap();
-    let new_acc = evm
-        .accounts_postfork2
-        .get(&new_idx, &mut working_set)
-        .unwrap();
-    assert_eq!(new_acc.balance, U256::from(200000));
 }

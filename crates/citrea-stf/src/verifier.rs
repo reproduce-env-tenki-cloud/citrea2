@@ -8,7 +8,7 @@ use sov_rollup_interface::zk::batch_proof::input::v3::BatchProofCircuitInputV3Pa
 use sov_rollup_interface::zk::batch_proof::output::v3::BatchProofCircuitOutputV3;
 use sov_rollup_interface::zk::{StorageRootHash, ZkvmGuest};
 use sov_rollup_interface::RefCount;
-use sov_state::codec::{BcsCodec, BorshCodec};
+use sov_state::codec::BorshCodec;
 use sov_state::storage::{StateValueCodec, Storage, StorageKey, ValueExists};
 use sov_state::{ReadWriteLog, Witness};
 
@@ -148,26 +148,8 @@ pub fn get_last_l1_hash_on_contract<C: Context>(
             match storage.get_and_prove(&key, last_l1_hash_witness, final_state_root) {
                 Some(value) => borsh_deserialize_value(value.into_cache_value().value),
                 None => {
-                    // If this is the first proof in Fork2 and we haven't changed the height yet
-                    // we must get from pre fork2 storage.
-                    //
-                    // We don't even check storage cache with pre fork2 keys here because
-                    // if pre fork2 storage is read in Fork2,
-                    // it would be written also be written to the cache with fork2 keys.
-                    // And we wouldn't be here.
-
-                    let pre_fork2_key = Evm::<C>::get_storage_key_pre_fork2(
-                        &BITCOIN_LIGHT_CLIENT_CONTRACT_ADDRESS,
-                        &U256::ZERO,
-                    );
-
-                    bcs_deserialize_value(
-                        storage
-                            .get_and_prove(&pre_fork2_key, last_l1_hash_witness, final_state_root)
-                            .expect("Should exist")
-                            .into_cache_value()
-                            .value,
-                    )
+                    // TODO for this pr: Maybe don't panic here?
+                    panic!("Next L1 height should exist in storage");
                 }
             }
         }
@@ -197,26 +179,8 @@ pub fn get_last_l1_hash_on_contract<C: Context>(
             match storage.get_and_prove(&key, last_l1_hash_witness, final_state_root) {
                 Some(value) => borsh_deserialize_value(value.into_cache_value().value),
                 None => {
-                    // If this is the first proof in Fork2 and we haven't changed the height yet
-                    // we must get from pre fork2 storage.
-                    //
-                    // We don't even check storage cache with pre fork2 keys here because
-                    // if pre fork2 storage is read in Fork2,
-                    // it would be written also be written to the cache with fork2 keys.
-                    // And we wouldn't be here.
-
-                    let pre_fork2_key = Evm::<C>::get_storage_key_pre_fork2(
-                        &BITCOIN_LIGHT_CLIENT_CONTRACT_ADDRESS,
-                        &evm_storage_slot,
-                    );
-
-                    bcs_deserialize_value(
-                        storage
-                            .get_and_prove(&pre_fork2_key, last_l1_hash_witness, final_state_root)
-                            .expect("Should exist")
-                            .into_cache_value()
-                            .value,
-                    )
+                    // TODO for this pr: Maybe don't panic here?
+                    panic!("Last L1 hash should exist in storage");
                 }
             }
         }
@@ -230,11 +194,4 @@ where
     BorshCodec: StateValueCodec<T>,
 {
     (BorshCodec {}).decode_value_unwrap(&bytes)
-}
-
-fn bcs_deserialize_value<T>(bytes: RefCount<[u8]>) -> T
-where
-    BcsCodec: StateValueCodec<T>,
-{
-    (BcsCodec {}).decode_value_unwrap(&bytes)
 }

@@ -1182,11 +1182,7 @@ where
     )> {
         let mut all_txs = vec![];
         let system_signer = evm
-            .account_info(
-                &SYSTEM_SIGNER,
-                soft_confirmation_info.current_spec(),
-                &mut working_set_to_discard,
-            )
+            .account_info(&SYSTEM_SIGNER, &mut working_set_to_discard)
             .unwrap_or(AccountInfo {
                 balance: U256::ZERO,
                 nonce: 0,

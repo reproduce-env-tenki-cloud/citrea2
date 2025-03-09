@@ -25,13 +25,13 @@ fn genesis_data() {
     let account = &config.data[0];
 
     let db_account = evm
-        .account_info(&account.address, spec_id, &mut working_set)
+        .account_info(&account.address, &mut working_set)
         .unwrap();
 
     let contract = &config.data[1];
 
     let contract_account = evm
-        .account_info(&contract.address, spec_id, &mut working_set)
+        .account_info(&contract.address, &mut working_set)
         .unwrap();
 
     let contract_storage1 = evm

@@ -309,7 +309,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         // Specs from https://ethereum.org/en/developers/docs/apis/json-rpc
         let balance = self
-            .account_info(&address, citrea_spec, working_set)
+            .account_info(&address, working_set)
             .unwrap_or_default()
             .balance;
 
@@ -351,7 +351,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
         self.set_state_to_end_of_evm_block_by_block_id(block_id, working_set)?;
 
         let storage_slot = self
-            .storage_get(&address, &index, citrea_spec, working_set)
+            .storage_get(&address, &index, working_set)
             .unwrap_or_default();
 
         Ok(storage_slot.into())
@@ -374,7 +374,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
         self.set_state_to_end_of_evm_block_by_block_id(block_id, working_set)?;
 
         let nonce = self
-            .account_info(&address, citrea_spec, working_set)
+            .account_info(&address, working_set)
             .map(|account| account.nonce)
             .unwrap_or_default();
 
@@ -405,17 +405,11 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         self.set_state_to_end_of_evm_block_by_block_id(block_id, working_set)?;
 
-        let account = self
-            .account_info(&address, citrea_spec, working_set)
-            .unwrap_or_default();
+        let account = self.account_info(&address, working_set).unwrap_or_default();
         let code = if let Some(code_hash) = account.code_hash {
-            if citrea_spec >= CitreaSpecId::Kumquat {
-                self.offchain_code
-                    .get(&code_hash, &mut working_set.offchain_state())
-                    .unwrap_or_else(|| self.code.get(&code_hash, working_set).unwrap_or_default())
-            } else {
-                self.code.get(&code_hash, working_set).unwrap_or_default()
-            }
+            self.offchain_code
+                .get(&code_hash, &mut working_set.offchain_state())
+                .expect("for a given code hash code should exist")
         } else {
             Default::default()
         };
@@ -986,7 +980,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
         let block_env_base_fee = U256::from(block_env.basefee);
 
         let account = self
-            .account_info(&request.from.unwrap_or_default(), citrea_spec, working_set)
+            .account_info(&request.from.unwrap_or_default(), working_set)
             .unwrap_or_default();
 
         // create tx env
@@ -995,9 +989,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
         // if the request is a simple transfer we can optimize
         if tx_env.data.is_empty() {
             if let TransactTo::Call(to) = tx_env.transact_to {
-                let to_account = self
-                    .account_info(&to, citrea_spec, working_set)
-                    .unwrap_or_default();
+                let to_account = self.account_info(&to, working_set).unwrap_or_default();
                 if to_account.code_hash.is_none() {
                     // If the tx is a simple transfer (call to an account with no code) we can
                     // shortcircuit But simply returning

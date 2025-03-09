@@ -104,9 +104,7 @@ fn call_multiple_test() {
     evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
-    let account_info = evm
-        .account_info(&contract_addr, spec_id, &mut working_set)
-        .unwrap();
+    let account_info = evm.account_info(&contract_addr, &mut working_set).unwrap();
 
     // Make sure the contract db account size is 75 bytes
     let db_account_len = bcs::to_bytes(&account_info)
@@ -115,7 +113,7 @@ fn call_multiple_test() {
     assert_eq!(db_account_len, 75);
 
     let eoa_account_info = evm
-        .account_info(&dev_signer1.address(), spec_id, &mut working_set)
+        .account_info(&dev_signer1.address(), &mut working_set)
         .unwrap();
     // Make sure the eoa db account size is 42 bytes
     let db_account_len = bcs::to_bytes(&eoa_account_info)
@@ -123,7 +121,7 @@ fn call_multiple_test() {
         .len();
     assert_eq!(db_account_len, 42);
     let storage_value = evm
-        .storage_get(&contract_addr, &U256::ZERO, spec_id, &mut working_set)
+        .storage_get(&contract_addr, &U256::ZERO, &mut working_set)
         .unwrap();
     assert_eq!(U256::from(set_arg + 3), storage_value);
 
@@ -268,7 +266,7 @@ fn call_test() {
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     let storage_value = evm
-        .storage_get(&contract_addr, &U256::ZERO, spec_id, &mut working_set)
+        .storage_get(&contract_addr, &U256::ZERO, &mut working_set)
         .unwrap();
 
     assert_eq!(U256::from(set_arg), storage_value);
@@ -577,7 +575,7 @@ fn self_destruct_test() {
     l2_height += 1;
 
     let contract_info = evm
-        .account_info(&contract_addr, spec_id, &mut working_set)
+        .account_info(&contract_addr, &mut working_set)
         .expect("contract address should exist");
 
     // Test if we managed to send money to contract
@@ -587,7 +585,7 @@ fn self_destruct_test() {
 
     // Test if we managed to set the variable in the contract
     assert_eq!(
-        evm.storage_get(&contract_addr, &U256::from(0), spec_id, &mut working_set)
+        evm.storage_get(&contract_addr, &U256::from(0), &mut working_set)
             .unwrap(),
         U256::from(123)
     );
@@ -634,13 +632,10 @@ fn self_destruct_test() {
     l2_height += 1;
 
     // we now delete destructed accounts from storage
-    assert_eq!(
-        evm.account_info(&contract_addr, spec_id, &mut working_set),
-        None
-    );
+    assert_eq!(evm.account_info(&contract_addr, &mut working_set), None);
 
     let die_to_acc = evm
-        .account_info(&die_to_address, spec_id, &mut working_set)
+        .account_info(&die_to_address, &mut working_set)
         .expect("die to address should exist");
 
     let receipts = evm
@@ -658,7 +653,7 @@ fn self_destruct_test() {
 
     // the storage should be empty
     assert_eq!(
-        evm.storage_get(&contract_addr, &U256::from(0), spec_id, &mut working_set),
+        evm.storage_get(&contract_addr, &U256::from(0), &mut working_set),
         None
     );
 
@@ -700,13 +695,14 @@ fn self_destruct_test() {
     l2_height += 1;
 
     let contract_info = evm
-        .account_info(&new_contract_address, spec_id, &mut working_set)
+        .account_info(&new_contract_address, &mut working_set)
         .expect("contract address should exist");
 
     let new_contract_code_hash_before_destruct = contract_info.code_hash.unwrap();
-    let new_contract_code_before_destruct = evm
-        .code
-        .get(&new_contract_code_hash_before_destruct, &mut working_set);
+    let new_contract_code_before_destruct = evm.offchain_code.get(
+        &new_contract_code_hash_before_destruct,
+        &mut working_set.offchain_state(),
+    );
 
     // Activate fork1
     // After cancun activated here SELFDESTRUCT will recover all funds to the target
@@ -756,7 +752,7 @@ fn self_destruct_test() {
 
     // after cancun the funds go but account is not destructed if if selfdestruct is not called in creation
     let contract_info = evm
-        .account_info(&new_contract_address, spec_id, &mut working_set)
+        .account_info(&new_contract_address, &mut working_set)
         .expect("contract address should exist");
 
     // Test if we managed to send money to contract
@@ -767,9 +763,10 @@ fn self_destruct_test() {
     );
 
     // Both on-chain state and off-chain state code should exist
-    let code = evm
-        .code
-        .get(&new_contract_code_hash_before_destruct, &mut working_set);
+    let code = evm.offchain_code.get(
+        &new_contract_code_hash_before_destruct,
+        &mut working_set.offchain_state(),
+    );
     assert_eq!(code, new_contract_code_before_destruct);
 
     let off_chain_code = evm.offchain_code.get(
@@ -782,7 +779,7 @@ fn self_destruct_test() {
     assert_eq!(contract_info.balance, U256::from(0));
 
     let die_to_contract = evm
-        .account_info(&die_to_address, spec_id, &mut working_set)
+        .account_info(&die_to_address, &mut working_set)
         .expect("die to address should exist");
 
     // the to address balance should be equal to double contract balance now that two selfdestructs have been called
@@ -790,12 +787,7 @@ fn self_destruct_test() {
 
     // the storage should not be empty
     assert_eq!(
-        evm.storage_get(
-            &new_contract_address,
-            &U256::from(0),
-            spec_id,
-            &mut working_set,
-        ),
+        evm.storage_get(&new_contract_address, &U256::from(0), &mut working_set,),
         Some(U256::from(123))
     );
 }
@@ -1211,18 +1203,14 @@ fn test_l1_fee_success() {
         evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
         let db_account = evm
-            .account_info(&dev_signer.address(), spec_id, &mut working_set)
+            .account_info(&dev_signer.address(), &mut working_set)
             .unwrap();
 
-        let base_fee_vault = evm
-            .account_info(&BASE_FEE_VAULT, spec_id, &mut working_set)
-            .unwrap();
-        let l1_fee_vault = evm
-            .account_info(&L1_FEE_VAULT, spec_id, &mut working_set)
-            .unwrap();
+        let base_fee_vault = evm.account_info(&BASE_FEE_VAULT, &mut working_set).unwrap();
+        let l1_fee_vault = evm.account_info(&L1_FEE_VAULT, &mut working_set).unwrap();
 
         let coinbase_account = evm
-            .account_info(&config.coinbase, spec_id, &mut working_set)
+            .account_info(&config.coinbase, &mut working_set)
             .unwrap();
         assert_eq!(config.coinbase, PRIORITY_FEE_VAULT);
 
@@ -1485,7 +1473,7 @@ fn test_l1_fee_not_enough_funds() {
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     let db_account = evm
-        .account_info(&dev_signer.address(), spec_id, &mut working_set)
+        .account_info(&dev_signer.address(), &mut working_set)
         .unwrap();
 
     // The account balance is unchanged
@@ -1493,7 +1481,7 @@ fn test_l1_fee_not_enough_funds() {
     assert_eq!(db_account.nonce, 0);
 
     // The coinbase balance is zero
-    let db_coinbase = evm.account_info(&config.coinbase, spec_id, &mut working_set);
+    let db_coinbase = evm.account_info(&config.coinbase, &mut working_set);
     assert_eq!(db_coinbase.unwrap().balance, U256::from(0));
 }
 
@@ -1662,7 +1650,7 @@ fn test_l1_fee_halt() {
         ]
     );
     let db_account = evm
-        .account_info(&dev_signer.address(), spec_id, &mut working_set)
+        .account_info(&dev_signer.address(), &mut working_set)
         .unwrap();
 
     let expenses = 1106947_u64 * 10000000 + // evm gas
@@ -1676,12 +1664,8 @@ fn test_l1_fee_halt() {
             expenses
         )
     );
-    let base_fee_vault = evm
-        .account_info(&BASE_FEE_VAULT, spec_id, &mut working_set)
-        .unwrap();
-    let l1_fee_vault = evm
-        .account_info(&L1_FEE_VAULT, spec_id, &mut working_set)
-        .unwrap();
+    let base_fee_vault = evm.account_info(&BASE_FEE_VAULT, &mut working_set).unwrap();
+    let l1_fee_vault = evm.account_info(&L1_FEE_VAULT, &mut working_set).unwrap();
 
     assert_eq!(base_fee_vault.balance, U256::from(1106947_u64 * 10000000));
     assert_eq!(
@@ -1737,18 +1721,14 @@ fn test_l1_fee_compression_discount() {
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     let db_account = evm
-        .account_info(&dev_signer.address(), spec_id, &mut working_set)
+        .account_info(&dev_signer.address(), &mut working_set)
         .unwrap();
 
-    let base_fee_vault = evm
-        .account_info(&BASE_FEE_VAULT, spec_id, &mut working_set)
-        .unwrap();
-    let l1_fee_vault = evm
-        .account_info(&L1_FEE_VAULT, spec_id, &mut working_set)
-        .unwrap();
+    let base_fee_vault = evm.account_info(&BASE_FEE_VAULT, &mut working_set).unwrap();
+    let l1_fee_vault = evm.account_info(&L1_FEE_VAULT, &mut working_set).unwrap();
 
     let coinbase_account = evm
-        .account_info(&config.coinbase, spec_id, &mut working_set)
+        .account_info(&config.coinbase, &mut working_set)
         .unwrap();
     assert_eq!(config.coinbase, PRIORITY_FEE_VAULT);
 
@@ -1809,17 +1789,13 @@ fn test_l1_fee_compression_discount() {
     evm.finalize_hook(&[98u8; 32], &mut working_set.accessory_state());
 
     let db_account = evm
-        .account_info(&dev_signer.address(), spec_id, &mut working_set)
+        .account_info(&dev_signer.address(), &mut working_set)
         .unwrap();
-    let base_fee_vault = evm
-        .account_info(&BASE_FEE_VAULT, spec_id, &mut working_set)
-        .unwrap();
-    let l1_fee_vault = evm
-        .account_info(&L1_FEE_VAULT, spec_id, &mut working_set)
-        .unwrap();
+    let base_fee_vault = evm.account_info(&BASE_FEE_VAULT, &mut working_set).unwrap();
+    let l1_fee_vault = evm.account_info(&L1_FEE_VAULT, &mut working_set).unwrap();
 
     let coinbase_account = evm
-        .account_info(&config.coinbase, spec_id, &mut working_set)
+        .account_info(&config.coinbase, &mut working_set)
         .unwrap();
 
     // gas fee remains the same
