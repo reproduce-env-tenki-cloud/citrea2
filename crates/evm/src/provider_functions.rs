@@ -259,15 +259,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
     pub fn last_sealed_header(&self, working_set: &mut WorkingSet<C::Storage>) -> SealedHeader {
         self.blocks_rlp
             .last(&mut working_set.accessory_state())
-            .or_else(|| {
-                //  upgrading from v0.5.7 to v0.6+ requires a codec change
-                // this only applies to the sequencer
-                // which will only query the genesis block and the head block
-                // right after the upgrade
-                self.blocks
-                    .last(&mut working_set.accessory_state())
-                    .map(Into::into)
-            })
             .expect("Head block must be set")
             .header
     }

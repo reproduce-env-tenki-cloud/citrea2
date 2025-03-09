@@ -153,11 +153,6 @@ pub struct Evm<C: sov_modules_api::Context> {
     #[state]
     pub(crate) pending_head: sov_modules_api::AccessoryStateValue<Block<AlloyHeader>, RlpCodec>,
 
-    /// Used only by the RPC: The vec is extended with `pending_head` in `finalize_hook`.
-    #[cfg(feature = "native")]
-    #[state]
-    pub(crate) blocks: sov_modules_api::AccessoryStateVec<DoNotUseSealedBlock, BcsCodec>,
-
     #[cfg(feature = "native")]
     #[state]
     pub(crate) blocks_rlp: sov_modules_api::AccessoryStateVec<SealedBlock, RlpCodec>,
@@ -166,12 +161,6 @@ pub struct Evm<C: sov_modules_api::Context> {
     #[cfg(feature = "native")]
     #[state]
     pub(crate) block_hashes: sov_modules_api::AccessoryStateMap<B256, u64, BcsCodec>,
-
-    /// Used only by the RPC: List of processed transactions.
-    #[cfg(feature = "native")]
-    #[state]
-    pub(crate) transactions:
-        sov_modules_api::AccessoryStateVec<DoNotUseTransactionSignedAndRecovered, BcsCodec>,
 
     #[cfg(feature = "native")]
     #[state]
@@ -182,11 +171,6 @@ pub struct Evm<C: sov_modules_api::Context> {
     #[cfg(feature = "native")]
     #[state]
     pub(crate) transaction_hashes: sov_modules_api::AccessoryStateMap<B256, u64, BcsCodec>,
-
-    /// Used only by the RPC: Receipts.
-    #[cfg(feature = "native")]
-    #[state]
-    pub(crate) receipts: sov_modules_api::AccessoryStateVec<Receipt, BcsCodec>,
 
     #[cfg(feature = "native")]
     #[state]

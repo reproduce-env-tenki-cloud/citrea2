@@ -244,26 +244,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
             self.pending_head.set(&block, &mut accessory_state);
 
-            // migration start
-            if self.transactions_rlp.len(&mut accessory_state) == 0 {
-                let len = self.transactions.len(&mut accessory_state);
-                tracing::info!("Migrating {} transactions from storage to RLP", len);
-                for i in 0..len {
-                    let tx = self.transactions.get(i, &mut accessory_state).unwrap();
-                    self.transactions_rlp.push(&tx.into(), &mut accessory_state);
-                }
-            }
-
-            if self.receipts_rlp.len(&mut accessory_state) == 0 {
-                let len = self.receipts.len(&mut accessory_state);
-                tracing::info!("Migrating {} receipts from storage to RLP", len);
-                for i in 0..len {
-                    let receipt = self.receipts.get(i, &mut accessory_state).unwrap();
-                    self.receipts_rlp.push(&receipt, &mut accessory_state);
-                }
-            }
-            // migration end
-
             let mut tx_index = start_tx_index;
             for PendingTransaction {
                 transaction,
@@ -303,17 +283,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
     ) {
         #[cfg(feature = "native")]
         {
-            // migration start
-            if self.blocks_rlp.len(accessory_working_set) == 0 {
-                let len = self.blocks.len(accessory_working_set);
-                tracing::info!("Migrating {} blocks from storage to RLP", len);
-                for i in 0..len {
-                    let block = self.blocks.get(i, accessory_working_set).unwrap();
-                    self.blocks_rlp.push(&block.into(), accessory_working_set);
-                }
-            }
-            // migration end
-
             let expected_block_number = self.blocks_rlp.len(accessory_working_set) as u64;
 
             let mut block = self
