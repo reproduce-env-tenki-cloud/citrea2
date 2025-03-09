@@ -230,7 +230,7 @@ where
             self.sequencer_pub_key.as_slice()
         };
 
-        let soft_confirmation_result = if current_spec >= SpecId::Fork2 {
+        let soft_confirmation_result = {
             // Since Post fork2 we do not have the slot hash in soft confirmations we inspect the txs and get the slot hashes from set block infos
 
             // Then store the short header proofs of those blocks in the ledger db
@@ -251,26 +251,6 @@ where
                 None,
                 Default::default(),
                 Default::default(),
-                &l2_block,
-            )?
-        } else {
-            let current_l1_block = get_da_block_at_height(
-                &self.da_service,
-                soft_confirmation.da_slot_height, // THIS IS 0 AFTER FORK2
-                self.l1_block_cache.clone(),
-            )
-            .await?;
-
-            self.stf.apply_soft_confirmation_pre_fork2(
-                current_spec,
-                sequencer_pub_key,
-                &self.state_root,
-                pre_state,
-                None,
-                None,
-                Default::default(),
-                Default::default(),
-                current_l1_block.header(),
                 &l2_block,
             )?
         };

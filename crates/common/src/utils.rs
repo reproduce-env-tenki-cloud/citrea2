@@ -91,18 +91,9 @@ pub fn check_l2_block_exists<DB: SharedLedgerOps>(ledger_db: &DB, l2_height: u64
 }
 
 pub fn compute_tx_hashes<C: Context>(txs: &[Transaction], current_spec: SpecId) -> Vec<[u8; 32]> {
-    if current_spec >= SpecId::Kumquat {
-        txs.iter()
-            .map(|tx| tx.compute_digest::<<C as Spec>::Hasher>().into())
-            .collect()
-    } else {
-        txs.iter()
-            .map(|tx| {
-                let serialized = borsh::to_vec(tx).expect("Tx serialization shouldn't fail");
-                <C as Spec>::Hasher::digest(&serialized).into()
-            })
-            .collect()
-    }
+    txs.iter()
+        .map(|tx| tx.compute_digest::<<C as Spec>::Hasher>().into())
+        .collect()
 }
 
 pub fn compute_tx_merkle_root(tx_hashes: &[[u8; 32]]) -> anyhow::Result<[u8; 32]> {
