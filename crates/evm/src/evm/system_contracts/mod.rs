@@ -10,9 +10,6 @@ sol! {
     "./src/evm/system_contracts/out/BitcoinLightClient.sol/BitcoinLightClient.json"
 }
 
-// TODO: rename after berat's PR
-pub type PostFork2SetBlockInfoCall = BitcoinLightClientContract::setBlockInfo_1Call;
-
 /// BitcoinLightClient wrapper.
 pub struct BitcoinLightClient {}
 
@@ -39,7 +36,7 @@ impl BitcoinLightClient {
         let coinbase_depth = U256::from(coinbase_depth);
 
         let mut func_selector = Vec::with_capacity(4 + 32 + 32 + 32);
-        func_selector.extend(PostFork2SetBlockInfoCall::SELECTOR);
+        func_selector.extend(BitcoinLightClientContract::setBlockInfoCall::SELECTOR);
         func_selector.extend_from_slice(&block_hash);
         func_selector.extend_from_slice(&txs_commitments);
         func_selector.extend_from_slice(&coinbase_depth.to_be_bytes::<32>());

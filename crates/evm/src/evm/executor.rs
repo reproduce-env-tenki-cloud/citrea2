@@ -15,7 +15,7 @@ use tracing::trace_span;
 
 use super::conversions::create_tx_env;
 use super::handler::{citrea_handler, CitreaExternalExt};
-use super::system_contracts::PostFork2SetBlockInfoCall;
+use super::system_contracts::BitcoinLightClientContract;
 use super::BITCOIN_LIGHT_CLIENT_CONTRACT_ADDRESS;
 use crate::{Evm, EvmDb, SYSTEM_SIGNER};
 
@@ -154,7 +154,7 @@ fn post_fork2_system_tx_verifier<C: sov_modules_api::Context>(
     if l2_height == 1 {
         return Ok(());
     }
-    if function_selector == PostFork2SetBlockInfoCall::SELECTOR {
+    if function_selector == BitcoinLightClientContract::setBlockInfoCall::SELECTOR {
         let l1_block_hash: [u8; 32] = tx.input()[4..36]
             .try_into()
             .map_err(|_| SoftConfirmationModuleCallError::EvmSystemTxParseError)?;
