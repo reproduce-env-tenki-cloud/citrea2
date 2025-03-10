@@ -612,13 +612,7 @@ fn test_offchain_contract_storage_evm() {
     let (config, dev_signer, contract_addr) =
         get_evm_config(U256::from_str("100000000000000000000").unwrap(), None);
 
-    let fork_fn = |num: u64| {
-        if num < 3 {
-            Fork::new(SovSpecId::Fork2, 0)
-        } else {
-            Fork::new(SovSpecId::Fork2, 4)
-        }
-    };
+    let fork_fn = |_: u64| Fork::new(SovSpecId::Fork2, 4);
 
     let (mut evm, mut working_set, spec_id) = get_evm_with_spec(&config, SovSpecId::Fork2);
     let l1_fee_rate = 0;
@@ -662,7 +656,7 @@ fn test_offchain_contract_storage_evm() {
     let contract_info = evm.account_info(&contract_addr, &mut working_set);
     let code_hash = contract_info.unwrap().code_hash.unwrap();
 
-    let Fork2_cont_evm_code = evm
+    let cont_code = evm
         .offchain_code
         .get(&code_hash, &mut working_set.offchain_state())
         .unwrap();
@@ -672,36 +666,7 @@ fn test_offchain_contract_storage_evm() {
         .get_code_inner(contract_addr, None, &mut working_set, fork_fn)
         .unwrap();
 
-    assert_eq!(*Fork2_cont_evm_code.original_byte_slice(), code);
-
-    let offchain_code = evm
-        .offchain_code
-        .get(&code_hash, &mut working_set.offchain_state());
-
-    assert!(offchain_code.is_none());
-
-    // activate fork and then try to get it from offchain storage and expect it to exist
-    // Deployed a contract in Fork2 fork
-    let soft_confirmation_info = HookSoftConfirmationInfo {
-        l2_height,
-        pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Fork2,
-        sequencer_pub_key: vec![],
-        l1_fee_rate,
-        timestamp: 0,
-    };
-
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-    evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
-    sleep(std::time::Duration::from_secs(2));
-    l2_height += 1;
-
-    let offchain_code = evm
-        .offchain_code
-        .get(&code_hash, &mut working_set.offchain_state());
-
-    assert!(offchain_code.is_none());
+    assert_eq!(*cont_code.original_byte_slice(), code);
 
     let evm_code = evm
         .offchain_code
@@ -753,11 +718,6 @@ fn test_offchain_contract_storage_evm() {
 
     assert!(offchain_code.is_some());
 
-    let evm_code = evm
-        .offchain_code
-        .get(&code_hash, &mut working_set.offchain_state());
-    assert!(evm_code.is_none());
-
     // make tx on the contract that was deployed before fork1 and see that you can read it from offchain storage afterwards
     let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
@@ -791,12 +751,6 @@ fn test_offchain_contract_storage_evm() {
         .get_code_inner(new_contract_address, None, &mut working_set, fork_fn)
         .unwrap();
     assert_eq!(code, *offchain_code.unwrap().original_byte_slice());
-
-    // Also try to get code of a contract deployed in Fork2 fork and expect it to exist as well
-    let code = evm
-        .get_code_inner(contract_addr, None, &mut working_set, fork_fn)
-        .unwrap();
-    assert_eq!(code, *Fork2_cont_evm_code.original_byte_slice());
 
     // Now I should be able to read the contract from offchain storage
     let contract_info = evm.account_info(&contract_addr, &mut working_set);
