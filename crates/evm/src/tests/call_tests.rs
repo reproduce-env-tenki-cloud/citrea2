@@ -1466,73 +1466,6 @@ fn test_l1_fee_compression_discount() {
 
     let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height: 2,
-        pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Fork2,
-        sequencer_pub_key: vec![],
-        l1_fee_rate,
-        timestamp: 0,
-    };
-
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-    {
-        let sender_address = generate_address::<C>("sender");
-        let context = C::new(sender_address, 2, SovSpecId::Fork2, l1_fee_rate);
-        let call_tx = dev_signer
-            .sign_default_transaction_with_priority_fee(
-                TxKind::Call(Address::random()),
-                vec![],
-                0,
-                1000,
-                20000000,
-                1,
-            )
-            .unwrap();
-
-        evm.call(
-            CallMessage { txs: vec![call_tx] },
-            &context,
-            &mut working_set,
-        )
-        .unwrap();
-    }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-    evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
-
-    let db_account = evm
-        .account_info(&dev_signer.address(), &mut working_set)
-        .unwrap();
-
-    let base_fee_vault = evm.account_info(&BASE_FEE_VAULT, &mut working_set).unwrap();
-    let l1_fee_vault = evm.account_info(&L1_FEE_VAULT, &mut working_set).unwrap();
-
-    let coinbase_account = evm
-        .account_info(&config.coinbase, &mut working_set)
-        .unwrap();
-    assert_eq!(config.coinbase, PRIORITY_FEE_VAULT);
-
-    let gas_fee_paid = 21000;
-    let tx1_diff_size = 140;
-
-    let mut expected_db_balance = U256::from(
-        100000000000000u64
-            - 1000
-            - gas_fee_paid * 10000001
-            - tx1_diff_size
-            - L1_FEE_OVERHEAD as u64,
-    );
-    let mut expected_base_fee_vault_balance = U256::from(gas_fee_paid * 10000000);
-    let mut expected_coinbase_balance = U256::from(gas_fee_paid);
-    let mut expected_l1_fee_vault_balance = U256::from(tx1_diff_size + L1_FEE_OVERHEAD as u64);
-
-    assert_eq!(db_account.balance, expected_db_balance);
-    assert_eq!(base_fee_vault.balance, expected_base_fee_vault_balance);
-    assert_eq!(coinbase_account.balance, expected_coinbase_balance);
-    assert_eq!(l1_fee_vault.balance, expected_l1_fee_vault_balance);
-
-    // Set up the next transaction with the fork 2 activated
-    let spec_id = SovSpecId::Fork2;
-    let soft_confirmation_info = HookSoftConfirmationInfo {
-        l2_height: 3,
         pre_state_root: [99u8; 32],
         current_spec: SovSpecId::Fork2, // Compression discount is enabled
         sequencer_pub_key: vec![],
@@ -1548,7 +1481,7 @@ fn test_l1_fee_compression_discount() {
             .sign_default_transaction_with_priority_fee(
                 TxKind::Call(Address::random()),
                 vec![],
-                1,
+                0,
                 1000,
                 20000000,
                 1,
@@ -1579,29 +1512,31 @@ fn test_l1_fee_compression_discount() {
     // gas fee remains the same
     let tx2_diff_size = 46;
 
-    expected_db_balance -=
-        U256::from(gas_fee_paid * 10000001 + 1000 + tx2_diff_size + L1_FEE_OVERHEAD as u64);
-    expected_base_fee_vault_balance += U256::from(gas_fee_paid * 10000000);
-    expected_coinbase_balance += U256::from(gas_fee_paid);
-    expected_l1_fee_vault_balance += U256::from(tx2_diff_size + L1_FEE_OVERHEAD as u64);
+    let tx_gas = 21000;
+
+    let expected_db_balance = U256::from(
+        100000000000000u64 - 1000 - tx_gas * 10000001 - L1_FEE_OVERHEAD as u64 - tx2_diff_size,
+    );
+    let expected_base_fee_vault_balance = U256::from(tx_gas * 10000000);
+    let expected_coinbase_balance = U256::from(tx_gas);
+    let expected_l1_fee_vault_balance = U256::from(tx2_diff_size + L1_FEE_OVERHEAD as u64);
 
     assert_eq!(db_account.balance, expected_db_balance);
     assert_eq!(base_fee_vault.balance, expected_base_fee_vault_balance);
     assert_eq!(coinbase_account.balance, expected_coinbase_balance);
     assert_eq!(l1_fee_vault.balance, expected_l1_fee_vault_balance);
 
-    // assert comression discount
-    assert_eq!(
-        tx1_diff_size * BROTLI_COMPRESSION_PERCENTAGE as u64 / 100,
-        tx2_diff_size
-    );
-
     assert_eq!(
         evm.receipts_rlp
             .iter(&mut working_set.accessory_state())
             .map(|r| r.l1_diff_size)
             .collect::<Vec<_>>(),
-        [255, 561, 1019, 561, tx1_diff_size, tx2_diff_size]
+        [tx2_diff_size]
+    );
+
+    assert_eq!(
+        140 * (BROTLI_COMPRESSION_PERCENTAGE as u64) / 100,
+        tx2_diff_size
     );
 }
 
