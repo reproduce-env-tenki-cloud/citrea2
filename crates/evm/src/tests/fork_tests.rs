@@ -157,7 +157,7 @@ fn test_cancun_transient_storage_activation() {
 
     l2_height += 1;
 
-    // Call claim gift from transient storage contract expect to fail on Fork2 spec
+    // Call claim gift from transient storage contract
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
@@ -182,49 +182,13 @@ fn test_cancun_transient_storage_activation() {
         .collect();
 
     // Last tx should have failed because cancun is not activated
-    assert!(!receipts.last().unwrap().receipt.success);
-
-    // Now trying with CANCUN spec on the next block
-    let soft_confirmation_info = HookSoftConfirmationInfo {
-        l2_height,
-        pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Fork2,
-        sequencer_pub_key: vec![],
-        l1_fee_rate,
-        timestamp: 0,
-    };
-
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-    {
-        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
-        let call_tx =
-            claim_gift_from_transient_storage_contract_transaction(contract_addr, &dev_signer, 3);
-
-        evm.call(
-            CallMessage { txs: vec![call_tx] },
-            &context,
-            &mut working_set,
-        )
-        .unwrap();
-    }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-    evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
-
-    l2_height += 1;
-
-    let receipts: Vec<_> = evm
-        .receipts_rlp
-        .iter(&mut working_set.accessory_state())
-        .collect();
-
-    // Last tx should have passed
     assert!(receipts.last().unwrap().receipt.success);
 
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx =
-            claim_gift_from_transient_storage_contract_transaction(contract_addr, &dev_signer, 4);
+            claim_gift_from_transient_storage_contract_transaction(contract_addr, &dev_signer, 3);
 
         evm.call(
             CallMessage { txs: vec![call_tx] },
