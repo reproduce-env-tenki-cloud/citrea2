@@ -101,38 +101,6 @@ impl StateValueCodec<AccountInfo> for BorshCodec {
     }
 }
 
-/// Stores information about an EVM account and a corresponding account state.
-#[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
-pub struct DbAccount {
-    /// Storage
-    pub storage: StateMap<U256, U256, BcsCodec>,
-    /// Keys
-    pub keys: StateVec<U256, BcsCodec>,
-}
-
-impl DbAccount {
-    /// Create a new DbAccount
-    pub fn new(address: &Address) -> Self {
-        Self {
-            storage: StateMap::with_codec(Self::create_storage_prefix(address), BcsCodec {}),
-            keys: StateVec::with_codec(Self::create_keys_prefix(address), BcsCodec {}),
-        }
-    }
-
-    /// Create a storage prefix
-    pub(crate) fn create_storage_prefix(address: &Address) -> Prefix {
-        let mut prefix = Prefix::from_slice(&DBACCOUNT_STORAGE_PREFIX);
-        prefix.extend_from_slice(address.as_raw_slice());
-        prefix
-    }
-
-    fn create_keys_prefix(address: &Address) -> Prefix {
-        let mut prefix = Prefix::from_slice(&DBACCOUNT_KEYS_PREFIX);
-        prefix.extend_from_slice(address.as_raw_slice());
-        prefix
-    }
-}
-
 /// EVM Chain configuration
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct EvmChainConfig {
