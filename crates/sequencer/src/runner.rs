@@ -477,14 +477,7 @@ where
 
         let signed_header = self.sign_soft_confirmation_header(header)?;
         // TODO: cleanup l2 block structure once we decide how to pull data from the running sequencer in the existing form
-        let l2_block = L2Block::new(
-            signed_header,
-            txs.into(),
-            deposit_data,
-            0,
-            [0u8; 32],
-            [0u8; 32],
-        );
+        let l2_block = L2Block::new(signed_header, txs.into());
 
         info!(
             "Saving block #{}, Tx count: #{}",
