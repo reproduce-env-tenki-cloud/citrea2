@@ -19,7 +19,7 @@ use sov_modules_stf_blueprint::StfBlueprint;
 use sov_prover_storage_manager::ProverStorageManager;
 use sov_rollup_interface::fork::ForkManager;
 use sov_rollup_interface::rpc::SoftConfirmationResponse;
-use sov_rollup_interface::services::da::{DaService, SlotData};
+use sov_rollup_interface::services::da::DaService;
 use sov_rollup_interface::zk::StorageRootHash;
 use sov_state::storage::NativeStorage;
 use tokio::select;
@@ -30,7 +30,6 @@ use tracing::{debug, error, info};
 
 use crate::backup::BackupManager;
 use crate::cache::L1BlockCache;
-use crate::da::get_da_block_at_height;
 use crate::utils::{compute_tx_hashes, decode_sov_tx_and_update_short_header_proofs};
 use crate::{InitParams, RollupPublicKeys, RunnerConfig};
 

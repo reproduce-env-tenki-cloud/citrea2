@@ -42,13 +42,12 @@ where
         &mut self,
         guest: &impl ZkvmGuest,
         pre_state: C::Storage,
-        sequencer_public_key: &[u8],
         sequencer_k256_public_key: &[u8],
         forks: &[Fork],
     ) -> BatchProofCircuitOutputV3 {
         println!("Running sequencer commitments in DA slot");
 
-        let mut data: BatchProofCircuitInputV3Part1<Da> = guest.read_from_host();
+        let mut data: BatchProofCircuitInputV3Part1 = guest.read_from_host();
 
         let short_header_proof_provider: ZkShortHeaderProofProviderService<Da> =
             ZkShortHeaderProofProviderService::new(data.short_header_proofs);
@@ -72,12 +71,10 @@ where
             .app
             .apply_soft_confirmations_from_sequencer_commitments(
                 guest,
-                sequencer_public_key,
                 sequencer_k256_public_key,
                 &data.initial_state_root,
                 pre_state.clone(),
                 data.sequencer_commitments,
-                data.da_block_headers_of_soft_confirmations,
                 &data.cache_prune_l2_heights,
                 forks,
             );

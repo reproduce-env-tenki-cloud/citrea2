@@ -15,7 +15,6 @@ use sov_db::schema::types::SoftConfirmationNumber;
 use sov_modules_api::transaction::Transaction;
 use sov_modules_api::{Context, DaSpec, Spec};
 use sov_rollup_interface::da::SequencerCommitment;
-use sov_rollup_interface::digest::Digest;
 use sov_rollup_interface::rpc::{SoftConfirmationResponse, SoftConfirmationStatus};
 use sov_rollup_interface::services::da::DaService;
 use sov_rollup_interface::spec::SpecId;

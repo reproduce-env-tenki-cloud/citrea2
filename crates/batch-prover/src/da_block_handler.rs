@@ -181,7 +181,6 @@ where
                 self.sequencer_pub_key.clone(),
                 self.sequencer_k256_pub_key.clone(),
                 self.sequencer_da_pub_key.clone(),
-                self.l1_block_cache.clone(),
                 l1_block,
                 Some(GroupCommitments::Normal),
             )

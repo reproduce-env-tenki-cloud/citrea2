@@ -4,13 +4,10 @@ use accessors::{BlockHashAccessor, ChunkAccessor};
 use borsh::BorshDeserialize;
 use initial_values::LCP_JMT_GENESIS_ROOT;
 use sov_modules_api::da::BlockHeaderTrait;
-use sov_modules_api::{
-    BatchProofCircuitOutputV2, BatchProofCircuitOutputV3, BlobReaderTrait, DaSpec, WorkingSet, Zkvm,
-};
+use sov_modules_api::{BatchProofCircuitOutputV3, BlobReaderTrait, DaSpec, WorkingSet, Zkvm};
 use sov_modules_core::{ReadWriteLog, Storage};
 use sov_rollup_interface::da::{BatchProofMethodId, DaVerifier, DataOnDa};
 use sov_rollup_interface::witness::Witness;
-use sov_rollup_interface::zk::batch_proof::output::v1::BatchProofCircuitOutputV1;
 use sov_rollup_interface::zk::light_client_proof::input::LightClientCircuitInput;
 use sov_rollup_interface::zk::light_client_proof::output::{
     BatchProofInfo, LightClientCircuitOutput,
@@ -91,14 +88,6 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
                 output.final_state_root,
                 output.last_l2_height,
             )
-        } else if let Ok(output) = Z::deserialize_output::<BatchProofCircuitOutputV2>(&journal) {
-            (
-                output.initial_state_root,
-                output.final_state_root,
-                output.last_l2_height,
-            )
-        } else if let Ok(output) = Z::deserialize_output::<BatchProofCircuitOutputV1>(&journal) {
-            (output.initial_state_root, output.final_state_root, 0)
         } else {
             return Err("Failed to parse proof");
         };

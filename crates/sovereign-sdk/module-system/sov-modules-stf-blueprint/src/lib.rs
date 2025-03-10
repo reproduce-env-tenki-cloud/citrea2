@@ -1,17 +1,11 @@
 #![deny(missing_docs)]
 #![doc = include_str!("../README.md")]
 
-use std::collections::VecDeque;
-
 use citrea_primitives::EMPTY_TX_ROOT;
-use itertools::Itertools;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::MerkleTree;
 use sov_modules_api::da::BlockHeaderTrait;
-use sov_modules_api::default_signature::{
-    DefaultPublicKey, DefaultSignature, K256PublicKey, K256Signature,
-};
-use sov_modules_api::digest::Digest;
+use sov_modules_api::default_signature::{K256PublicKey, K256Signature};
 use sov_modules_api::fork::Fork;
 use sov_modules_api::hooks::{
     ApplySoftConfirmationHooks, FinalizeHook, HookSoftConfirmationInfo, SlotHooks, TxHooks,
@@ -367,12 +361,10 @@ where
     pub fn apply_soft_confirmations_from_sequencer_commitments(
         &mut self,
         guest: &impl ZkvmGuest,
-        sequencer_public_key: &[u8],
         sequencer_k256_public_key: &[u8],
         initial_state_root: &StorageRootHash,
         pre_state: C::Storage,
         sequencer_commitments: Vec<SequencerCommitment>,
-        slot_headers: VecDeque<Vec<<Da as DaSpec>::BlockHeader>>,
         cache_prune_l2_heights: &[u64],
         forks: &[Fork],
     ) -> ApplySequencerCommitmentsOutput {
@@ -400,9 +392,7 @@ where
         let mut cumulative_offchain_log = None;
         let mut cache_prune_l2_heights_iter = cache_prune_l2_heights.iter().peekable();
 
-        for (sequencer_commitment, da_block_headers) in
-            sequencer_commitments.into_iter().zip_eq(slot_headers)
-        {
+        for sequencer_commitment in sequencer_commitments.into_iter() {
             // if the commitment is not sequential, then the proof is invalid.
             if let Some(end_height) = last_commitment_end_height {
                 assert_eq!(
@@ -419,8 +409,6 @@ where
 
             let state_change_count: u32 = guest.read_from_host();
             let mut soft_confirmation_hashes = Vec::with_capacity(state_change_count as usize);
-
-            let mut index_headers = 0;
 
             for _ in 0..state_change_count {
                 let soft_confirmation_l2_height = guest.read_from_host::<u64>();
@@ -451,18 +439,7 @@ where
                     "Soft confirmation heights not sequential"
                 );
 
-                if fork_manager.active_fork().spec_id < SpecId::Fork2
-                    && l2_block.da_slot_hash() != da_block_headers[index_headers].hash().into()
-                {
-                    index_headers += 1;
-                }
-
-                let sequencer_pub_key = if fork_manager.active_fork().spec_id >= SpecId::Fork2 {
-                    sequencer_k256_public_key
-                } else {
-                    sequencer_public_key
-                };
-
+                let sequencer_pub_key = sequencer_k256_public_key;
                 let result = self
                     .apply_soft_confirmation(
                         fork_manager.active_fork().spec_id,
