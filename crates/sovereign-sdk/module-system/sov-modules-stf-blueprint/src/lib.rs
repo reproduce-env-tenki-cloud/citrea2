@@ -4,7 +4,6 @@
 use citrea_primitives::EMPTY_TX_ROOT;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::MerkleTree;
-use sov_modules_api::da::BlockHeaderTrait;
 use sov_modules_api::default_signature::{K256PublicKey, K256Signature};
 use sov_modules_api::fork::Fork;
 use sov_modules_api::hooks::{
@@ -112,42 +111,6 @@ where
                 SoftConfirmationError::SequencerPublicKeyMismatch,
             ));
         };
-
-        self.begin_soft_confirmation_inner(working_set, soft_confirmation_info)
-            .map_err(StateTransitionError::HookError)
-    }
-
-    /// Begin a soft confirmation for blocks before fork2
-    /// We still do the slot hash checks here
-    pub fn begin_soft_confirmation_pre_fork2(
-        &mut self,
-        sequencer_public_key: &[u8],
-        working_set: &mut WorkingSet<C::Storage>,
-        slot_header: &<Da as DaSpec>::BlockHeader,
-        soft_confirmation_info: &HookSoftConfirmationInfo,
-    ) -> Result<(), StateTransitionError> {
-        // check if soft confirmation is coming from our sequencer
-        if soft_confirmation_info.sequencer_pub_key() != sequencer_public_key {
-            return Err(StateTransitionError::SoftConfirmationError(
-                SoftConfirmationError::SequencerPublicKeyMismatch,
-            ));
-        };
-
-        // then verify da hashes match
-        if soft_confirmation_info.da_slot_hash().unwrap() != slot_header.hash().into() {
-            return Err(StateTransitionError::SoftConfirmationError(
-                SoftConfirmationError::InvalidDaHash,
-            ));
-        }
-
-        // then verify da transactions commitment match
-        if soft_confirmation_info.da_slot_txs_commitment().unwrap()
-            != slot_header.txs_commitment().into()
-        {
-            return Err(StateTransitionError::SoftConfirmationError(
-                SoftConfirmationError::InvalidDaTxsCommitment,
-            ));
-        }
 
         self.begin_soft_confirmation_inner(working_set, soft_confirmation_info)
             .map_err(StateTransitionError::HookError)
