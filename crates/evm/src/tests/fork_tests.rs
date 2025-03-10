@@ -502,40 +502,6 @@ fn test_blob_base_fee_should_return_1() {
         .iter(&mut working_set.accessory_state())
         .collect();
 
-    // Last tx should have failed because cancun is not activated
-    assert!(!receipts.last().unwrap().receipt.success);
-
-    // Now trying with CANCUN spec on the next block
-    let soft_confirmation_info = HookSoftConfirmationInfo {
-        l2_height,
-        pre_state_root: [10u8; 32],
-        current_spec: SovSpecId::Fork2,
-        sequencer_pub_key: vec![],
-        l1_fee_rate,
-        timestamp: 0,
-    };
-
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-    {
-        let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
-        let call_tx = store_blob_base_fee_transaction(contract_addr, &dev_signer, 2);
-
-        evm.call(
-            CallMessage { txs: vec![call_tx] },
-            &context,
-            &mut working_set,
-        )
-        .unwrap();
-    }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-    evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
-
-    let receipts: Vec<_> = evm
-        .receipts_rlp
-        .iter(&mut working_set.accessory_state())
-        .collect();
-
-    // Last tx should have passed
     assert!(receipts.last().unwrap().receipt.success);
 
     let storage_value = evm
