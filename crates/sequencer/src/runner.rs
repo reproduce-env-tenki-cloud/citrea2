@@ -29,13 +29,11 @@ use reth_transaction_pool::{
     BestTransactions, BestTransactionsAttributes, EthPooledTransaction, PoolTransaction,
     ValidPoolTransaction,
 };
-use soft_confirmation_rule_enforcer::CallMessage as RuleEnforcerCallMessage;
 use sov_accounts::Accounts;
 use sov_accounts::Response::{AccountEmpty, AccountExists};
 use sov_db::ledger_db::SequencerLedgerOps;
 use sov_modules_api::default_signature::k256_private_key::K256PrivateKey;
-use sov_modules_api::default_signature::private_key::DefaultPrivateKey;
-use sov_modules_api::hooks::{HookSoftConfirmationInfo, HookSoftConfirmationInfoV2};
+use sov_modules_api::hooks::HookSoftConfirmationInfo;
 use sov_modules_api::transaction::Transaction;
 use sov_modules_api::{
     EncodeCall, L2Block, PrivateKey, SlotData, Spec, SpecId, StateDiff, StateValueAccessor,
@@ -381,14 +379,14 @@ where
                 .pub_key(),
         )?;
 
-        let soft_confirmation_info = HookSoftConfirmationInfo::V2(HookSoftConfirmationInfoV2 {
+        let soft_confirmation_info = HookSoftConfirmationInfo {
             l2_height,
             pre_state_root: self.state_root,
             current_spec: active_fork_spec,
-            pub_key: pub_key.clone(),
+            sequencer_pub_key: pub_key.clone(),
             l1_fee_rate,
             timestamp,
-        });
+        };
 
         let prestate = self.storage_manager.create_storage_for_next_l2_height();
 

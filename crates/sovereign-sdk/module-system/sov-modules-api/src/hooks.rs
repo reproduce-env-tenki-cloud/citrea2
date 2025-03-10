@@ -61,36 +61,10 @@ pub trait ApplySoftConfirmationHooks<Da: DaSpec> {
     ) -> Result<(), SoftConfirmationHookError>;
 }
 
-/// Pre fork2 Information about the soft confirmation block
-/// Does not include txs because txs can be appended by the sequencer
-#[derive(Debug, PartialEq, Clone, BorshDeserialize, BorshSerialize, Serialize, Deserialize, Eq)]
-pub struct HookSoftConfirmationInfoV1 {
-    /// L2 block height
-    pub l2_height: u64,
-    /// DA block this soft confirmation was given for
-    pub da_slot_height: u64,
-    /// DA block hash
-    pub da_slot_hash: [u8; 32],
-    /// DA block transactions commitment
-    pub da_slot_txs_commitment: [u8; 32],
-    /// Previous batch's pre state root
-    pub pre_state_root: StorageRootHash,
-    /// The current spec
-    pub current_spec: SpecId,
-    /// Public key of the sequencer
-    pub pub_key: Vec<u8>,
-    /// Deposit data from the L1 chain
-    pub deposit_data: Vec<Vec<u8>>,
-    /// L1 fee rate
-    pub l1_fee_rate: u128,
-    /// Timestamp
-    pub timestamp: u64,
-}
-
 /// Post fork 2 Information about the soft confirmation block
 /// Does not include l1 data
 #[derive(Debug, PartialEq, Clone, BorshDeserialize, BorshSerialize, Serialize, Deserialize, Eq)]
-pub struct HookSoftConfirmationInfoV2 {
+pub struct HookSoftConfirmationInfo {
     // L2 block height
     pub l2_height: u64,
     /// Previous batch's pre state root
@@ -98,115 +72,41 @@ pub struct HookSoftConfirmationInfoV2 {
     /// The current spec
     pub current_spec: SpecId,
     /// Public key of the sequencer
-    pub pub_key: Vec<u8>,
+    pub sequencer_pub_key: Vec<u8>,
     /// L1 fee rate
     pub l1_fee_rate: u128,
     /// Timestamp
     pub timestamp: u64,
 }
 
-#[derive(Debug, PartialEq, Clone, BorshDeserialize, BorshSerialize, Serialize, Deserialize, Eq)]
-pub enum HookSoftConfirmationInfo {
-    V1(HookSoftConfirmationInfoV1),
-    V2(HookSoftConfirmationInfoV2),
-}
-
-pub enum HookSoftConfirmationInfoVersion {
-    V1,
-    V2,
-}
-
 impl HookSoftConfirmationInfo {
-    pub fn version(&self) -> HookSoftConfirmationInfoVersion {
-        match self {
-            HookSoftConfirmationInfo::V1(_) => HookSoftConfirmationInfoVersion::V1,
-            HookSoftConfirmationInfo::V2(_) => HookSoftConfirmationInfoVersion::V2,
-        }
-    }
-
     pub fn l2_height(&self) -> u64 {
-        match self {
-            HookSoftConfirmationInfo::V1(info) => info.l2_height,
-            HookSoftConfirmationInfo::V2(info) => info.l2_height,
-        }
+        self.l2_height
     }
 
     pub fn pre_state_root(&self) -> StorageRootHash {
-        match self {
-            HookSoftConfirmationInfo::V1(info) => info.pre_state_root,
-            HookSoftConfirmationInfo::V2(info) => info.pre_state_root,
-        }
+        self.pre_state_root
     }
 
     pub fn current_spec(&self) -> SpecId {
-        match self {
-            HookSoftConfirmationInfo::V1(info) => info.current_spec,
-            HookSoftConfirmationInfo::V2(info) => info.current_spec,
-        }
+        self.current_spec
     }
 
     pub fn sequencer_pub_key(&self) -> &[u8] {
-        match self {
-            HookSoftConfirmationInfo::V1(info) => info.pub_key.as_ref(),
-            HookSoftConfirmationInfo::V2(info) => info.pub_key.as_ref(),
-        }
-    }
-
-    pub fn deposit_data(&self) -> Vec<Vec<u8>> {
-        match self {
-            HookSoftConfirmationInfo::V1(info) => info.deposit_data.clone(),
-            HookSoftConfirmationInfo::V2(_) => panic!("V2 does not have deposit data"),
-        }
+        self.sequencer_pub_key.as_slice()
     }
 
     pub fn l1_fee_rate(&self) -> u128 {
-        match self {
-            HookSoftConfirmationInfo::V1(info) => info.l1_fee_rate,
-            HookSoftConfirmationInfo::V2(info) => info.l1_fee_rate,
-        }
+        self.l1_fee_rate
     }
 
     pub fn timestamp(&self) -> u64 {
-        match self {
-            HookSoftConfirmationInfo::V1(info) => info.timestamp,
-            HookSoftConfirmationInfo::V2(info) => info.timestamp,
-        }
-    }
-
-    pub fn da_slot_hash(&self) -> Option<[u8; 32]> {
-        match self {
-            HookSoftConfirmationInfo::V1(info) => Some(info.da_slot_hash),
-            HookSoftConfirmationInfo::V2(_) => None,
-        }
-    }
-
-    pub fn da_slot_txs_commitment(&self) -> Option<[u8; 32]> {
-        match self {
-            HookSoftConfirmationInfo::V1(info) => Some(info.da_slot_txs_commitment),
-            HookSoftConfirmationInfo::V2(_) => None,
-        }
-    }
-
-    pub fn da_slot_height(&self) -> Option<u64> {
-        match self {
-            HookSoftConfirmationInfo::V1(info) => Some(info.da_slot_height),
-            HookSoftConfirmationInfo::V2(_) => None,
-        }
-    }
-
-    #[cfg(feature = "testing")]
-    pub fn set_da_slot_hash(&mut self, da_slot_hash: [u8; 32]) {
-        if let HookSoftConfirmationInfo::V1(info) = self {
-            info.da_slot_hash = da_slot_hash
-        }
+        self.timestamp
     }
 
     #[cfg(feature = "testing")]
     pub fn set_time_stamp(&mut self, timestamp: u64) {
-        match self {
-            HookSoftConfirmationInfo::V1(info) => info.timestamp = timestamp,
-            HookSoftConfirmationInfo::V2(info) => info.timestamp = timestamp,
-        }
+        self.timestamp = timestamp;
     }
 }
 
@@ -216,28 +116,14 @@ impl HookSoftConfirmationInfo {
         pre_state_root: StorageRootHash,
         current_spec: SpecId,
     ) -> Self {
-        if current_spec >= SpecId::Fork2 {
-            return HookSoftConfirmationInfo::V2(HookSoftConfirmationInfoV2 {
-                l2_height: l2_block.l2_height(),
-                pre_state_root,
-                current_spec,
-                pub_key: l2_block.sequencer_pub_key().to_vec(),
-                l1_fee_rate: l2_block.l1_fee_rate(),
-                timestamp: l2_block.timestamp(),
-            });
-        }
-        HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
+        Self {
             l2_height: l2_block.l2_height(),
-            da_slot_hash: l2_block.da_slot_hash(),
-            da_slot_height: l2_block.da_slot_height(),
-            da_slot_txs_commitment: l2_block.da_slot_txs_commitment(),
             pre_state_root,
             current_spec,
-            pub_key: l2_block.sequencer_pub_key().to_vec(),
-            deposit_data: l2_block.deposit_data().to_vec(),
+            sequencer_pub_key: l2_block.sequencer_pub_key().to_vec(),
             l1_fee_rate: l2_block.l1_fee_rate(),
             timestamp: l2_block.timestamp(),
-        })
+        }
     }
 }
 

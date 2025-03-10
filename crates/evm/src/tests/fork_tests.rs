@@ -6,9 +6,7 @@ use revm::primitives::U256;
 use sha2::Digest;
 use sov_modules_api::default_context::DefaultContext;
 use sov_modules_api::fork::Fork;
-use sov_modules_api::hooks::{
-    HookSoftConfirmationInfo, HookSoftConfirmationInfoV1, HookSoftConfirmationInfoV2,
-};
+use sov_modules_api::hooks::HookSoftConfirmationInfo;
 use sov_modules_api::utils::generate_address;
 use sov_modules_api::{Context, Module, StateMapAccessor, StateVecAccessor};
 use sov_rollup_interface::spec::SpecId as SovSpecId;
@@ -108,18 +106,14 @@ fn test_cancun_transient_storage_activation() {
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
+    let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
-        da_slot_hash: [5u8; 32],
-        da_slot_height: 1,
-        da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
-        deposit_data: vec![],
+        sequencer_pub_key: vec![],
         l1_fee_rate,
         timestamp: 0,
-    });
+    };
 
     // Deploy transient storage contract
     let sender_address = generate_address::<C>("sender");
@@ -191,18 +185,14 @@ fn test_cancun_transient_storage_activation() {
     assert!(!receipts.last().unwrap().receipt.success);
 
     // Now trying with CANCUN spec on the next block
-    let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
+    let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
-        da_slot_hash: [5u8; 32],
-        da_slot_height: 1,
-        da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
-        deposit_data: vec![],
+        sequencer_pub_key: vec![],
         l1_fee_rate,
         timestamp: 0,
-    });
+    };
 
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
@@ -264,18 +254,14 @@ fn test_cancun_mcopy_activation() {
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
+    let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
-        da_slot_hash: [5u8; 32],
-        da_slot_height: 1,
-        da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
-        deposit_data: vec![],
+        sequencer_pub_key: vec![],
         l1_fee_rate,
         timestamp: 0,
-    });
+    };
 
     let sender_address = generate_address::<C>("sender");
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
@@ -324,18 +310,14 @@ fn test_cancun_mcopy_activation() {
     // Last tx should have failed because cancun is not activated
     assert!(!receipts.last().unwrap().receipt.success);
 
-    let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
+    let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
-        da_slot_hash: [5u8; 32],
-        da_slot_height: 1,
-        da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
-        deposit_data: vec![],
+        sequencer_pub_key: vec![],
         l1_fee_rate,
         timestamp: 0,
-    });
+    };
 
     // Send money to transient storage contract
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
@@ -382,18 +364,14 @@ fn test_self_destructing_constructor() {
     let l1_fee_rate = 0;
     let l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
+    let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
-        da_slot_hash: [5u8; 32],
-        da_slot_height: 1,
-        da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
-        deposit_data: vec![],
+        sequencer_pub_key: vec![],
         l1_fee_rate,
         timestamp: 0,
-    });
+    };
     let contract = SelfdestructingConstructorContract::default();
 
     let constructed_bytecode = contract.construct(die_to_address);
@@ -465,18 +443,14 @@ fn test_blob_base_fee_should_return_1() {
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
+    let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
-        da_slot_hash: [5u8; 32],
-        da_slot_height: 1,
-        da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
-        deposit_data: vec![],
+        sequencer_pub_key: vec![],
         l1_fee_rate,
         timestamp: 0,
-    });
+    };
 
     let sender_address = generate_address::<C>("sender");
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
@@ -532,18 +506,14 @@ fn test_blob_base_fee_should_return_1() {
     assert!(!receipts.last().unwrap().receipt.success);
 
     // Now trying with CANCUN spec on the next block
-    let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
+    let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
-        da_slot_hash: [5u8; 32],
-        da_slot_height: 1,
-        da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
-        deposit_data: vec![],
+        sequencer_pub_key: vec![],
         l1_fee_rate,
         timestamp: 0,
-    });
+    };
 
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
@@ -584,18 +554,14 @@ fn test_kzg_point_eval_should_revert() {
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
+    let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
-        da_slot_hash: [5u8; 32],
-        da_slot_height: 1,
-        da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
-        deposit_data: vec![],
+        sequencer_pub_key: vec![],
         l1_fee_rate,
         timestamp: 0,
-    });
+    };
 
     let sender_address = generate_address::<C>("sender");
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
@@ -699,18 +665,14 @@ fn test_p256_verify() {
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
+    let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
-        da_slot_hash: [5u8; 32],
-        da_slot_height: 1,
-        da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
-        deposit_data: vec![],
+        sequencer_pub_key: vec![],
         l1_fee_rate,
         timestamp: 0,
-    });
+    };
 
     let sender_address = generate_address::<C>("sender");
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
@@ -749,14 +711,14 @@ fn test_p256_verify() {
 
     l2_height += 1;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo::V2(HookSoftConfirmationInfoV2 {
+    let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
+        sequencer_pub_key: vec![],
         l1_fee_rate,
         timestamp: 0,
-    });
+    };
 
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {
@@ -809,18 +771,14 @@ fn test_offchain_contract_storage_evm() {
     let mut l2_height = 2;
 
     // Deployed a contract in Fork2 fork
-    let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
+    let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
-        da_slot_hash: [5u8; 32],
-        da_slot_height: 1,
-        da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
-        deposit_data: vec![],
+        sequencer_pub_key: vec![],
         l1_fee_rate,
         timestamp: 0,
-    });
+    };
 
     let sender_address = generate_address::<C>("sender");
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
@@ -870,18 +828,15 @@ fn test_offchain_contract_storage_evm() {
 
     // activate fork and then try to get it from offchain storage and expect it to exist
     // Deployed a contract in Fork2 fork
-    let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
+    let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
-        da_slot_hash: [5u8; 32],
-        da_slot_height: 1,
-        da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
-        deposit_data: vec![],
+        sequencer_pub_key: vec![],
         l1_fee_rate,
         timestamp: 0,
-    });
+    };
+
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
@@ -950,18 +905,14 @@ fn test_offchain_contract_storage_evm() {
     assert!(evm_code.is_none());
 
     // make tx on the contract that was deployed before fork1 and see that you can read it from offchain storage afterwards
-    let soft_confirmation_info = HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
+    let soft_confirmation_info = HookSoftConfirmationInfo {
         l2_height,
-        da_slot_hash: [5u8; 32],
-        da_slot_height: 1,
-        da_slot_txs_commitment: [42u8; 32],
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
-        pub_key: vec![],
-        deposit_data: vec![],
+        sequencer_pub_key: vec![],
         l1_fee_rate,
         timestamp: 0,
-    });
+    };
 
     evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
     {

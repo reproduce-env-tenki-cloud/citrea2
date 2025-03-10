@@ -76,10 +76,9 @@ impl<C: sov_modules_api::Context> Evm<C> {
             timestamp: U256::from(soft_confirmation_info.timestamp()),
             // TODO: https://github.com/chainwayxyz/citrea/issues/1978
             prevrandao: Some(
-                soft_confirmation_info
-                    .da_slot_hash()
-                    .unwrap_or_default()
-                    .into(),
+                [0u8; 32]
+                    .try_into()
+                    .expect("32 bytes can be converted to 32 bytes"),
             ),
             basefee: U256::from(basefee),
             gas_limit: U256::from(cfg.block_gas_limit),

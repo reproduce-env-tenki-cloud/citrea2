@@ -9,9 +9,7 @@ use alloy_rlp::{Decodable, Encodable};
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use reth_primitives::{SealedBlock, EMPTY_OMMER_ROOT_HASH};
 use sov_modules_api::default_context::DefaultContext;
-use sov_modules_api::hooks::{
-    HookSoftConfirmationInfo, HookSoftConfirmationInfoV1, HookSoftConfirmationInfoV2,
-};
+use sov_modules_api::hooks::HookSoftConfirmationInfo;
 use sov_modules_api::utils::generate_address;
 use sov_modules_api::{Context, StateMapAccessor, StateValueAccessor, WorkingSet};
 use sov_rollup_interface::spec::SpecId as SovSpecId;
@@ -64,30 +62,16 @@ impl BlockchainTestCase {
         current_spec: SovSpecId,
     ) -> (WorkingSet<ProverStorage>, ProverStorage) {
         let l1_fee_rate = 0;
-        let soft_confirmation_info = if current_spec >= SovSpecId::Fork2 {
+        let soft_confirmation_info =
             // Call begin_soft_confirmation_hook
-            HookSoftConfirmationInfo::V2(HookSoftConfirmationInfoV2 {
+            HookSoftConfirmationInfo {
                 l2_height,
                 pre_state_root: *root,
                 current_spec,
-                pub_key: vec![],
+                sequencer_pub_key: vec![],
                 l1_fee_rate,
                 timestamp: 0,
-            })
-        } else {
-            HookSoftConfirmationInfo::V1(HookSoftConfirmationInfoV1 {
-                l2_height,
-                da_slot_hash: [0u8; 32],
-                da_slot_height: 0,
-                da_slot_txs_commitment: [0u8; 32],
-                pre_state_root: *root,
-                current_spec,
-                pub_key: vec![],
-                deposit_data: vec![],
-                l1_fee_rate,
-                timestamp: 0,
-            })
-        };
+            };
 
         evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
 
