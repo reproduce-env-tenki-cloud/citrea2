@@ -139,6 +139,7 @@ impl Encodable for SealedBlock {
         rlp_head.encode(out);
         self.header.encode(out);
         self.l1_fee_rate.encode(out);
+        self.transactions.start.encode(out);
         self.transactions.end.encode(out);
     }
 }

@@ -88,7 +88,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         // set early. so that if underlying calls use `self.block_env`
         // they don't use the wrong value
-        self.block_env = new_pending_env.clone();
+        self.block_env = new_pending_env;
     }
 
     /// Logic executed at the end of the slot. Here, we generate an authenticated block and set it as the new head of the chain.

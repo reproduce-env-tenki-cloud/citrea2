@@ -220,8 +220,8 @@ impl<C: sov_modules_api::Context> Evm<C> {
             extra_data: config.extra_data.clone(),
             // EIP-4844 related fields
             // https://github.com/Sovereign-Labs/sovereign-sdk/issues/912
-            blob_gas_used: None,
-            excess_blob_gas: None,
+            blob_gas_used: Some(0),
+            excess_blob_gas: Some(0),
             // EIP-4788 related field
             // unrelated for rollups
             parent_beacon_block_root: None,
@@ -238,7 +238,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         #[cfg(feature = "native")]
         self.pending_head
-            .set(&block.into(), &mut working_set.accessory_state());
+            .set(&block, &mut working_set.accessory_state());
     }
 }
 
