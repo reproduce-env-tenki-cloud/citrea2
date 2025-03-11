@@ -390,6 +390,8 @@ fn test_sys_bitcoin_light_client() {
 
 #[test]
 fn test_sys_tx_gas_usage_effect_on_block_gas_limit() {
+    let _ = SHORT_HEADER_PROOF_PROVIDER.set(Box::new(TestingShortHeaderProofProviderService));
+
     // This test also tests evm checking gas usage and not just the tx gas limit when including txs in block after checking available block limit
     // For example txs below have 1_000_000 gas limit, the block used to stuck at 29_030_000 gas usage but now can utilize the whole block gas limit
     let (mut config, dev_signer, contract_addr) = get_evm_config_starting_base_fee(
@@ -402,7 +404,7 @@ fn test_sys_tx_gas_usage_effect_on_block_gas_limit() {
 
     let (mut evm, mut working_set) = get_evm_sys_tx_test(&config);
     let l1_fee_rate = 0;
-    let mut l2_height = 2;
+    let mut l2_height = 1;
 
     let sender_address = generate_address::<C>("sender");
     let context = C::new(sender_address, l2_height, SpecId::Fork2, l1_fee_rate);
@@ -418,19 +420,15 @@ fn test_sys_tx_gas_usage_effect_on_block_gas_limit() {
 
     evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
+        let mut txs = initial_system_txs(1, [1; 32], [2; 32], &evm, &mut working_set);
+        txs.push(create_contract_message(
+            &dev_signer,
+            0,
+            LogsContract::default(),
+        ));
         // deploy logs contract
-        evm.call(
-            CallMessage {
-                txs: vec![create_contract_message(
-                    &dev_signer,
-                    0,
-                    LogsContract::default(),
-                )],
-            },
-            &context,
-            &mut working_set,
-        )
-        .unwrap();
+        evm.call(CallMessage { txs }, &context, &mut working_set)
+            .unwrap();
     }
     evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
@@ -450,6 +448,15 @@ fn test_sys_tx_gas_usage_effect_on_block_gas_limit() {
     evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SpecId::Fork2, l1_fee_rate);
+
+        let sys_tx = set_block_info_system_tx([2; 32], [3; 32], 0, &evm, &mut working_set);
+
+        evm.call(
+            CallMessage { txs: vec![sys_tx] },
+            &context,
+            &mut working_set,
+        )
+        .unwrap();
 
         let pending_cumulative_from_sum: u128 = evm
             .pending_transactions
@@ -471,16 +478,16 @@ fn test_sys_tx_gas_usage_effect_on_block_gas_limit() {
         );
 
         let sys_tx_gas_usage = pending_cumulative_gas_used;
-        assert_eq!(sys_tx_gas_usage, 80626);
+        assert_eq!(sys_tx_gas_usage, 83322);
 
         let mut rlp_transactions = Vec::new();
 
         // Check: Given now we also push bridge contract, is the following calculation correct?
 
-        // the amount of gas left is 30_000_000 - (80626 + 21770) = 29_978_230
+        // the amount of gas left is 30_000_000 - (83322 + 21770) = 29_894_908
         // send barely enough gas to reach the limit
         // one publish event message is 26388 gas
-        // 29978230 / 26388 = 1133.8
+        // 29_894_908 / 26388 = 1132.8
         // so there cannot be more than 1133 messages
         for i in 0..11350 {
             rlp_transactions.push(publish_event_message(
@@ -501,7 +508,7 @@ fn test_sys_tx_gas_usage_effect_on_block_gas_limit() {
             )
             .unwrap_err(),
             L2BlockModuleCallError::EvmGasUsedExceedsBlockGasLimit {
-                cumulative_gas: 29978230,
+                cumulative_gas: 29980926,
                 tx_gas_used: 26388,
                 block_gas_limit: 30000000
             }
@@ -524,6 +531,15 @@ fn test_sys_tx_gas_usage_effect_on_block_gas_limit() {
     {
         let context = C::new(sender_address, l2_height, SpecId::Fork2, l1_fee_rate);
 
+        let sys_tx = set_block_info_system_tx([2; 32], [3; 32], 0, &evm, &mut working_set);
+
+        evm.call(
+            CallMessage { txs: vec![sys_tx] },
+            &context,
+            &mut working_set,
+        )
+        .unwrap();
+
         let pending_cumulative_from_sum: u128 = evm
             .pending_transactions
             .iter()
@@ -544,16 +560,16 @@ fn test_sys_tx_gas_usage_effect_on_block_gas_limit() {
         );
 
         let sys_tx_gas_usage = pending_cumulative_gas_used;
-        assert_eq!(sys_tx_gas_usage, 80626);
+        assert_eq!(sys_tx_gas_usage, 83322);
 
         let mut rlp_transactions = Vec::new();
 
         // Check: Given now we also push bridge contract, is the following calculation correct?
 
-        // the amount of gas left is 30_000_000 - 80626 = 29_919_374
+        // the amount of gas left is 30_000_000 - (83322 + 21770) = 29_894_908
         // send barely enough gas to reach the limit
         // one publish event message is 26388 gas
-        // 29919374 / 26388 = 1133.82
+        // 29_894_908 / 26388 = 1132.8
         // so there cannot be more than 1133 messages
         for i in 0..1133 {
             rlp_transactions.push(publish_event_message(
