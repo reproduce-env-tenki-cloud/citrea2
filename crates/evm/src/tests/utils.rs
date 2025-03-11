@@ -7,6 +7,7 @@ use alloy_primitives::{address, Address, Bytes, TxKind, B256, U256};
 use lazy_static::lazy_static;
 use reth_primitives::constants::ETHEREUM_BLOCK_GAS_LIMIT;
 use reth_primitives::KECCAK_EMPTY;
+use short_header_proof_provider::ShortHeaderProofProvider;
 use sov_modules_api::default_context::DefaultContext;
 use sov_modules_api::fork::Fork;
 use sov_modules_api::hooks::HookL2BlockInfo;
@@ -269,7 +270,6 @@ pub(crate) fn get_evm_config_starting_base_fee(
     (config, dev_signer, contract_addr)
 }
 pub(crate) fn get_evm_test_config() -> EvmConfig {
-    
     EvmConfig {
         data: vec![AccountData {
             address: Address::from([1u8; 20]),
@@ -323,4 +323,32 @@ pub fn read_json_file<T: serde::de::DeserializeOwned, P: AsRef<Path>>(path: P) -
     let config: T = serde_json::from_str(&data).unwrap();
 
     config
+}
+
+pub struct TestingShortHeaderProofProviderService;
+
+impl ShortHeaderProofProvider for TestingShortHeaderProofProviderService {
+    fn get_and_verify_short_header_proof_by_l1_hash(
+        &self,
+        _l1_hash: [u8; 32],
+        _prev_l1_hash: [u8; 32],
+        _l1_height: u64,
+        _txs_commitment: [u8; 32],
+        _coinbase_depth: u8,
+        _l2_height: u64, // needed on the native implementation to track queries to the provider
+    ) -> Result<bool, short_header_proof_provider::ShortHeaderProofProviderError> {
+        Ok(true)
+    }
+
+    fn clear_queried_hashes(&self) {
+        todo!()
+    }
+
+    fn take_queried_hashes(&self, l2_range: std::ops::RangeInclusive<u64>) -> Vec<[u8; 32]> {
+        todo!()
+    }
+
+    fn take_last_queried_hash(&self) -> Option<[u8; 32]> {
+        todo!()
+    }
 }

@@ -1,39 +1,152 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
+use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{address, b256, hex, LogData, TxKind, U64};
 use alloy_rpc_types::{TransactionInput, TransactionRequest};
 use reth_primitives::constants::ETHEREUM_BLOCK_GAS_LIMIT;
 use reth_primitives::{BlockNumberOrTag, Log};
 use revm::primitives::{Bytes, KECCAK_EMPTY, U256};
+use short_header_proof_provider::SHORT_HEADER_PROOF_PROVIDER;
 use sov_modules_api::default_context::DefaultContext;
 use sov_modules_api::hooks::HookL2BlockInfo;
 use sov_modules_api::utils::generate_address;
-use sov_modules_api::{Context, L2BlockModuleCallError, Module, StateVecAccessor};
+use sov_modules_api::{Context, L2BlockModuleCallError, Module, StateVecAccessor, WorkingSet};
+use sov_prover_storage_manager::new_orphan_storage;
 use sov_rollup_interface::spec::SpecId;
+use sov_state::ProverStorage;
 
+use super::utils::commit;
 use crate::call::CallMessage;
 use crate::evm::primitive_types::Receipt;
 use crate::evm::system_contracts::BitcoinLightClient;
 use crate::handler::L1_FEE_OVERHEAD;
 use crate::smart_contracts::{BlockHashContract, LogsContract};
 use crate::system_contracts::{BridgeWrapper, ProxyAdmin};
+use crate::system_events::{create_system_transactions, SystemEvent};
 use crate::tests::test_signer::TestSigner;
 use crate::tests::utils::{
-    config_push_contracts, create_contract_message, create_contract_message_with_fee, get_evm,
+    config_push_contracts, create_contract_message, create_contract_message_with_fee,
     get_evm_config_starting_base_fee, get_fork_fn_only_fork2, publish_event_message,
+    TestingShortHeaderProofProviderService,
 };
-use crate::{AccountData, BASE_FEE_VAULT, L1_FEE_VAULT, SYSTEM_SIGNER};
+use crate::{
+    create_initial_system_events, AccountData, Evm, EvmConfig, RlpEvmTransaction, BASE_FEE_VAULT,
+    L1_FEE_VAULT, SYSTEM_SIGNER,
+};
 
 type C = DefaultContext;
 
+fn get_evm_sys_tx_test(config: &EvmConfig) -> (Evm<DefaultContext>, WorkingSet<ProverStorage>) {
+    let tmpdir = tempfile::tempdir().unwrap();
+    let storage = new_orphan_storage(tmpdir.path()).unwrap();
+    let mut working_set = WorkingSet::new(storage.clone());
+    let evm = Evm::<C>::default();
+    evm.genesis(config, &mut working_set);
+
+    let root = commit(working_set, storage.clone());
+
+    let mut working_set = WorkingSet::new(storage.clone());
+    evm.finalize_hook(&root, &mut working_set.accessory_state());
+
+    (evm, working_set)
+}
+
+fn initial_system_txs(
+    init_block_num: u64,
+    init_block_hash: [u8; 32],
+    init_block_txs_commitment: [u8; 32],
+    evm: &Evm<DefaultContext>,
+    working_set: &mut WorkingSet<ProverStorage>,
+) -> Vec<RlpEvmTransaction> {
+    let init_events = create_initial_system_events(
+        init_block_hash,
+        init_block_txs_commitment,
+        0,
+        init_block_num,
+        BRIDE_INITIALIZE_PARAMS.to_vec(),
+    );
+
+    let sys_signer_nonce = evm
+        .account_info(&SYSTEM_SIGNER, working_set)
+        .unwrap_or_default()
+        .nonce;
+
+    let txs = create_system_transactions(init_events, sys_signer_nonce, 1);
+
+    let mut rlp_transactions = Vec::new();
+
+    for tx in txs {
+        let mut buf = vec![];
+
+        tx.encode_2718(&mut buf);
+
+        rlp_transactions.push(RlpEvmTransaction { rlp: buf });
+    }
+
+    rlp_transactions
+}
+
+fn set_block_info_system_tx(
+    l1_block_hash: [u8; 32],
+    txs_commitment: [u8; 32],
+    coinbase_depth: u64,
+    evm: &Evm<DefaultContext>,
+    working_set: &mut WorkingSet<ProverStorage>,
+) -> RlpEvmTransaction {
+    let sys_tx =
+        SystemEvent::BitcoinLightClientSetBlockInfo(l1_block_hash, txs_commitment, coinbase_depth);
+
+    let sys_signer_nonce = evm
+        .account_info(&SYSTEM_SIGNER, working_set)
+        .unwrap_or_default()
+        .nonce;
+
+    let txs = create_system_transactions(vec![sys_tx], sys_signer_nonce, 1);
+
+    let mut buf = vec![];
+
+    txs[0].encode_2718(&mut buf);
+
+    RlpEvmTransaction { rlp: buf }
+}
+
 #[test]
 fn test_sys_bitcoin_light_client() {
+    let _ = SHORT_HEADER_PROOF_PROVIDER.set(Box::new(TestingShortHeaderProofProviderService));
+
     let (mut config, dev_signer, _) =
         get_evm_config_starting_base_fee(U256::from_str("10000000000000").unwrap(), None, 1);
 
     config_push_contracts(&mut config, None);
-    let (mut evm, mut working_set, _spec_id) = get_evm(&config);
+    let (mut evm, mut working_set) = get_evm_sys_tx_test(&config);
+
+    let l1_fee_rate = 1;
+    let mut l2_height = 1;
+
+    let l2_block_info = HookL2BlockInfo {
+        l2_height,
+        pre_state_root: [10u8; 32],
+        current_spec: SpecId::Fork2,
+        sequencer_pub_key: vec![],
+        l1_fee_rate,
+        timestamp: 42,
+    };
+
+    // New L1 block #2
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
+    {
+        let sender_address = generate_address::<C>("sender");
+
+        let context = C::new(sender_address, l2_height, SpecId::Fork2, l1_fee_rate);
+
+        let txs = initial_system_txs(1, [1; 32], [2; 32], &evm, &mut working_set);
+
+        evm.call(CallMessage { txs }, &context, &mut working_set)
+            .unwrap();
+    }
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
+    evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     assert_eq!(
         evm.receipts_rlp
@@ -44,10 +157,10 @@ fn test_sys_bitcoin_light_client() {
                 receipt: reth_primitives::Receipt {
                     tx_type: reth_primitives::TxType::Eip1559,
                     success: true,
-                    cumulative_gas_used: 50759,
+                    cumulative_gas_used: 50714,
                     logs: vec![]
                 },
-                gas_used: 50759,
+                gas_used: 50714,
                 log_index_start: 0,
                 l1_diff_size: 53,
             },
@@ -55,18 +168,18 @@ fn test_sys_bitcoin_light_client() {
                 receipt: reth_primitives::Receipt {
                     tx_type: reth_primitives::TxType::Eip1559,
                     success: true,
-                    cumulative_gas_used: 131385,
+                    cumulative_gas_used: 134036,
                     logs: vec![
                         Log {
                             address: BitcoinLightClient::address(),
                             data: LogData::new(
-                                vec![b256!("87071b99941c479317961cac97dfdb285d86f27155d4d9673a478ad5225459cd")],
-                                Bytes::from_static(&hex!("000000000000000000000000000000000000000000000000000000000000000101010101010101010101010101010101010101010101010101010101010101010202020202020202020202020202020202020202020202020202020202020202")),
+                                vec![b256!("4975e407627f5c539dcd7c961396db91c315f4421c3b0023ba1bcf2e9e9b41f1")],
+                                Bytes::from_static(&hex!("0000000000000000000000000000000000000000000000000000000000000001010101010101010101010101010101010101010101010101010101010101010102020202020202020202020202020202020202020202020202020202020202020000000000000000000000000000000000000000000000000000000000000000")),
                             ).unwrap(),
                         }
                     ]
                 },
-                gas_used: 80626,
+                gas_used: 83322,
                 log_index_start: 0,
                 l1_diff_size: 94,
             },
@@ -74,7 +187,7 @@ fn test_sys_bitcoin_light_client() {
                 receipt: reth_primitives::Receipt {
                     tx_type: reth_primitives::TxType::Eip1559,
                     success: true,
-                    cumulative_gas_used: 300497,
+                    cumulative_gas_used: 303148,
                     logs: vec![
                         Log {
                             address: BridgeWrapper::address(),
@@ -110,9 +223,6 @@ fn test_sys_bitcoin_light_client() {
         .unwrap();
 
     assert_eq!(tx.block_number.unwrap(), 1);
-
-    let l1_fee_rate = 1;
-    let l2_height = 2;
 
     let system_account = evm.account_info(&SYSTEM_SIGNER, &mut working_set).unwrap();
     // The system caller balance is unchanged(if exists)/or should be 0
@@ -152,6 +262,8 @@ fn test_sys_bitcoin_light_client() {
     assert_eq!(hash.as_ref(), &[1u8; 32]);
     assert_eq!(merkle_root.as_ref(), &[2u8; 32]);
 
+    l2_height += 1;
+
     let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
@@ -161,12 +273,15 @@ fn test_sys_bitcoin_light_client() {
         timestamp: 42,
     };
 
-    // New L1 block №2
+    // New L1 block #2
     evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let sender_address = generate_address::<C>("sender");
 
         let context = C::new(sender_address, l2_height, SpecId::Fork2, l1_fee_rate);
+
+        let set_block_info_tx =
+            set_block_info_system_tx([2; 32], [3; 32], 0, &evm, &mut working_set);
 
         let deploy_message = create_contract_message_with_fee(
             &dev_signer,
@@ -177,7 +292,7 @@ fn test_sys_bitcoin_light_client() {
 
         evm.call(
             CallMessage {
-                txs: vec![deploy_message],
+                txs: vec![set_block_info_tx, deploy_message],
             },
             &context,
             &mut working_set,
@@ -205,18 +320,18 @@ fn test_sys_bitcoin_light_client() {
                 receipt: reth_primitives::Receipt {
                     tx_type: reth_primitives::TxType::Eip1559,
                     success: true,
-                    cumulative_gas_used: 80626,
+                    cumulative_gas_used: 83322,
                     logs: vec![
                         Log {
                             address: BitcoinLightClient::address(),
                             data: LogData::new(
-                                vec![b256!("87071b99941c479317961cac97dfdb285d86f27155d4d9673a478ad5225459cd")],
-                                Bytes::from_static(&hex!("000000000000000000000000000000000000000000000000000000000000000202020202020202020202020202020202020202020202020202020202020202020303030303030303030303030303030303030303030303030303030303030303")),
+                                vec![b256!("4975e407627f5c539dcd7c961396db91c315f4421c3b0023ba1bcf2e9e9b41f1")],
+                                Bytes::from_static(&hex!("0000000000000000000000000000000000000000000000000000000000000002020202020202020202020202020202020202020202020202020202020202020203030303030303030303030303030303030303030303030303030303030303030000000000000000000000000000000000000000000000000000000000000000")),
                             ).unwrap(),
                         }
                     ]
                 },
-                gas_used: 80626,
+                gas_used: 83322,
                 log_index_start: 0,
                 l1_diff_size: 94,
             },
@@ -224,7 +339,7 @@ fn test_sys_bitcoin_light_client() {
                 receipt: reth_primitives::Receipt {
                     tx_type: reth_primitives::TxType::Eip1559,
                     success: true,
-                    cumulative_gas_used: 194861,
+                    cumulative_gas_used: 197557,
                     logs: vec![]
                 },
                 gas_used: 114235,
@@ -285,7 +400,7 @@ fn test_sys_tx_gas_usage_effect_on_block_gas_limit() {
 
     config_push_contracts(&mut config, None);
 
-    let (mut evm, mut working_set, _spec_id) = get_evm(&config);
+    let (mut evm, mut working_set) = get_evm_sys_tx_test(&config);
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
@@ -489,7 +604,7 @@ fn test_sys_tx_gas_usage_effect_on_block_gas_limit() {
 //         Some("../../resources/test-data/integration-tests-old-light-client/evm.json"),
 //     );
 
-//     let (mut evm, mut working_set, _spec_id) = get_evm(&config);
+//     let (mut evm, mut working_set) = get_evm_sys_tx_test(&config);
 
 //     let l1_fee_rate = 1;
 //     let l2_height = 2;
@@ -606,7 +721,7 @@ fn test_upgrade_light_client() {
         storage: Default::default(),
     });
 
-    let (mut evm, mut working_set, _spec_id) = get_evm(&config);
+    let (mut evm, mut working_set) = get_evm_sys_tx_test(&config);
 
     let l1_fee_rate = 1;
     let l2_height = 2;
@@ -730,7 +845,7 @@ fn test_change_upgrade_owner() {
         HashMap::new()
     ));
 
-    let (mut evm, mut working_set, _spec_id) = get_evm(&config);
+    let (mut evm, mut working_set) = get_evm_sys_tx_test(&config);
 
     let l1_fee_rate = 1;
     let mut l2_height = 2;
@@ -853,3 +968,16 @@ fn test_change_upgrade_owner() {
         .unwrap()
     );
 }
+
+const BRIDE_INITIALIZE_PARAMS: &[u8; 256] = &[
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 192, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 138, 199, 35,
+    4, 137, 232, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 45, 74, 32, 159, 179, 169, 97, 216, 177, 244, 236, 28, 170, 34, 12, 106, 80,
+    184, 21, 254, 188, 11, 104, 157, 223, 11, 157, 223, 191, 153, 203, 116, 71, 158, 65, 172, 0,
+    99, 6, 99, 105, 116, 114, 101, 97, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    10, 8, 0, 0, 0, 0, 59, 154, 202, 0, 104, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0,
+];
