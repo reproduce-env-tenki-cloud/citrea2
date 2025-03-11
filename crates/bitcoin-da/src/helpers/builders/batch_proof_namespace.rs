@@ -240,6 +240,11 @@ pub fn create_batchproof_type_0(
                     Some(value) => value,
                     None => break,
                 };
+                reveal_tx.output[0].value =
+                    match reveal_tx.output[0].value.checked_sub(Amount::ONE_SAT) {
+                        Some(value) => value,
+                        None => break,
+                    };
 
                 reveal_tx.input[0].previous_output.txid = unsigned_commit_tx.compute_txid();
                 update_witness(

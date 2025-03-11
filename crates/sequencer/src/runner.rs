@@ -588,18 +588,18 @@ where
         let (da_height_update_tx, mut da_height_update_rx) = mpsc::channel(1);
         let (da_commitment_tx, da_commitment_rx) = unbounded_channel::<(u64, StateDiff)>();
 
-        let commitment_service = CommitmentService::new(
+        let mut commitment_service = CommitmentService::new(
             self.ledger_db.clone(),
             self.da_service.clone(),
             self.sequencer_da_pub_key.clone(),
             self.config.min_soft_confirmations_per_commitment,
             da_commitment_rx,
         );
-        // disabled for now
-        // if self.soft_confirmation_hash != [0; 32] {
-        //     // Resubmit if there were pending commitments on restart, skip it on first init
-        //     commitment_service.resubmit_pending_commitments().await?;
-        // }
+
+        if self.soft_confirmation_hash != [0; 32] {
+            // Resubmit if there were pending commitments on restart, skip it on first init
+            commitment_service.resubmit_pending_commitments().await?;
+        }
 
         tokio::spawn(commitment_service.run(cancellation_token.child_token()));
 
