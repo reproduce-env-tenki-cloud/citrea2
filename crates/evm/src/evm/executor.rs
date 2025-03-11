@@ -119,6 +119,10 @@ pub(crate) fn execute_multiple_tx<C: sov_modules_api::Context, EXT: CitreaExtern
             }
         })?;
 
+        if !should_be_end_of_sys_txs {
+            assert!(result_and_state.result.is_success());
+        }
+
         // Check if the transaction used more gas than the available block gas limit
         if cumulative_gas_used + result_and_state.result.gas_used() > block_gas_limit {
             native_error!("Gas used exceeds block gas limit");
@@ -152,6 +156,7 @@ fn post_fork2_system_tx_verifier<C: sov_modules_api::Context>(
     if l2_height == 1 {
         return Ok(());
     }
+
     if function_selector == BitcoinLightClientContract::setBlockInfoCall::SELECTOR {
         let l1_block_hash: [u8; 32] = tx.input()[4..36]
             .try_into()

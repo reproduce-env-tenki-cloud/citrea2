@@ -56,13 +56,14 @@ fn initial_system_txs(
     init_block_num: u64,
     init_block_hash: [u8; 32],
     init_block_txs_commitment: [u8; 32],
+    initial_coinbase_depth: u64,
     evm: &Evm<DefaultContext>,
     working_set: &mut WorkingSet<ProverStorage>,
 ) -> Vec<RlpEvmTransaction> {
     let init_events = create_initial_system_events(
         init_block_hash,
         init_block_txs_commitment,
-        0,
+        initial_coinbase_depth,
         init_block_num,
         BRIDE_INITIALIZE_PARAMS.to_vec(),
     );
@@ -111,6 +112,27 @@ fn set_block_info_system_tx(
     RlpEvmTransaction { rlp: buf }
 }
 
+fn deposit_system_tx(
+    deposit_data: Vec<u8>,
+    evm: &Evm<DefaultContext>,
+    working_set: &mut WorkingSet<ProverStorage>,
+) -> RlpEvmTransaction {
+    let sys_tx = SystemEvent::BridgeDeposit(deposit_data);
+
+    let sys_signer_nonce = evm
+        .account_info(&SYSTEM_SIGNER, working_set)
+        .unwrap_or_default()
+        .nonce;
+
+    let txs = create_system_transactions(vec![sys_tx], sys_signer_nonce, 1);
+
+    let mut buf = vec![];
+
+    txs[0].encode_2718(&mut buf);
+
+    RlpEvmTransaction { rlp: buf }
+}
+
 #[test]
 fn test_sys_bitcoin_light_client() {
     let _ = SHORT_HEADER_PROOF_PROVIDER.set(Box::new(TestingShortHeaderProofProviderService));
@@ -140,7 +162,7 @@ fn test_sys_bitcoin_light_client() {
 
         let context = C::new(sender_address, l2_height, SpecId::Fork2, l1_fee_rate);
 
-        let txs = initial_system_txs(1, [1; 32], [2; 32], &evm, &mut working_set);
+        let txs = initial_system_txs(1, [1; 32], [2; 32], 0, &evm, &mut working_set);
 
         evm.call(CallMessage { txs }, &context, &mut working_set)
             .unwrap();
@@ -420,7 +442,7 @@ fn test_sys_tx_gas_usage_effect_on_block_gas_limit() {
 
     evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
-        let mut txs = initial_system_txs(1, [1; 32], [2; 32], &evm, &mut working_set);
+        let mut txs = initial_system_txs(1, [1; 32], [2; 32], 0, &evm, &mut working_set);
         txs.push(create_contract_message(
             &dev_signer,
             0,
@@ -609,94 +631,124 @@ fn test_sys_tx_gas_usage_effect_on_block_gas_limit() {
     );
 }
 
-// TODO: replace this test
-// #[test]
-// fn test_bridge() {
-//     let (mut config, _, _) =
-//         get_evm_config_starting_base_fee(U256::from_str("1000000").unwrap(), None, 1);
+#[test]
+fn test_bridge() {
+    let _ = SHORT_HEADER_PROOF_PROVIDER.set(Box::new(TestingShortHeaderProofProviderService));
 
-//     config_push_contracts(
-//         &mut config,
-//         Some("../../resources/test-data/integration-tests-old-light-client/evm.json"),
-//     );
+    let (mut config, _, _) =
+        get_evm_config_starting_base_fee(U256::from_str("1000000").unwrap(), None, 1);
 
-//     let (mut evm, mut working_set) = get_evm_sys_tx_test(&config);
+    config_push_contracts(&mut config, None);
 
-//     let l1_fee_rate = 1;
-//     let l2_height = 2;
+    let (mut evm, mut working_set) = get_evm_sys_tx_test(&config);
 
-//     let l2_block_info = HookL2BlockInfo{
-//         l2_height,
-//         da_slot_height: 2,
-//         da_slot_hash: [2u8; 32],
-//         da_slot_txs_commitment: [
-//             35, 6, 15, 121, 7, 142, 70, 109, 219, 14, 211, 34, 120, 157, 121, 127, 164, 53, 23, 80,
-//             188, 45, 73, 146, 108, 41, 125, 77, 133, 86, 235, 104,
-//         ],
-//         pre_state_root: [1u8; 32],
-//         current_spec: SpecId::Fork2,
-//         sequencer_pub_key: vec![],
-//         deposit_data: vec![[
-//             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 0, 32, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0,
-//             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0,
-//             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 0, 0, 0, 42, 1, 145, 22, 58, 104, 30, 248, 81, 242, 63, 79, 72, 216, 243, 241, 44,
-//             60, 88, 230, 44, 206, 194, 243, 103, 224, 237, 31, 108, 29, 207, 112, 110, 94, 1, 0, 0,
-//             0, 0, 253, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 0, 0, 0, 87, 2, 248, 199, 154, 59, 0, 0, 0, 0, 34, 81, 32, 180, 253, 103, 250, 242,
-//             234, 221, 209, 124, 86, 77, 184, 249, 147, 86, 132, 180, 238, 191, 207, 88, 164, 131,
-//             206, 164, 3, 244, 185, 120, 165, 30, 115, 74, 1, 0, 0, 0, 0, 0, 0, 34, 0, 32, 74, 232,
-//             21, 114, 240, 110, 27, 136, 253, 92, 237, 122, 26, 0, 9, 69, 67, 46, 131, 225, 85, 30,
-//             111, 114, 30, 233, 192, 11, 140, 195, 50, 96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 207, 3,
-//             64, 161, 192, 181, 26, 246, 26, 75, 97, 75, 195, 25, 148, 167, 73, 18, 169, 134, 223,
-//             209, 191, 199, 220, 243, 38, 223, 51, 57, 71, 136, 182, 41, 246, 233, 200, 87, 9, 234,
-//             172, 247, 185, 237, 10, 63, 152, 75, 134, 182, 168, 7, 69, 187, 91, 93, 123, 216, 163,
-//             176, 231, 145, 122, 34, 105, 83, 11, 74, 32, 159, 179, 169, 97, 216, 177, 244, 236, 28,
-//             170, 34, 12, 106, 80, 184, 21, 254, 188, 11, 104, 157, 223, 11, 157, 223, 191, 153,
-//             203, 116, 71, 158, 65, 172, 0, 99, 6, 99, 105, 116, 114, 101, 97, 20, 1, 1, 1, 1, 1, 1,
-//             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 8, 0, 0, 0, 0, 59, 154, 202, 0, 104, 65, 192,
-//             147, 199, 55, 141, 150, 81, 138, 117, 68, 136, 33, 196, 247, 200, 244, 186, 231, 206,
-//             96, 248, 4, 208, 61, 31, 6, 40, 221, 93, 208, 245, 222, 81, 37, 229, 146, 81, 60, 96,
-//             31, 142, 155, 205, 125, 11, 153, 65, 84, 235, 108, 14, 51, 249, 43, 190, 34, 128, 62,
-//             188, 105, 97, 131, 159, 232, 139, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-//             0, 96, 188, 220, 18, 179, 65, 54, 53, 162, 189, 161, 197, 39, 81, 59, 20, 229, 165, 93,
-//             101, 210, 169, 210, 96, 211, 140, 243, 192, 109, 227, 37, 32, 132, 152, 138, 124, 199,
-//             15, 227, 162, 158, 170, 41, 163, 87, 12, 45, 65, 82, 173, 194, 121, 81, 159, 172, 64,
-//             111, 49, 209, 54, 230, 132, 109, 96, 16, 58, 248, 121, 131, 161, 31, 16, 228, 37, 59,
-//             51, 252, 102, 244, 110, 239, 88, 105, 90, 152, 229, 212, 121, 74, 52, 180, 88, 100,
-//             172, 192, 227, 205,
-//         ]
-//         .to_vec()],
-//         l1_fee_rate,
-//         timestamp: 0,
-//     });
+    let l1_fee_rate = 1;
+    let mut l2_height = 1;
+    let sender_address = generate_address::<C>("sender");
+    let context = C::new(sender_address, l2_height, SpecId::Fork2, l1_fee_rate);
 
-//     evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
-//     evm.end_l2_block_hook(&l2_block_info, &mut working_set);
-//     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
+    let l2_block_info = HookL2BlockInfo {
+        l2_height,
+        pre_state_root: [10u8; 32],
+        current_spec: SpecId::Fork2,
+        sequencer_pub_key: vec![],
+        l1_fee_rate: 1,
+        timestamp: 0,
+    };
 
-//     let recipient_address = address!("0101010101010101010101010101010101010101");
-//     let recipient_account = evm
-//         .account_info(&recipient_address, &mut working_set)
-//         .unwrap();
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
+    {
+        let txs = initial_system_txs(
+            2,
+            [2; 32],
+            [
+                35, 6, 15, 121, 7, 142, 70, 109, 219, 14, 211, 34, 120, 157, 121, 127, 164, 53, 23,
+                80, 188, 45, 73, 146, 108, 41, 125, 77, 133, 86, 235, 104,
+            ],
+            3,
+            &evm,
+            &mut working_set,
+        );
 
-//     assert_eq!(
-//         recipient_account.balance,
-//         U256::from_str("0x8ac7230489e80000").unwrap(),
-//     );
-// }
+        // deploy logs contract
+        evm.call(CallMessage { txs }, &context, &mut working_set)
+            .unwrap();
+    }
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
+    evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
+
+    l2_height += 1;
+
+    let l2_block_info = HookL2BlockInfo {
+        l2_height,
+        pre_state_root: [11u8; 32],
+        current_spec: SpecId::Fork2,
+        sequencer_pub_key: vec![],
+        l1_fee_rate: 1,
+        timestamp: 0,
+    };
+
+    let deposit_data = vec![
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 32, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 1, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42, 1, 145, 22, 58, 104, 30,
+        248, 81, 242, 63, 79, 72, 216, 243, 241, 44, 60, 88, 230, 44, 206, 194, 243, 103, 224, 237,
+        31, 108, 29, 207, 112, 110, 94, 1, 0, 0, 0, 0, 253, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 87, 2, 248, 199, 154, 59, 0, 0, 0, 0, 34, 81,
+        32, 180, 253, 103, 250, 242, 234, 221, 209, 124, 86, 77, 184, 249, 147, 86, 132, 180, 238,
+        191, 207, 88, 164, 131, 206, 164, 3, 244, 185, 120, 165, 30, 115, 74, 1, 0, 0, 0, 0, 0, 0,
+        34, 0, 32, 74, 232, 21, 114, 240, 110, 27, 136, 253, 92, 237, 122, 26, 0, 9, 69, 67, 46,
+        131, 225, 85, 30, 111, 114, 30, 233, 192, 11, 140, 195, 50, 96, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 207, 3, 64, 161, 192, 181, 26, 246, 26, 75, 97, 75, 195, 25, 148, 167, 73, 18, 169, 134,
+        223, 209, 191, 199, 220, 243, 38, 223, 51, 57, 71, 136, 182, 41, 246, 233, 200, 87, 9, 234,
+        172, 247, 185, 237, 10, 63, 152, 75, 134, 182, 168, 7, 69, 187, 91, 93, 123, 216, 163, 176,
+        231, 145, 122, 34, 105, 83, 11, 74, 32, 159, 179, 169, 97, 216, 177, 244, 236, 28, 170, 34,
+        12, 106, 80, 184, 21, 254, 188, 11, 104, 157, 223, 11, 157, 223, 191, 153, 203, 116, 71,
+        158, 65, 172, 0, 99, 6, 99, 105, 116, 114, 101, 97, 20, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 8, 0, 0, 0, 0, 59, 154, 202, 0, 104, 65, 192, 147, 199, 55, 141,
+        150, 81, 138, 117, 68, 136, 33, 196, 247, 200, 244, 186, 231, 206, 96, 248, 4, 208, 61, 31,
+        6, 40, 221, 93, 208, 245, 222, 81, 37, 229, 146, 81, 60, 96, 31, 142, 155, 205, 125, 11,
+        153, 65, 84, 235, 108, 14, 51, 249, 43, 190, 34, 128, 62, 188, 105, 97, 131, 159, 232, 139,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 96, 188, 220, 18, 179, 65, 54, 53,
+        162, 189, 161, 197, 39, 81, 59, 20, 229, 165, 93, 101, 210, 169, 210, 96, 211, 140, 243,
+        192, 109, 227, 37, 32, 132, 152, 138, 124, 199, 15, 227, 162, 158, 170, 41, 163, 87, 12,
+        45, 65, 82, 173, 194, 121, 81, 159, 172, 64, 111, 49, 209, 54, 230, 132, 109, 96, 16, 58,
+        248, 121, 131, 161, 31, 16, 228, 37, 59, 51, 252, 102, 244, 110, 239, 88, 105, 90, 152,
+        229, 212, 121, 74, 52, 180, 88, 100, 172, 192, 227, 205,
+    ];
+
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
+    {
+        let txs = vec![deposit_system_tx(deposit_data, &evm, &mut working_set)];
+        // deploy logs contract
+        evm.call(CallMessage { txs }, &context, &mut working_set)
+            .unwrap();
+    }
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
+    evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
+
+    let recipient_address = address!("0101010101010101010101010101010101010101");
+    let recipient_account = evm
+        .account_info(&recipient_address, &mut working_set)
+        .unwrap();
+
+    assert_eq!(
+        recipient_account.balance,
+        U256::from_str("0x8ac7230489e80000").unwrap(),
+    );
+}
 
 #[test]
 fn test_upgrade_light_client() {
