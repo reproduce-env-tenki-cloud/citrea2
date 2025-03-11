@@ -9,7 +9,7 @@ use reth_primitives::constants::ETHEREUM_BLOCK_GAS_LIMIT;
 use reth_primitives::KECCAK_EMPTY;
 use sov_modules_api::default_context::DefaultContext;
 use sov_modules_api::fork::Fork;
-use sov_modules_api::hooks::HookSoftConfirmationInfo;
+use sov_modules_api::hooks::HookL2BlockInfo;
 use sov_modules_api::{Module, Spec, WorkingSet};
 use sov_prover_storage_manager::new_orphan_storage;
 use sov_rollup_interface::spec::SpecId as SovSpecId;
@@ -65,7 +65,7 @@ pub(crate) fn get_evm_with_spec(
     let mut working_set = WorkingSet::new(storage.clone());
     evm.finalize_hook(&root, &mut working_set.accessory_state());
 
-    let hook_info = HookSoftConfirmationInfo {
+    let hook_info = HookL2BlockInfo {
         l2_height: 1,
         pre_state_root: root,
         current_spec: spec_id,
@@ -75,8 +75,8 @@ pub(crate) fn get_evm_with_spec(
     };
 
     // Pass the same struct to both hooks
-    evm.begin_soft_confirmation_hook(&hook_info, &mut working_set);
-    evm.end_soft_confirmation_hook(&hook_info, &mut working_set);
+    evm.begin_l2_block_hook(&hook_info, &mut working_set);
+    evm.end_l2_block_hook(&hook_info, &mut working_set);
 
     let root = commit(working_set, storage.clone());
     let mut working_set: WorkingSet<<C as Spec>::Storage> = WorkingSet::new(storage.clone());
@@ -269,7 +269,8 @@ pub(crate) fn get_evm_config_starting_base_fee(
     (config, dev_signer, contract_addr)
 }
 pub(crate) fn get_evm_test_config() -> EvmConfig {
-    let config = EvmConfig {
+    
+    EvmConfig {
         data: vec![AccountData {
             address: Address::from([1u8; 20]),
             balance: U256::checked_mul(U256::from(1000), U256::pow(U256::from(10), U256::from(18))).unwrap(), // 1000 ETH
@@ -308,8 +309,7 @@ pub(crate) fn get_evm_test_config() -> EvmConfig {
         difficulty: U256::ZERO,
         extra_data: Bytes::default(),
         nonce: 0,
-    };
-    config
+    }
 }
 
 pub(crate) fn get_fork_fn_only_fork2() -> impl Fn(u64) -> Fork {

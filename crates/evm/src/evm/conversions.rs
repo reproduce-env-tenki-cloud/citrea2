@@ -45,7 +45,7 @@ impl From<AccountInfo> for reth_primitives::Account {
     }
 }
 
-pub(crate) fn create_tx_env(tx: &TransactionSignedEcRecovered, spec_id: SpecId) -> TxEnv {
+pub(crate) fn create_tx_env(tx: &TransactionSignedEcRecovered, _spec_id: SpecId) -> TxEnv {
     let to = match tx.to() {
         Some(addr) => TransactTo::Call(addr),
         None => TransactTo::Create,
@@ -156,7 +156,7 @@ pub(crate) fn sealed_block_to_block_env(
         difficulty: U256::from(0),
         blob_excess_gas_and_price: sealed_header
             .excess_blob_gas
-            .or_else(|| Some(0))
+            .or(Some(0))
             .map(BlobExcessGasAndPrice::new),
     }
 }

@@ -7,11 +7,10 @@ use reth_primitives::{
     KECCAK_EMPTY,
 };
 use revm::primitives::{BlobExcessGasAndPrice, BlockEnv};
-use sov_modules_api::hooks::HookSoftConfirmationInfo;
+use sov_modules_api::hooks::HookL2BlockInfo;
 use sov_modules_api::{StateMapAccessor, StateValueAccessor, StateVecAccessor};
 use sov_rollup_interface::spec::SpecId;
 
-use super::genesis_tests::GENESIS_DA_TXS_COMMITMENT;
 use crate::evm::primitive_types::{Block, Receipt, SealedBlock, TransactionSignedAndRecovered};
 use crate::tests::genesis_tests::BENEFICIARY;
 use crate::tests::utils::{get_evm, get_evm_test_config, GENESIS_STATE_ROOT};
@@ -23,12 +22,12 @@ lazy_static! {
 }
 
 #[test]
-fn begin_soft_confirmation_hook_creates_pending_block() {
+fn begin_l2_block_hook_creates_pending_block() {
     let config = get_evm_test_config();
     let (mut evm, mut working_set, _spec_id) = get_evm(&config);
     let l1_fee_rate = 0;
     let l2_height = 2;
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SpecId::Fork2,
@@ -37,7 +36,7 @@ fn begin_soft_confirmation_hook_creates_pending_block() {
         timestamp: 54,
     };
 
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     let pending_block = evm.block_env;
     assert_eq!(
         pending_block,
@@ -55,7 +54,7 @@ fn begin_soft_confirmation_hook_creates_pending_block() {
 }
 
 #[test]
-fn end_soft_confirmation_hook_sets_head() {
+fn end_l2_block_hook_sets_head() {
     let config = get_evm_test_config();
     let (mut evm, mut working_set, _spec_id) = get_evm(&get_evm_test_config());
 
@@ -64,7 +63,7 @@ fn end_soft_confirmation_hook_sets_head() {
     let l1_fee_rate = 0;
     let l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root,
         current_spec: SpecId::Fork2,
@@ -73,7 +72,7 @@ fn end_soft_confirmation_hook_sets_head() {
         timestamp: 54,
     };
 
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
 
     evm.pending_transactions
         .push(create_pending_transaction(1, 0));
@@ -81,7 +80,7 @@ fn end_soft_confirmation_hook_sets_head() {
     evm.pending_transactions
         .push(create_pending_transaction(2, 1));
 
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     let head = evm.head_rlp.get(&mut working_set).unwrap();
     let pending_head = evm
         .pending_head
@@ -129,12 +128,12 @@ fn end_soft_confirmation_hook_sets_head() {
 }
 
 #[test]
-fn end_soft_confirmation_hook_moves_transactions_and_receipts() {
+fn end_l2_block_hook_moves_transactions_and_receipts() {
     let (mut evm, mut working_set, _spec_id) = get_evm(&get_evm_test_config());
     let l1_fee_rate = 0;
     let l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SpecId::Fork2,
@@ -142,7 +141,7 @@ fn end_soft_confirmation_hook_moves_transactions_and_receipts() {
         l1_fee_rate,
         timestamp: 0,
     };
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
 
     let tx1 = create_pending_transaction(1, 0);
     evm.pending_transactions.push(tx1.clone());
@@ -150,7 +149,7 @@ fn end_soft_confirmation_hook_moves_transactions_and_receipts() {
     let tx2 = create_pending_transaction(2, 1);
     evm.pending_transactions.push(tx2.clone());
 
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
 
     let tx1_hash = tx1.transaction.signed_transaction.hash;
     let tx2_hash = tx2.transaction.signed_transaction.hash;
@@ -252,7 +251,7 @@ fn finalize_hook_creates_final_block() {
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: root,
         current_spec: SpecId::Fork2,
@@ -260,13 +259,13 @@ fn finalize_hook_creates_final_block() {
         l1_fee_rate,
         timestamp: 54,
     };
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
 
     evm.pending_transactions
         .push(create_pending_transaction(1, 0));
     evm.pending_transactions
         .push(create_pending_transaction(2, 1));
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
 
     let root_hash = [99u8; 32];
 
@@ -276,8 +275,8 @@ fn finalize_hook_creates_final_block() {
 
     l2_height += 1;
 
-    evm.begin_soft_confirmation_hook(
-        &HookSoftConfirmationInfo {
+    evm.begin_l2_block_hook(
+        &HookL2BlockInfo {
             l2_height,
             pre_state_root: root_hash,
             current_spec: SpecId::Fork2,
@@ -348,7 +347,7 @@ fn finalize_hook_creates_final_block() {
 // this test is run with Fork2 spec
 // because pre fork2 we were deleting block hashes and
 // we'd still like to test that
-fn begin_soft_confirmation_hook_appends_last_block_hashes() {
+fn begin_l2_block_hook_appends_last_block_hashes() {
     let (mut evm, mut working_set, _spec_id) = get_evm(&get_evm_test_config());
 
     // hack to get the root hash
@@ -361,7 +360,7 @@ fn begin_soft_confirmation_hook_appends_last_block_hashes() {
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: root,
         current_spec: SpecId::Fork2,
@@ -369,7 +368,7 @@ fn begin_soft_confirmation_hook_appends_last_block_hashes() {
         l1_fee_rate,
         timestamp: 0,
     };
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
 
     // on block 2, only block 0 and 1 exists
     for i in 0..2 {
@@ -385,7 +384,7 @@ fn begin_soft_confirmation_hook_appends_last_block_hashes() {
 
     assert!(evm.latest_block_hashes.get(&2, &mut working_set).is_none());
 
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
 
     let mut random_32_bytes: [u8; 32] = rand::thread_rng().gen::<[u8; 32]>();
     evm.finalize_hook(&random_32_bytes, &mut working_set.accessory_state());
@@ -395,7 +394,7 @@ fn begin_soft_confirmation_hook_appends_last_block_hashes() {
     // finalize blocks 2-257 with random state root hashes
     for _ in 2..257 {
         let l1_fee_rate = 0;
-        let soft_confirmation_info = HookSoftConfirmationInfo {
+        let l2_block_info = HookL2BlockInfo {
             l2_height,
             pre_state_root: random_32_bytes,
             current_spec: SpecId::Fork2,
@@ -403,9 +402,9 @@ fn begin_soft_confirmation_hook_appends_last_block_hashes() {
             l1_fee_rate,
             timestamp: 0,
         };
-        evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+        evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
 
-        evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+        evm.end_l2_block_hook(&l2_block_info, &mut working_set);
 
         random_32_bytes = rand::thread_rng().gen::<[u8; 32]>();
         evm.finalize_hook(&random_32_bytes, &mut working_set.accessory_state());
@@ -415,7 +414,7 @@ fn begin_soft_confirmation_hook_appends_last_block_hashes() {
 
     // start environment for block 258
     let l1_fee_rate = 0;
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: random_32_bytes,
         current_spec: SpecId::Fork2,
@@ -423,7 +422,7 @@ fn begin_soft_confirmation_hook_appends_last_block_hashes() {
         l1_fee_rate,
         timestamp: 0,
     };
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
 
     assert_eq!(
         evm.latest_block_hashes.get(&257, &mut working_set).unwrap(),

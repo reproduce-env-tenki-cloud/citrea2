@@ -1,11 +1,8 @@
 use alloy_eips::eip1559::BaseFeeParams;
 use alloy_primitives::{address, Address, B256, U256};
 use borsh::{BorshDeserialize, BorshSerialize};
-use revm::primitives::bitvec::view::BitViewSized;
 use serde::{Deserialize, Serialize};
-use sov_modules_api::{StateMap, StateVec};
 use sov_state::storage::StateValueCodec;
-use sov_state::Prefix;
 
 pub(crate) mod conversions;
 pub(crate) mod db;
@@ -30,7 +27,7 @@ pub(crate) mod call;
 mod tests;
 
 pub use primitive_types::RlpEvmTransaction;
-use sov_state::codec::{BcsCodec, BorshCodec};
+use sov_state::codec::BorshCodec;
 
 #[cfg(all(test, feature = "native"))]
 use crate::tests::DEFAULT_CHAIN_ID;

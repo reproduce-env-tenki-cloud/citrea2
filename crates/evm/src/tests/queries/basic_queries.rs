@@ -11,7 +11,6 @@ use reth_primitives::{BlockId, BlockNumberOrTag};
 use reth_rpc_eth_types::EthApiError;
 use serde_json::json;
 use sov_modules_api::fork::Fork;
-use sov_modules_api::{StateMapAccessor, StateVecAccessor};
 use sov_rollup_interface::spec::SpecId as SovSpecId;
 
 use crate::smart_contracts::{CallerContract, SimpleStorageContract};
@@ -741,7 +740,7 @@ fn test_queries_with_forks() {
     // 0x819c5497b157177315e1204f52e588b393771719 -- Storage contract
     // 0x5ccda3e6d071a059f00d4f3f25a1adc244eb5c93 -- Caller contract
 
-    let (mut evm, mut working_set, signer, l2_height) = init_evm_with_caller_contract();
+    let (evm, mut working_set, signer, _l2_height) = init_evm_with_caller_contract();
 
     let fork_fn = |_: u64| Fork::new(SovSpecId::Fork2, 3);
 

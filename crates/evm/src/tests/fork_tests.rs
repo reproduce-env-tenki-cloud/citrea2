@@ -6,7 +6,7 @@ use revm::primitives::U256;
 use sha2::Digest;
 use sov_modules_api::default_context::DefaultContext;
 use sov_modules_api::fork::Fork;
-use sov_modules_api::hooks::HookSoftConfirmationInfo;
+use sov_modules_api::hooks::HookL2BlockInfo;
 use sov_modules_api::utils::generate_address;
 use sov_modules_api::{Context, Module, StateMapAccessor, StateVecAccessor};
 use sov_rollup_interface::spec::SpecId as SovSpecId;
@@ -106,7 +106,7 @@ fn test_cancun_transient_storage_activation() {
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
@@ -117,7 +117,7 @@ fn test_cancun_transient_storage_activation() {
 
     // Deploy transient storage contract
     let sender_address = generate_address::<C>("sender");
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
@@ -133,13 +133,13 @@ fn test_cancun_transient_storage_activation() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     l2_height += 1;
 
     // Send money to transient storage contract
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx =
@@ -152,13 +152,13 @@ fn test_cancun_transient_storage_activation() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     l2_height += 1;
 
     // Call claim gift from transient storage contract
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx =
@@ -171,7 +171,7 @@ fn test_cancun_transient_storage_activation() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     l2_height += 1;
@@ -184,7 +184,7 @@ fn test_cancun_transient_storage_activation() {
     // Last tx should have failed because cancun is not activated
     assert!(receipts.last().unwrap().receipt.success);
 
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx =
@@ -197,7 +197,7 @@ fn test_cancun_transient_storage_activation() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     let receipts: Vec<_> = evm
@@ -214,11 +214,11 @@ fn test_cancun_mcopy_activation() {
     let (config, dev_signer, contract_addr) =
         get_evm_config(U256::from_str("100000000000000000000").unwrap(), None);
 
-    let (mut evm, mut working_set, spec_id) = get_evm_with_spec(&config, SovSpecId::Fork2);
+    let (mut evm, mut working_set, _spec_id) = get_evm_with_spec(&config, SovSpecId::Fork2);
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
@@ -228,7 +228,7 @@ fn test_cancun_mcopy_activation() {
     };
 
     let sender_address = generate_address::<C>("sender");
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
@@ -243,13 +243,13 @@ fn test_cancun_mcopy_activation() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     l2_height += 1;
 
     // Send money to transient storage contract
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx = call_mcopy(contract_addr, &dev_signer, 1);
@@ -261,10 +261,10 @@ fn test_cancun_mcopy_activation() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
-    l2_height += 1;
+    // l2_height += 1;
 
     let receipts: Vec<_> = evm
         .receipts_rlp
@@ -290,11 +290,11 @@ fn test_self_destructing_constructor() {
     let (config, dev_signer, contract_addr) =
         get_evm_config(U256::from_str("100000000000000000000").unwrap(), None);
 
-    let (mut evm, mut working_set, spec_id) = get_evm(&config);
+    let (mut evm, mut working_set, _spec_id) = get_evm(&config);
     let l1_fee_rate = 0;
     let l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
@@ -306,7 +306,7 @@ fn test_self_destructing_constructor() {
 
     let constructed_bytecode = contract.construct(die_to_address);
 
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let sender_address = generate_address::<C>("sender");
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
@@ -328,7 +328,7 @@ fn test_self_destructing_constructor() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     let contract_info = evm.account_info(&contract_addr, &mut working_set);
@@ -369,11 +369,11 @@ fn test_blob_base_fee_should_return_1() {
     let (config, dev_signer, contract_addr) =
         get_evm_config(U256::from_str("100000000000000000000").unwrap(), None);
 
-    let (mut evm, mut working_set, spec_id) = get_evm_with_spec(&config, SovSpecId::Fork2);
+    let (mut evm, mut working_set, _spec_id) = get_evm_with_spec(&config, SovSpecId::Fork2);
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
@@ -383,7 +383,7 @@ fn test_blob_base_fee_should_return_1() {
     };
 
     let sender_address = generate_address::<C>("sender");
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
@@ -399,19 +399,19 @@ fn test_blob_base_fee_should_return_1() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     l2_height += 1;
 
     for _ in 0..10 {
-        evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-        evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+        evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
+        evm.end_l2_block_hook(&l2_block_info, &mut working_set);
         evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
         l2_height += 1;
     }
 
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
         let call_tx = store_blob_base_fee_transaction(contract_addr, &dev_signer, 1);
@@ -423,9 +423,9 @@ fn test_blob_base_fee_should_return_1() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
-    l2_height += 1;
+    // l2_height += 1;
 
     let receipts: Vec<_> = evm
         .receipts_rlp
@@ -446,11 +446,11 @@ fn test_kzg_point_eval_should_revert() {
     let (config, dev_signer, contract_addr) =
         get_evm_config(U256::from_str("100000000000000000000").unwrap(), None);
 
-    let (mut evm, mut working_set, spec_id) = get_evm(&config);
+    let (mut evm, mut working_set, _spec_id) = get_evm(&config);
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
@@ -460,7 +460,7 @@ fn test_kzg_point_eval_should_revert() {
     };
 
     let sender_address = generate_address::<C>("sender");
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
@@ -476,7 +476,7 @@ fn test_kzg_point_eval_should_revert() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     l2_height += 1;
@@ -506,7 +506,7 @@ fn test_kzg_point_eval_should_revert() {
     input.extend_from_slice(&commitment);
     input.extend_from_slice(&proof);
 
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
@@ -526,7 +526,7 @@ fn test_kzg_point_eval_should_revert() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     // expect this call to fail because we do not have the kzg feature of revm enabled on fork1
@@ -556,11 +556,11 @@ fn test_p256_verify() {
     let (config, dev_signer, contract_addr) =
         get_evm_config(U256::from_str("100000000000000000000").unwrap(), None);
 
-    let (mut evm, mut working_set, spec_id) = get_evm(&config);
+    let (mut evm, mut working_set, _spec_id) = get_evm(&config);
     let l1_fee_rate = 0;
     let l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
@@ -570,7 +570,7 @@ fn test_p256_verify() {
     };
 
     let sender_address = generate_address::<C>("sender");
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
@@ -591,7 +591,7 @@ fn test_p256_verify() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     // expect this call to success because we enabled the p256 feature of revm enabled on fork2
@@ -614,12 +614,12 @@ fn test_offchain_contract_storage_evm() {
 
     let fork_fn = |_: u64| Fork::new(SovSpecId::Fork2, 4);
 
-    let (mut evm, mut working_set, spec_id) = get_evm_with_spec(&config, SovSpecId::Fork2);
+    let (mut evm, mut working_set, _spec_id) = get_evm_with_spec(&config, SovSpecId::Fork2);
     let l1_fee_rate = 0;
     let mut l2_height = 2;
 
     // Deployed a contract in Fork2 fork
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
@@ -629,7 +629,7 @@ fn test_offchain_contract_storage_evm() {
     };
 
     let sender_address = generate_address::<C>("sender");
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
@@ -645,7 +645,7 @@ fn test_offchain_contract_storage_evm() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     l2_height += 1;
@@ -687,7 +687,7 @@ fn test_offchain_contract_storage_evm() {
     assert_eq!(code, *evm_code.original_byte_slice());
 
     // Deploy contract in fork1
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
@@ -703,7 +703,7 @@ fn test_offchain_contract_storage_evm() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
     l2_height += 1;
 
@@ -719,7 +719,7 @@ fn test_offchain_contract_storage_evm() {
     assert!(offchain_code.is_some());
 
     // make tx on the contract that was deployed before fork1 and see that you can read it from offchain storage afterwards
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SovSpecId::Fork2,
@@ -728,7 +728,7 @@ fn test_offchain_contract_storage_evm() {
         timestamp: 0,
     };
 
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let context = C::new(sender_address, l2_height, SovSpecId::Fork2, l1_fee_rate);
 
@@ -743,7 +743,7 @@ fn test_offchain_contract_storage_evm() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     // Try to get the code from Fork2 fork and expect it to not exist because it is stored in offchain storage

@@ -1,13 +1,12 @@
 use std::str::FromStr;
 
 use alloy_network::BlockResponse;
-use alloy_primitives::b256;
 use reth_primitives::constants::ETHEREUM_BLOCK_GAS_LIMIT;
 use reth_primitives::BlockNumberOrTag;
 use reth_rpc_eth_types::EthApiError;
 use revm::primitives::{B256, U256};
 use sov_modules_api::default_context::DefaultContext;
-use sov_modules_api::hooks::HookSoftConfirmationInfo;
+use sov_modules_api::hooks::HookL2BlockInfo;
 use sov_modules_api::utils::generate_address;
 use sov_modules_api::{Context, Module, StateMapAccessor, StateVecAccessor};
 use sov_rollup_interface::spec::SpecId;
@@ -88,7 +87,7 @@ fn log_filter_test_at_block_hash() {
     let l1_fee_rate = 1;
     let l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SpecId::Fork2,
@@ -96,7 +95,7 @@ fn log_filter_test_at_block_hash() {
         l1_fee_rate,
         timestamp: 0,
     };
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let sender_address = generate_address::<C>("sender");
 
@@ -122,7 +121,7 @@ fn log_filter_test_at_block_hash() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     // `AnotherLog` topics
@@ -296,7 +295,7 @@ fn log_filter_test_with_range() {
     let l1_fee_rate = 1;
     let mut l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SpecId::Fork2,
@@ -304,7 +303,7 @@ fn log_filter_test_with_range() {
         l1_fee_rate,
         timestamp: 0,
     };
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let sender_address = generate_address::<C>("sender");
 
@@ -330,7 +329,7 @@ fn log_filter_test_with_range() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     l2_height += 1;
@@ -354,7 +353,7 @@ fn log_filter_test_with_range() {
     let rpc_logs = evm.eth_get_logs(filter, &mut working_set).unwrap();
     assert_eq!(rpc_logs.len(), 4);
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [99u8; 32],
         current_spec: SpecId::Fork2,
@@ -362,7 +361,7 @@ fn log_filter_test_with_range() {
         l1_fee_rate,
         timestamp: 0,
     };
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let sender_address = generate_address::<C>("sender");
 
@@ -383,7 +382,7 @@ fn log_filter_test_with_range() {
         .unwrap();
         // the last topic will be Keccak256("message")
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[100u8; 32], &mut working_set.accessory_state());
     let filter = Filter {
         block_option: crate::FilterBlockOption::Range {
@@ -414,7 +413,7 @@ fn test_log_limits() {
     let l1_fee_rate = 1;
     let mut l2_height = 2;
 
-    let soft_confirmation_info = HookSoftConfirmationInfo {
+    let l2_block_info = HookL2BlockInfo {
         l2_height,
         pre_state_root: [10u8; 32],
         current_spec: SpecId::Fork2,
@@ -422,7 +421,7 @@ fn test_log_limits() {
         l1_fee_rate,
         timestamp: 0,
     };
-    evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
     {
         let sender_address = generate_address::<C>("sender");
 
@@ -471,7 +470,7 @@ fn test_log_limits() {
         )
         .unwrap();
     }
-    evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+    evm.end_l2_block_hook(&l2_block_info, &mut working_set);
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     l2_height += 1;
@@ -511,7 +510,7 @@ fn test_log_limits() {
     ];
 
     for _ in 1..1001 {
-        let soft_confirmation_info = HookSoftConfirmationInfo {
+        let l2_block_info = HookL2BlockInfo {
             l2_height,
             pre_state_root: [99u8; 32],
             current_spec: SpecId::Fork2,
@@ -520,8 +519,8 @@ fn test_log_limits() {
             timestamp: 0,
         };
         // generate 100_000 blocks to test the max block range limit
-        evm.begin_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
-        evm.end_soft_confirmation_hook(&soft_confirmation_info, &mut working_set);
+        evm.begin_l2_block_hook(&l2_block_info, &mut working_set);
+        evm.end_l2_block_hook(&l2_block_info, &mut working_set);
         evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
         l2_height += 1;
