@@ -457,6 +457,17 @@ impl SharedLedgerOps for LedgerDB {
         self.db.put::<ExecutedMigrations>(&migration, &())
     }
 
+    /// Returns the number of pending commitments
+    #[instrument(level = "trace", skip(self), err)]
+    fn get_pending_commitment_count(&self) -> anyhow::Result<u64> {
+        let mut iter = self.db.iter::<PendingSequencerCommitmentL2Range>()?;
+        iter.seek_to_first();
+
+        let count = iter.count();
+
+        Ok(count)
+    }
+
     /// Clear pending commitments
     #[instrument(level = "trace", skip(self), err)]
     fn clear_pending_commitments(&self) -> anyhow::Result<()> {

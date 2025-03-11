@@ -195,7 +195,11 @@ where
     } = rollup_blueprint.setup_storage(&rollup_config, &rocksdb_config, &backup_manager)?;
 
     if clear_pending_commitments {
-        info!("Clearing pending commitments");
+        let pending_commitment_count = ledger_db.get_pending_commitment_count()?;
+        info!(
+            "Clearing pending commitments; current count: {}",
+            pending_commitment_count
+        );
         ledger_db.clear_pending_commitments().await?;
     }
 
