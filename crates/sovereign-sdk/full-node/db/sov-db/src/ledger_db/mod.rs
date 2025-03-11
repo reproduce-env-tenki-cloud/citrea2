@@ -456,6 +456,23 @@ impl SharedLedgerOps for LedgerDB {
     fn put_executed_migration(&self, migration: (String, u64)) -> anyhow::Result<()> {
         self.db.put::<ExecutedMigrations>(&migration, &())
     }
+
+    /// Clear pending commitments
+    #[instrument(level = "trace", skip(self), err)]
+    fn clear_pending_commitments(&self) -> anyhow::Result<()> {
+        let mut schema_batch = SchemaBatch::new();
+        let mut iter = self.db.iter::<PendingSequencerCommitmentL2Range>()?;
+        iter.seek_to_first();
+
+        for item in iter {
+            let item = item?;
+            schema_batch.delete::<PendingSequencerCommitmentL2Range>(&item.key)?;
+        }
+
+        self.db.write_schemas(schema_batch)?;
+
+        Ok(())
+    }
 }
 
 impl LightClientProverLedgerOps for LedgerDB {
