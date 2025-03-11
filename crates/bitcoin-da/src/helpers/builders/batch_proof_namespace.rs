@@ -225,27 +225,22 @@ pub fn create_batchproof_type_0(
                     },
                 });
             } else {
-                if unsigned_commit_tx.output[0]
+                unsigned_commit_tx.output[0].value = match unsigned_commit_tx.output[0]
                     .value
                     .checked_sub(Amount::ONE_SAT)
-                    .is_none()
                 {
-                    break;
-                }
-                if unsigned_commit_tx.output[1]
+                    Some(value) => value,
+                    None => break,
+                };
+
+                unsigned_commit_tx.output[1].value = match unsigned_commit_tx.output[1]
                     .value
                     .checked_add(Amount::ONE_SAT)
-                    .is_none()
                 {
-                    break;
-                }
-                if reveal_tx.output[0]
-                    .value
-                    .checked_sub(Amount::ONE_SAT)
-                    .is_none()
-                {
-                    break;
-                }
+                    Some(value) => value,
+                    None => break,
+                };
+
                 reveal_tx.input[0].previous_output.txid = unsigned_commit_tx.compute_txid();
                 update_witness(
                     &unsigned_commit_tx,

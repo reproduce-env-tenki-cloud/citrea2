@@ -200,7 +200,7 @@ where
             "Clearing pending commitments; current count: {}",
             pending_commitment_count
         );
-        ledger_db.clear_pending_commitments().await?;
+        ledger_db.clear_pending_commitments()?;
     }
 
     let Dependencies {

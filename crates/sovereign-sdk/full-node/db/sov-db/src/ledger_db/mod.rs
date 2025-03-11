@@ -465,7 +465,7 @@ impl SharedLedgerOps for LedgerDB {
 
         let count = iter.count();
 
-        Ok(count)
+        Ok(count as u64)
     }
 
     /// Clear pending commitments
