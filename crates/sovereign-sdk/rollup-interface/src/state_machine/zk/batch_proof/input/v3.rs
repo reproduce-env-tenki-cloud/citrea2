@@ -24,6 +24,10 @@ pub struct BatchProofCircuitInputV3Part2<'txs, Tx: Clone + BorshSerialize>(
 pub struct BatchProofCircuitInputV3Part1 {
     /// The state root before the state transition
     pub initial_state_root: StorageRootHash,
+    /// The sequencer commitment before the first sequencer commitment in the sequencer_commitments vector
+    /// If it is none than this is the first batch proof
+    /// Else the index of the sequencer commitment should be `sequencer_commitments[0].index - 1``
+    pub previous_sequencer_commitment: Option<SequencerCommitment>,
     /// Sequencer commitments being proven
     /// Since `SequencerCommitment` does not have the sequencer's signature,
     /// the light client prover will be doing the signature verification
@@ -61,6 +65,10 @@ pub struct BatchProofCircuitInputV3<'txs, Tx: Clone + BorshSerialize> {
     pub cache_prune_l2_heights: Vec<u64>,
     /// Witness needed to get the last Bitcoin hash on Bitcoin Light Client contract
     pub last_l1_hash_witness: Witness,
+    /// The sequencer commitment before the first sequencer commitment in the sequencer_commitments vector
+    /// If it is none than this is the first batch proof
+    /// Else the index of the sequencer commitment should be `sequencer_commitments[0].index - 1``
+    pub previous_sequencer_commitment: Option<SequencerCommitment>,
 }
 
 impl<'txs, Tx> BatchProofCircuitInputV3<'txs, Tx>
@@ -102,6 +110,7 @@ where
                 sequencer_commitments: self.sequencer_commitments,
                 cache_prune_l2_heights: self.cache_prune_l2_heights,
                 last_l1_hash_witness: self.last_l1_hash_witness,
+                previous_sequencer_commitment: self.previous_sequencer_commitment,
             },
             BatchProofCircuitInputV3Part2(x),
         )

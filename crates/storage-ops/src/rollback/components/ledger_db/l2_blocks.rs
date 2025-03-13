@@ -9,7 +9,7 @@ pub(crate) fn rollback_l2_blocks(
     node_type: StorageNodeType,
     ledger_db: &DB,
     target_l2: u64,
-    last_sequencer_commitment_l2_height: u64,
+    last_sequencer_commitment_index: u32,
 ) -> anyhow::Result<u64> {
     let mut l2_blocks = ledger_db
         .iter_with_direction::<L2BlockByNumber>(Default::default(), ScanDirection::Backward)?;
@@ -35,10 +35,7 @@ pub(crate) fn rollback_l2_blocks(
     if matches!(node_type, StorageNodeType::Sequencer)
         || matches!(node_type, StorageNodeType::FullNode)
     {
-        ledger_db.put::<LastSequencerCommitmentSent>(
-            &(),
-            &L2BlockNumber(last_sequencer_commitment_l2_height),
-        )?;
+        ledger_db.put::<LastSequencerCommitmentSent>(&(), &last_sequencer_commitment_index)?;
     }
 
     Ok(deleted)

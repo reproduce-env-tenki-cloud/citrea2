@@ -39,10 +39,17 @@ impl BatchProofCircuitOutput {
         }
     }
 
-    /// Get sequencer commitment merkle roots
-    pub fn sequencer_commitment_merkle_roots(&self) -> Vec<[u8; 32]> {
+    /// Get sequencer commitment hashes
+    pub fn sequencer_commitment_hashes(&self) -> Vec<[u8; 32]> {
         match self {
-            BatchProofCircuitOutput::V3(output) => output.sequencer_commitment_merkle_roots.clone(),
+            BatchProofCircuitOutput::V3(output) => output.sequencer_commitment_hashes.clone(),
+        }
+    }
+
+    /// Get sequencer commitment index range
+    pub fn sequencer_commitment_index_range(&self) -> (u32, u32) {
+        match self {
+            BatchProofCircuitOutput::V3(output) => output.sequencer_commitment_index_range,
         }
     }
 
@@ -66,6 +73,20 @@ impl BatchProofCircuitOutput {
     pub fn last_l2_height(&self) -> u64 {
         match self {
             BatchProofCircuitOutput::V3(output) => output.last_l2_height,
+        }
+    }
+
+    /// Get the previous commitment index
+    pub fn previous_commitment_index(&self) -> Option<u32> {
+        match self {
+            BatchProofCircuitOutput::V3(output) => output.previous_commitment_index,
+        }
+    }
+
+    /// Get the previous commitment hash
+    pub fn previous_commitment_hash(&self) -> Option<[u8; 32]> {
+        match self {
+            BatchProofCircuitOutput::V3(output) => output.previous_commitment_hash,
         }
     }
 }
