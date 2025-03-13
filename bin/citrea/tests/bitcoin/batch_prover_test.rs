@@ -858,13 +858,14 @@ impl TestCase for L1HashOutputTest {
         let l1_hash = zkp[0]
             .proof_output
             .last_l1_hash_on_bitcoin_light_client_contract
-            .clone()
-            .expect("Should exist")
-            .0;
+            .clone();
 
         let hash_from_rpc = sequencer.da.get_block_hash(start_l1_height + 100).await?;
 
-        assert_eq!(hash_from_rpc.as_raw_hash().to_byte_array(), l1_hash);
+        assert_eq!(
+            hash_from_rpc.as_raw_hash().to_byte_array().to_vec(),
+            l1_hash
+        );
 
         // part 2
         for _ in 0..26 {
@@ -904,9 +905,7 @@ impl TestCase for L1HashOutputTest {
         let prev_l1_hash = zkp_prev[0]
             .proof_output
             .last_l1_hash_on_bitcoin_light_client_contract
-            .clone()
-            .expect("Should exist")
-            .0;
+            .clone();
 
         assert_ne!(prev_l1_hash, l1_hash);
 
@@ -917,9 +916,7 @@ impl TestCase for L1HashOutputTest {
         let new_l1_hash = zkp_last[0]
             .proof_output
             .last_l1_hash_on_bitcoin_light_client_contract
-            .clone()
-            .expect("Should exist")
-            .0;
+            .clone();
 
         assert_eq!(new_l1_hash, prev_l1_hash);
 

@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use alloy_primitives::{U32, U64, U8};
+use alloy_primitives::{U32, U64};
 use block::L2BlockResponse;
 use borsh::{BorshDeserialize, BorshSerialize};
 use risc0_zkp::core::digest::Digest;
@@ -215,7 +215,7 @@ pub type ProofRpcResponse = Vec<u8>;
 
 /// Workaround to serialize [u8; 32] with rpc_hex when the hash is optinal
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct SerializableHash(#[serde(with = "utils::rpc_hex")] pub [u8; 32]);
+pub struct SerializableHash(#[serde(with = "faster_hex")] pub Vec<u8>);
 
 /// The state transition response of ledger proof data rpc
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -227,45 +227,29 @@ pub struct BatchProofOutputRpcResponse {
     /// The state of the rollup after the transition
     #[serde(with = "faster_hex")]
     pub final_state_root: Vec<u8>,
-    /// The hash of the last l2 block before the state transition
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prev_l2_block_hash: Option<SerializableHash>,
     /// The hash of the last l2 block in the state transition
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub final_l2_block_hash: Option<SerializableHash>,
+    #[serde(with = "faster_hex")]
+    pub final_l2_block_hash: Vec<u8>,
     /// State diff of L2 blocks in the processed sequencer commitments.
     #[serde(
         serialize_with = "custom_serialize_btreemap",
         deserialize_with = "custom_deserialize_btreemap"
     )]
     pub state_diff: CumulativeStateDiff,
-    /// The DA slot hash that the sequencer commitments causing this state transition were found in.
-    #[serde(skip_serializing_if = "Option::is_none")] // without 0x prefix
-    pub da_slot_hash: Option<SerializableHash>,
+    /// The last processed l2 height in the processed sequencer commitments.
+    pub last_l2_height: U64,
     /// The range of sequencer commitments in the DA slot that were processed.
     /// The range is inclusive.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sequencer_commitments_range: Option<(U32, U32)>,
-    /// Sequencer public key.
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    #[serde(with = "faster_hex")]
-    pub sequencer_public_key: Vec<u8>,
-    /// Sequencer DA public key.
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    #[serde(with = "hex::serde")] // without 0x prefix
-    pub sequencer_da_public_key: Vec<u8>,
-    /// Pre-proven commitments L2 ranges which also exist in the current L1 `da_data`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub preproven_commitments: Option<Vec<usize>>,
-    /// Last active spec id in the proof
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_active_spec_id: Option<U8>,
-    /// The last processed l2 height in the processed sequencer commitments.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_l2_height: Option<U64>,
+    pub sequencer_commitment_index_range: (U32, U32),
+    /// Hashes inside sequencer commitments that were processed.
+    pub sequencer_commitment_hashes: Vec<SerializableHash>,
     /// L1 hashes that were added to the Bitcoin light client contract
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub last_l1_hash_on_bitcoin_light_client_contract: Option<SerializableHash>,
+    #[serde(with = "faster_hex")]
+    pub last_l1_hash_on_bitcoin_light_client_contract: Vec<u8>,
+    /// The index of the previous commitment that was given as input in the batch proof
+    pub previous_commitment_index: Option<U32>,
+    /// The hash of the previous commitment that was given as input in the batch proof
+    pub previous_commitment_hash: Option<SerializableHash>,
 }
 
 /// Custom serialization for BTreeMap

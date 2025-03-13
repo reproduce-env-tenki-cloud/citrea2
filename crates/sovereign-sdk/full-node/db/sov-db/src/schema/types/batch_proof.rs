@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use alloy_primitives::U64;
+use alloy_primitives::{U32, U64};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use sov_rollup_interface::rpc::{
@@ -77,18 +77,24 @@ impl From<StoredBatchProofOutput> for BatchProofOutputRpcResponse {
                 initial_state_root: value.initial_state_root.to_vec(),
                 final_state_root: value.final_state_root.to_vec(),
                 state_diff: value.state_diff,
-                da_slot_hash: None,
-                sequencer_da_public_key: vec![],
-                sequencer_public_key: vec![],
-                sequencer_commitments_range: None,
-                preproven_commitments: None,
-                prev_l2_block_hash: None,
-                final_l2_block_hash: Some(SerializableHash(value.final_l2_block_hash)),
-                last_l2_height: Some(U64::from(value.last_l2_height)),
-                last_active_spec_id: None,
-                last_l1_hash_on_bitcoin_light_client_contract: Some(SerializableHash(
-                    value.last_l1_hash_on_bitcoin_light_client_contract,
-                )),
+                final_l2_block_hash: value.final_l2_block_hash.to_vec(),
+                last_l2_height: U64::from(value.last_l2_height),
+                last_l1_hash_on_bitcoin_light_client_contract: value
+                    .last_l1_hash_on_bitcoin_light_client_contract
+                    .to_vec(),
+                sequencer_commitment_index_range: (
+                    U32::from(value.sequencer_commitment_index_range.0),
+                    U32::from(value.sequencer_commitment_index_range.1),
+                ),
+                sequencer_commitment_hashes: value
+                    .sequencer_commitment_hashes
+                    .into_iter()
+                    .map(|x| SerializableHash(x.to_vec()))
+                    .collect(),
+                previous_commitment_index: value.previous_commitment_index.map(U32::from),
+                previous_commitment_hash: value
+                    .previous_commitment_hash
+                    .map(|x| SerializableHash(x.to_vec())),
             },
         }
     }
