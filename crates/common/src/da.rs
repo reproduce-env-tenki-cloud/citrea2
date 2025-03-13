@@ -14,7 +14,7 @@ use sov_rollup_interface::services::da::{DaService, SlotData};
 use sov_rollup_interface::zk::Proof;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::cache::L1BlockCache;
 
@@ -125,11 +125,7 @@ where
 {
     let mut sequencer_commitments = da_service
         .as_ref()
-        .extract_relevant_sequencer_commitments(l1_block, sequencer_da_pub_key)
-        .inspect_err(|e| {
-            warn!("Failed to get sequencer commitments: {e}");
-        })
-        .unwrap_or_default();
+        .extract_relevant_sequencer_commitments(l1_block, sequencer_da_pub_key);
 
     // Make sure all sequencer commitments are stored in ascending order.
     // We sort before checking ranges to prevent substraction errors.
@@ -142,7 +138,7 @@ pub async fn extract_zk_proofs<Da: DaService>(
     da_service: Arc<Da>,
     l1_block: &Da::FilteredBlock,
     prover_da_pub_key: &[u8],
-) -> anyhow::Result<Vec<Proof>> {
+) -> Vec<Proof> {
     da_service
         .extract_relevant_zk_proofs(l1_block, prover_da_pub_key)
         .await

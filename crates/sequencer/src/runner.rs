@@ -36,8 +36,8 @@ use sov_modules_api::default_signature::k256_private_key::K256PrivateKey;
 use sov_modules_api::hooks::HookL2BlockInfo;
 use sov_modules_api::transaction::Transaction;
 use sov_modules_api::{
-    EncodeCall, L2Block, PrivateKey, SlotData, Spec, SpecId, StateDiff, StateValueAccessor,
-    WorkingSet,
+    EncodeCall, L2Block, L2BlockModuleCallError, PrivateKey, SlotData, Spec, SpecId, StateDiff,
+    StateValueAccessor, WorkingSet,
 };
 use sov_modules_stf_blueprint::StfBlueprint;
 use sov_prover_storage_manager::ProverStorageManager;
@@ -45,7 +45,7 @@ use sov_rollup_interface::block::{L2Header, SignedL2Header};
 use sov_rollup_interface::da::{BlockHeaderTrait, DaSpec};
 use sov_rollup_interface::fork::ForkManager;
 use sov_rollup_interface::services::da::DaService;
-use sov_rollup_interface::stf::L2BlockResult;
+use sov_rollup_interface::stf::{L2BlockResult, StateTransitionError};
 use sov_rollup_interface::zk::StorageRootHash;
 use sov_state::storage::NativeStorage;
 use sov_state::ProverStorage;
@@ -235,45 +235,65 @@ where
                     // Decrement nonce if the transaction failed
                     nonce -= 1;
                     match e {
-                                        // Since this is the sequencer, it should never get a l2 block error or a hook error
-                                        sov_rollup_interface::stf::StateTransitionError::L2BlockError(l2_block_error) => panic!("L2 block error: {:?}", l2_block_error),
-                                        sov_rollup_interface::stf::StateTransitionError::HookError(l2_block_hook_error) => panic!("Hook error: {:?}", l2_block_hook_error),
-                                        sov_rollup_interface::stf::StateTransitionError::ModuleCallError(l2_block_module_call_error) => match l2_block_module_call_error {
-                                            sov_modules_api::L2BlockModuleCallError::EvmGasUsedExceedsBlockGasLimit {
-                                                                                        cumulative_gas,
-                                                                                        tx_gas_used: _,
-                                                                                        block_gas_limit
-                                                                                    } => {
-                                                                                       if block_gas_limit - cumulative_gas < MIN_TRANSACTION_GAS {
-                                                                                        break;
-                                                                                       } else {
-                                                                                        invalid_senders.insert(evm_tx.transaction_id.sender);
-                                                                                        working_set_to_discard = working_set.revert().to_revertable();
-                                                                                        continue;
-                                                                                       }
-                                                                                    },
-                                            sov_modules_api::L2BlockModuleCallError::EvmTxTypeNotSupported(_) => panic!("got unsupported tx type"),
-                                            sov_modules_api::L2BlockModuleCallError::EvmTransactionExecutionError => {
-                                                                                        invalid_senders.insert(evm_tx.transaction_id.sender);
-                                                                                        working_set_to_discard = working_set.revert().to_revertable();
-                                                                                        continue;
-                                                                                    },
-                                            sov_modules_api::L2BlockModuleCallError::EvmMisplacedSystemTx => panic!("tried to execute system transaction"),
-                                            sov_modules_api::L2BlockModuleCallError::EvmNotEnoughFundsForL1Fee => {
-                                                                                        l1_fee_failed_txs.push(*evm_tx.hash());
-                                                                                        invalid_senders.insert(evm_tx.transaction_id.sender);
-                                                                                        working_set_to_discard = working_set.revert().to_revertable();
-                                                                                        continue;
-                                                                                    },
-                                            sov_modules_api::L2BlockModuleCallError::EvmTxNotSerializable => panic!("Fed a non-serializable tx"),
-                                            sov_modules_api::L2BlockModuleCallError::RuleEnforcerUnauthorized => unreachable!(),
-                                            sov_modules_api::L2BlockModuleCallError::ShortHeaderProofNotFound => unreachable!(),
-                                            sov_modules_api::L2BlockModuleCallError::ShortHeaderProofVerificationError => unreachable!(),
-                                            sov_modules_api::L2BlockModuleCallError::EvmSystemTransactionPlacedAfterUserTx => panic!("System tx after user tx"),
-                                            sov_modules_api::L2BlockModuleCallError::EvmSystemTxParseError => panic!("Sequencer produced incorrectly formatted system tx"),
-                                            sov_modules_api::L2BlockModuleCallError::EvmSystemTxNotAllowedAfterFork2 => panic!("System tx not allowed after fork2"),
-                                                                                    },
-                                    }
+                        // Since this is the sequencer, it should never get a soft confirmation error or a hook error
+                        StateTransitionError::L2BlockError(l2_block_error) => {
+                            panic!("L2 block error: {:?}", l2_block_error)
+                        }
+                        StateTransitionError::HookError(soft_confirmation_hook_error) => {
+                            panic!("Hook error: {:?}", soft_confirmation_hook_error)
+                        }
+                        StateTransitionError::ModuleCallError(
+                            soft_confirmation_module_call_error,
+                        ) => match soft_confirmation_module_call_error {
+                            L2BlockModuleCallError::EvmGasUsedExceedsBlockGasLimit {
+                                cumulative_gas,
+                                tx_gas_used: _,
+                                block_gas_limit,
+                            } => {
+                                if block_gas_limit - cumulative_gas < MIN_TRANSACTION_GAS {
+                                    break;
+                                } else {
+                                    invalid_senders.insert(evm_tx.transaction_id.sender);
+                                    working_set_to_discard = working_set.revert().to_revertable();
+                                    continue;
+                                }
+                            }
+                            L2BlockModuleCallError::EvmTxTypeNotSupported(_) => {
+                                panic!("got unsupported tx type")
+                            }
+                            L2BlockModuleCallError::EvmTransactionExecutionError => {
+                                invalid_senders.insert(evm_tx.transaction_id.sender);
+                                working_set_to_discard = working_set.revert().to_revertable();
+                                continue;
+                            }
+                            L2BlockModuleCallError::EvmMisplacedSystemTx => {
+                                panic!("tried to execute system transaction")
+                            }
+                            L2BlockModuleCallError::EvmNotEnoughFundsForL1Fee => {
+                                l1_fee_failed_txs.push(*evm_tx.hash());
+                                invalid_senders.insert(evm_tx.transaction_id.sender);
+                                working_set_to_discard = working_set.revert().to_revertable();
+                                continue;
+                            }
+                            L2BlockModuleCallError::EvmTxNotSerializable => {
+                                panic!("Fed a non-serializable tx")
+                            }
+                            L2BlockModuleCallError::RuleEnforcerUnauthorized => unreachable!(),
+                            L2BlockModuleCallError::ShortHeaderProofNotFound => unreachable!(),
+                            L2BlockModuleCallError::ShortHeaderProofVerificationError => {
+                                unreachable!()
+                            }
+                            L2BlockModuleCallError::EvmSystemTransactionPlacedAfterUserTx => {
+                                panic!("System tx after user tx")
+                            }
+                            L2BlockModuleCallError::EvmSystemTxParseError => {
+                                panic!("Sequencer produced incorrectly formatted system tx")
+                            }
+                            L2BlockModuleCallError::EvmSystemTxNotAllowedAfterFork2 => {
+                                panic!("System tx not allowed after fork2")
+                            }
+                        },
+                    }
                 };
 
                 // if no errors
