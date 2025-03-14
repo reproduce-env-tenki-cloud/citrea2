@@ -60,7 +60,6 @@ pub(crate) async fn data_to_prove<'txs, Da, DB>(
     ledger: DB,
     storage_manager: &ProverStorageManager,
     sequencer_pub_key: Vec<u8>,
-    sequencer_k256_pub_key: Vec<u8>,
     sequencer_da_pub_key: Vec<u8>,
     l1_block: &<Da as DaService>::FilteredBlock,
     group_commitments: Option<GroupCommitments>,
@@ -183,7 +182,6 @@ where
             &sequencer_commitments[sequencer_commitments_range.clone()],
             &ledger,
             storage_manager,
-            &sequencer_k256_pub_key,
             &sequencer_pub_key,
         )
         .await
@@ -346,7 +344,6 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
     sequencer_commitments: &[SequencerCommitment],
     ledger_db: &DB,
     storage_manager: &ProverStorageManager,
-    sequencer_k256_pub_key: &[u8],
     sequencer_pub_key: &[u8],
 ) -> Result<CommitmentStateTransitionData<'txs>, anyhow::Error> {
     let mut committed_l2_blocks = VecDeque::with_capacity(sequencer_commitments.len());
@@ -395,7 +392,6 @@ pub(crate) async fn get_batch_proof_circuit_input_from_commitments<
         &committed_l2_blocks,
         ledger_db,
         storage_manager,
-        sequencer_k256_pub_key,
         sequencer_pub_key,
     )
     .await?;
@@ -413,7 +409,6 @@ async fn generate_cumulative_witness<'txs, Da: DaService, DB: BatchProverLedgerO
     committed_l2_blocks: &VecDeque<Vec<L2Block<'txs, Transaction>>>,
     ledger_db: &DB,
     storage_manager: &ProverStorageManager,
-    sequencer_k256_pub_key: &[u8],
     sequencer_pub_key: &[u8],
 ) -> anyhow::Result<(
     VecDeque<Vec<(Witness, Witness)>>,
@@ -458,7 +453,7 @@ async fn generate_cumulative_witness<'txs, Da: DaService, DB: BatchProverLedgerO
             let current_spec = fork_from_block_number(l2_height).spec_id;
 
             let sequencer_public_key = if current_spec >= SpecId::Fork2 {
-                sequencer_k256_pub_key
+                sequencer_pub_key
             } else {
                 sequencer_pub_key
             };
