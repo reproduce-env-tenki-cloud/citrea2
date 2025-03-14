@@ -134,6 +134,10 @@ impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServer
             SEQUENCER_METRICS.mempool_txs.increment(1);
         }
 
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        self.context.l2_force_block_tx.send(()).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(35)).await;
+
         Ok(hash)
     }
 
