@@ -136,7 +136,7 @@ impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServer
 
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         self.context.l2_force_block_tx.send(()).unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(35)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(75)).await;
 
         Ok(hash)
     }
