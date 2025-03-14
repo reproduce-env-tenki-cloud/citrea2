@@ -1,8 +1,8 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 use super::HexTx;
 use crate::block::{L2Block, L2Header, SignedL2Header};
+use crate::transaction::Transaction;
 
 /// L2 Header response
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -40,10 +40,7 @@ pub struct L2BlockResponse {
     pub txs: Option<Vec<HexTx>>,
 }
 
-impl<'txs, Tx> TryFrom<L2BlockResponse> for L2Block<'txs, Tx>
-where
-    Tx: Clone + BorshDeserialize + BorshSerialize,
-{
+impl TryFrom<L2BlockResponse> for L2Block {
     type Error = borsh::io::Error;
     fn try_from(val: L2BlockResponse) -> Result<Self, Self::Error> {
         let parsed_txs = val
@@ -52,7 +49,7 @@ where
             .flatten()
             .map(|tx| {
                 let body = &tx.tx;
-                borsh::from_slice::<Tx>(body)
+                borsh::from_slice::<Transaction>(body)
             })
             .collect::<Result<Vec<_>, Self::Error>>()?;
 
@@ -66,7 +63,7 @@ where
         );
         let signed_header = SignedL2Header::new(header, val.header.hash, val.header.signature);
 
-        let res = L2Block::new(signed_header, parsed_txs.into());
+        let res = L2Block::new(signed_header, parsed_txs);
         Ok(res)
     }
 }

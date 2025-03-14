@@ -32,9 +32,8 @@ use reth_transaction_pool::{
 use sov_accounts::Accounts;
 use sov_accounts::Response::{AccountEmpty, AccountExists};
 use sov_db::ledger_db::SequencerLedgerOps;
-use sov_modules_api::default_signature::k256_private_key::K256PrivateKey;
+use sov_keys::default_signature::k256_private_key::K256PrivateKey;
 use sov_modules_api::hooks::HookL2BlockInfo;
-use sov_modules_api::transaction::Transaction;
 use sov_modules_api::{
     EncodeCall, L2Block, L2BlockModuleCallError, PrivateKey, SlotData, Spec, SpecId, StateDiff,
     StateValueAccessor, WorkingSet,
@@ -46,6 +45,7 @@ use sov_rollup_interface::da::{BlockHeaderTrait, DaSpec};
 use sov_rollup_interface::fork::ForkManager;
 use sov_rollup_interface::services::da::DaService;
 use sov_rollup_interface::stf::{L2BlockResult, StateTransitionError};
+use sov_rollup_interface::transaction::Transaction;
 use sov_rollup_interface::zk::StorageRootHash;
 use sov_state::storage::NativeStorage;
 use sov_state::ProverStorage;
@@ -475,7 +475,7 @@ where
 
         let signed_header = self.sign_l2_block_header(header)?;
         // TODO: cleanup l2 block structure once we decide how to pull data from the running sequencer in the existing form
-        let l2_block = L2Block::new(signed_header, txs.into());
+        let l2_block = L2Block::new(signed_header, txs);
 
         info!(
             "Saving block #{}, Tx count: #{}",
@@ -498,7 +498,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn save_l2_block(
         &mut self,
-        l2_block: L2Block<Transaction>,
+        l2_block: L2Block,
         l2_block_result: L2BlockResult<ProverStorage, sov_state::Witness, sov_state::ReadWriteLog>,
         tx_hashes: Vec<[u8; 32]>,
         blobs: Vec<Vec<u8>>,

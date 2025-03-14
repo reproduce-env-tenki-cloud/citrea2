@@ -1,11 +1,11 @@
 //! Defines traits and types used by the rollup to verify claims about the
 //! l2 block
 
-use std::borrow::Cow;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use digest::{Digest, Output};
 use serde::{Deserialize, Serialize};
+
+use super::transaction::Transaction;
 
 /// L2 block header
 #[derive(PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone, Debug)]
@@ -53,7 +53,7 @@ impl L2Header {
 }
 
 /// Signed L2 header
-#[derive(PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone, Debug)]
+#[derive(PartialEq, Eq, BorshDeserialize, BorshSerialize, Clone, Debug)]
 pub struct SignedL2Header {
     /// L2 header
     pub inner: L2Header,
@@ -75,19 +75,17 @@ impl SignedL2Header {
 }
 
 /// Signed L2 block
-/// `blobs`, `deposit_data`, `da_slot_height` and `da_slot_hash` are kept for compatibility reason
-/// and hash checking against PreFork2 *L2Blocks structs.
-#[derive(PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone, Debug)]
-pub struct L2Block<'txs, Tx: Clone + BorshSerialize> {
+#[derive(PartialEq, Eq, BorshDeserialize, BorshSerialize, Clone, Debug)]
+pub struct L2Block {
     /// Header
     pub header: SignedL2Header,
     /// Txs of signed batch
-    pub txs: Cow<'txs, [Tx]>,
+    pub txs: Vec<Transaction>,
 }
 
-impl<'txs, Tx: Clone + BorshSerialize> L2Block<'txs, Tx> {
+impl L2Block {
     /// New L2Block from headers and txs
-    pub fn new(header: SignedL2Header, txs: Cow<'txs, [Tx]>) -> Self {
+    pub fn new(header: SignedL2Header, txs: Vec<Transaction>) -> Self {
         Self { header, txs }
     }
 

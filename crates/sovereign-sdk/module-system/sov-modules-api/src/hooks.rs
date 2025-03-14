@@ -6,9 +6,8 @@ use sov_rollup_interface::da::DaSpec;
 use sov_rollup_interface::spec::SpecId;
 pub use sov_rollup_interface::stf::L2BlockError;
 use sov_rollup_interface::stf::L2BlockHookError;
+use sov_rollup_interface::transaction::Transaction;
 use sov_rollup_interface::zk::StorageRootHash;
-
-use crate::transaction::Transaction;
 
 /// Hooks that execute within the `StateTransitionFunction::apply_blob` function for each processed transaction.
 ///
@@ -111,8 +110,8 @@ impl HookL2BlockInfo {
 }
 
 impl HookL2BlockInfo {
-    pub fn new<Tx: Clone + BorshSerialize>(
-        l2_block: &L2Block<Tx>,
+    pub fn new(
+        l2_block: &L2Block,
         pre_state_root: StorageRootHash,
         current_spec: SpecId,
         sequencer_pub_key: Vec<u8>,
