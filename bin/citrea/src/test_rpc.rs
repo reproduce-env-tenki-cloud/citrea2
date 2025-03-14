@@ -132,13 +132,11 @@ fn regular_test_helper(payload: serde_json::Value, expected: &serde_json::Value)
         header1,
         ::sha2::Sha256::digest(b"batch_receipt").into(),
         vec![],
-        vec![],
     );
 
     let signed_header2 = SignedL2Header::new(
         header2,
         ::sha2::Sha256::digest(b"batch_receipt2").into(),
-        vec![],
         vec![],
     );
 
