@@ -122,12 +122,6 @@ pub trait SharedLedgerOps {
 
     /// Put a pending commitment l2 range
     fn put_executed_migration(&self, migration: (String, u64)) -> anyhow::Result<()>;
-
-    /// Returns count of pending commitments
-    fn get_pending_commitment_count(&self) -> anyhow::Result<u64>;
-
-    /// Clears pending commitments table
-    fn clear_pending_commitments(&self) -> anyhow::Result<()>;
 }
 
 /// Node ledger operations

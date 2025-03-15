@@ -74,7 +74,6 @@ async fn main() -> anyhow::Result<()> {
                 &GenesisPaths::from_dir(&args.genesis_paths),
                 args.rollup_config_path,
                 node_type,
-                args.clear_pending_commitments,
             )
             .await?;
         }
@@ -84,7 +83,6 @@ async fn main() -> anyhow::Result<()> {
                 &GenesisPaths::from_dir(&args.genesis_paths),
                 args.rollup_config_path,
                 node_type,
-                args.clear_pending_commitments,
             )
             .await?;
         }
@@ -102,7 +100,6 @@ async fn start_rollup<S, DaC>(
     >>::GenesisPaths,
     rollup_config_path: Option<String>,
     node_type: NodeType,
-    clear_pending_commitments: bool,
 ) -> Result<(), anyhow::Error>
 where
     DaC: serde::de::DeserializeOwned + DebugTrait + Clone + FromEnv + Send + Sync + 'static,
@@ -193,15 +190,6 @@ where
         storage_manager,
         prover_storage,
     } = rollup_blueprint.setup_storage(&rollup_config, &rocksdb_config, &backup_manager)?;
-
-    if clear_pending_commitments {
-        let pending_commitment_count = ledger_db.get_pending_commitment_count()?;
-        info!(
-            "Clearing pending commitments; current count: {}",
-            pending_commitment_count
-        );
-        ledger_db.clear_pending_commitments()?;
-    }
 
     let Dependencies {
         da_service,

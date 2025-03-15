@@ -45,10 +45,6 @@ pub(crate) struct Args {
     #[arg(long, conflicts_with_all = ["batch_prover", "light_client_prover"])]
     pub(crate) sequencer: Option<Option<String>>,
 
-    /// If set, clears the pending commitments.
-    #[arg(long, default_value = "false", requires = "sequencer", conflicts_with_all = ["batch_prover", "light_client_prover"])]
-    pub(crate) clear_pending_commitments: bool,
-
     /// The option to run the node in batch prover mode, if a string is provided, it will be used as the path to the batch prover config, otherwise the environment variables will be used.
     #[arg(long, conflicts_with_all = ["sequencer", "light_client_prover"])]
     pub(crate) batch_prover: Option<Option<String>>,
