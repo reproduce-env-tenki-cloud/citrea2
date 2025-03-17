@@ -1,6 +1,6 @@
 [package]
 name = "citrea"
-version = { workspace = true }
+version = "0.6.9"
 authors = { workspace = true }
 default-run = "citrea"
 edition = { workspace = true }
