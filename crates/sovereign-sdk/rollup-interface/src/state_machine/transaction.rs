@@ -21,7 +21,7 @@ pub enum TxVersion {
 #[derive(Debug, PartialEq, Eq, Clone, borsh::BorshDeserialize, borsh::BorshSerialize)]
 pub struct TransactionV1 {
     signature: Vec<u8>,
-    pub_key: Vec<u8>,
+    pub_key: K256PublicKey,
     runtime_msg: Vec<u8>,
     chain_id: u64,
     nonce: u64,
@@ -29,19 +29,18 @@ pub struct TransactionV1 {
 
 impl TransactionV1 {
     #[cfg(feature = "native")]
-    fn new(priv_key: &[u8], runtime_msg: Vec<u8>, chain_id: u64, nonce: u64) -> Self {
+    fn new(priv_key: &K256PrivateKey, runtime_msg: Vec<u8>, chain_id: u64, nonce: u64) -> Self {
         let mut message = Vec::with_capacity(runtime_msg.len() + EXTEND_MESSAGE_LEN);
         message.extend_from_slice(&runtime_msg);
         message.extend_from_slice(&chain_id.to_le_bytes());
         message.extend_from_slice(&nonce.to_le_bytes());
 
-        let priv_key = K256PrivateKey::try_from(priv_key).unwrap();
         let pub_key = priv_key.pub_key();
         let signature = priv_key.sign(&message);
 
         Self {
             signature: borsh::to_vec(&signature).unwrap(),
-            pub_key: borsh::to_vec(&pub_key).unwrap(),
+            pub_key,
             runtime_msg,
             chain_id,
             nonce,
@@ -50,14 +49,13 @@ impl TransactionV1 {
 
     fn verify(&self) -> anyhow::Result<()> {
         let signature = K256Signature::try_from_slice(&self.signature)?;
-        let pub_key = K256PublicKey::try_from(self.pub_key.as_slice())?;
         let mut serialized_tx = Vec::with_capacity(self.runtime_msg.len() + EXTEND_MESSAGE_LEN);
 
         serialized_tx.extend_from_slice(&self.runtime_msg);
         serialized_tx.extend_from_slice(&self.chain_id.to_le_bytes());
         serialized_tx.extend_from_slice(&self.nonce.to_le_bytes());
 
-        signature.verify(&pub_key, &serialized_tx)?;
+        signature.verify(&self.pub_key, &serialized_tx)?;
         Ok(())
     }
 }
@@ -101,9 +99,9 @@ impl Transaction {
         }
     }
 
-    pub fn pub_key(&self) -> &[u8] {
+    pub fn pub_key(&self) -> &K256PublicKey {
         match self {
-            Self::V1(tx) => tx.pub_key.as_slice(),
+            Self::V1(tx) => &tx.pub_key,
         }
     }
 
@@ -130,7 +128,12 @@ impl Transaction {
     }
 
     #[cfg(feature = "native")]
-    pub fn new_signed_tx(priv_key: &[u8], runtime_msg: Vec<u8>, chain_id: u64, nonce: u64) -> Self {
+    pub fn new_signed_tx(
+        priv_key: &K256PrivateKey,
+        runtime_msg: Vec<u8>,
+        chain_id: u64,
+        nonce: u64,
+    ) -> Self {
         Self::V1(TransactionV1::new(priv_key, runtime_msg, chain_id, nonce))
     }
 
