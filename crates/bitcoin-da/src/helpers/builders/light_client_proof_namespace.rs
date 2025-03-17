@@ -38,7 +38,7 @@ pub(crate) enum RawLightClientData {
 }
 
 /// This is a list of light client tx we need to send to DA
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub(crate) enum LightClientTxs {
     Complete {
         commit: Transaction, // unsigned

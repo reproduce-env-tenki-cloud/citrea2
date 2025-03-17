@@ -28,7 +28,7 @@ use crate::spec::utxo::UTXO;
 use crate::{REVEAL_OUTPUT_AMOUNT, REVEAL_OUTPUT_THRESHOLD};
 
 /// This is a list of batch proof tx we need to send to DA (only SequencerCommitment for now)
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub(crate) struct BatchProvingTxs {
     pub(crate) commit: Transaction, // unsigned
     pub(crate) reveal: TxWithId,
