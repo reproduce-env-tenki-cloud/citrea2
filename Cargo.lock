@@ -1955,7 +1955,6 @@ dependencies = [
  "risc0-zkvm",
  "rs_merkle",
  "rustc_version_runtime",
- "secp256k1",
  "serde",
  "serde_json",
  "sha2",

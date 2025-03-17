@@ -60,7 +60,6 @@ metrics-util = { workspace = true }
 reth-primitives = { workspace = true }
 reth-transaction-pool = { workspace = true }
 risc0-binfmt = { workspace = true }
-secp256k1 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true }
