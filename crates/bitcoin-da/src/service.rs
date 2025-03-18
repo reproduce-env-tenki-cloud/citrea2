@@ -1140,7 +1140,7 @@ impl DaService for BitcoinService {
         let witness_root = match commitment_idx {
             Some(_idx) => calculate_witness_root(&txs),
             // If block is not a segwit block, then the witness root should be the header merkle root
-            None => header.merkle_root.as_raw_hash().to_byte_array(),
+            None => header.merkle_root.to_byte_array(),
         };
 
         Ok(BitcoinBlock {
