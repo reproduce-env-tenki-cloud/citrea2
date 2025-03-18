@@ -49,7 +49,7 @@ use crate::spec::short_proof::BitcoinHeaderShortProof;
 use crate::spec::transaction::TransactionWrapper;
 use crate::spec::utxo::UTXO;
 use crate::spec::{BitcoinSpec, RollupParams};
-use crate::verifier::BitcoinVerifier;
+use crate::verifier::{BitcoinVerifier, WITNESS_COMMITMENT_PREFIX};
 use crate::REVEAL_OUTPUT_AMOUNT;
 
 #[cfg(feature = "testing")]
@@ -1128,7 +1128,21 @@ impl DaService for BitcoinService {
             })
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        let witness_root = calculate_witness_root(&txs);
+        let coinbase_tx = block.tx[0].clone();
+        let commitment_idx = coinbase_tx.vout.iter().rev().position(|output| {
+            output
+                .script_pub_key
+                .script()
+                .unwrap()
+                .as_bytes()
+                .starts_with(WITNESS_COMMITMENT_PREFIX)
+        });
+
+        let witness_root = match commitment_idx {
+            Some(idx) => calculate_witness_root(&txs),
+            // If block is not a segwit block, then the witness root should be the header merkle root
+            None => header.merkle_root(),
+        };
 
         Ok(BitcoinBlock {
             header: HeaderWrapper::new(header, txs.len() as u32, block.height, witness_root),
