@@ -1128,8 +1128,7 @@ impl DaService for BitcoinService {
             })
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        let coinbase_tx = block.tx[0].clone();
-        let commitment_idx = coinbase_tx.vout.iter().rev().position(|output| {
+        let commitment_idx = block.tx[0].vout.iter().rev().position(|output| {
             output
                 .script_pub_key
                 .script()
@@ -1139,9 +1138,9 @@ impl DaService for BitcoinService {
         });
 
         let witness_root = match commitment_idx {
-            Some(idx) => calculate_witness_root(&txs),
+            Some(_idx) => calculate_witness_root(&txs),
             // If block is not a segwit block, then the witness root should be the header merkle root
-            None => header.merkle_root(),
+            None => header.merkle_root.as_raw_hash().to_byte_array(),
         };
 
         Ok(BitcoinBlock {
