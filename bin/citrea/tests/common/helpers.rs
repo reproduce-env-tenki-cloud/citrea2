@@ -8,7 +8,7 @@ use borsh::BorshDeserialize;
 use citrea::{CitreaRollupBlueprint, Dependencies, MockDemoRollup, Storage};
 use citrea_common::backup::BackupManager;
 use citrea_common::rpc::server::start_rpc_server;
-use citrea_common::tasks::manager::TaskManager;
+use citrea_common::tasks::manager::{TaskManager, TaskType};
 use citrea_common::{
     BatchProverConfig, FullNodeConfig, LightClientProverConfig, RollupPublicKeys, RpcConfig,
     RunnerConfig, SequencerConfig, StorageConfig,
@@ -231,7 +231,7 @@ pub async fn start_rollup(
             Some(rpc_reporting_channel),
         );
 
-        task_manager.spawn(|cancellation_token| async move {
+        task_manager.spawn(TaskType::Primary, |cancellation_token| async move {
             sequencer
                 .run(cancellation_token)
                 .instrument(span)
@@ -265,7 +265,7 @@ pub async fn start_rollup(
         );
 
         let handler_span = span.clone();
-        task_manager.spawn(|cancellation_token| async move {
+        task_manager.spawn(TaskType::Secondary, |cancellation_token| async move {
             let start_l1_height = rollup_config
                 .runner
                 .map_or(1, |runner| runner.scan_l1_start_height);
@@ -275,7 +275,7 @@ pub async fn start_rollup(
                 .await
         });
 
-        task_manager.spawn(|cancellation_token| async move {
+        task_manager.spawn(TaskType::Primary, |cancellation_token| async move {
             prover
                 .run(cancellation_token)
                 .instrument(span)
@@ -319,14 +319,14 @@ pub async fn start_rollup(
         );
 
         let handler_span = span.clone();
-        task_manager.spawn(|cancellation_token| async move {
+        task_manager.spawn(TaskType::Secondary, |cancellation_token| async move {
             l1_block_handler
                 .run(starting_block, cancellation_token)
                 .instrument(handler_span.clone())
                 .await
         });
 
-        task_manager.spawn(|cancellation_token| async move {
+        task_manager.spawn(TaskType::Primary, |cancellation_token| async move {
             rollup
                 .run(cancellation_token)
                 .instrument(span)
@@ -358,7 +358,7 @@ pub async fn start_rollup(
         );
 
         let handler_span = span.clone();
-        task_manager.spawn(|cancellation_token| async move {
+        task_manager.spawn(TaskType::Secondary, |cancellation_token| async move {
             let start_l1_height = rollup_config
                 .runner
                 .map_or(1, |runner| runner.scan_l1_start_height);
@@ -370,14 +370,14 @@ pub async fn start_rollup(
 
         // Spawn pruner if configs are set
         if let Some(pruner) = pruner {
-            task_manager.spawn(|cancellation_token| async move {
+            task_manager.spawn(TaskType::Secondary, |cancellation_token| async move {
                 pruner
                     .run(StorageNodeType::FullNode, cancellation_token)
                     .await
             });
         }
 
-        task_manager.spawn(|cancellation_token| async move {
+        task_manager.spawn(TaskType::Primary, |cancellation_token| async move {
             rollup
                 .run(cancellation_token)
                 .instrument(span)

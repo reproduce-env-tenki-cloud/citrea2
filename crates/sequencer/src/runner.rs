@@ -658,6 +658,8 @@ where
                     if missed_da_blocks_count > 0 {
                         if let Err(e) = self.process_missed_da_blocks(missed_da_blocks_count, &mut last_used_l1_height, l1_fee_rate).await {
                             error!("Sequencer error: {}", e);
+                            // Cancel child tasks
+                            cancellation_token.cancel();
                             // we never want to continue if we have missed blocks
                             return Err(e);
                         }
@@ -688,6 +690,8 @@ where
                     if missed_da_blocks_count > 0 {
                         if let Err(e) = self.process_missed_da_blocks(missed_da_blocks_count, &mut last_used_l1_height, l1_fee_rate).await {
                             error!("Sequencer error: {}", e);
+                            // Cancel child tasks
+                            cancellation_token.cancel();
                             // we never want to continue if we have missed blocks
                             return Err(e);
                         }
