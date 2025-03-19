@@ -576,7 +576,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
         };
 
         let mut block_env = match block_number {
-            BlockNumberOrTag::Pending => get_pending_block_env(self, working_set, &fork_fn),
+            BlockNumberOrTag::Pending => get_pending_block_env(self, working_set),
             _ => {
                 let block = self
                     .get_sealed_block_by_number(Some(block_number), working_set)?
@@ -677,10 +677,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
                     .last(&mut working_set.accessory_state())
                     .expect("Head block must be set")
                     .l1_fee_rate;
-                (
-                    l1_fee_rate,
-                    get_pending_block_env(self, working_set, &fork_fn),
-                )
+                (l1_fee_rate, get_pending_block_env(self, working_set))
             }
             _ => {
                 let block = self
@@ -794,10 +791,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
                     .last(&mut working_set.accessory_state())
                     .expect("Head block must be set")
                     .l1_fee_rate;
-                (
-                    l1_fee_rate,
-                    get_pending_block_env(self, working_set, &fork_fn),
-                )
+                (l1_fee_rate, get_pending_block_env(self, working_set))
             }
             _ => {
                 let block = self
@@ -1294,7 +1288,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
                 opts.clone().unwrap_or_default(),
                 cfg_env.clone(),
                 block_env.clone(),
-                create_tx_env(&tx, cfg_env.handler_cfg.spec_id),
+                create_tx_env(&tx),
                 tx.hash(),
                 &mut evm_db,
                 l1_fee_rate,
@@ -1920,7 +1914,6 @@ fn gas_limit_to_return(block_gas_limit: U64, estimated_tx_expenses: EstimatedTxE
 fn get_pending_block_env<C: sov_modules_api::Context>(
     evm: &Evm<C>,
     working_set: &mut WorkingSet<C::Storage>,
-    _fork_fn: &impl Fn(u64) -> Fork,
 ) -> BlockEnv {
     let latest_block = evm
         .blocks

@@ -45,7 +45,7 @@ where
         tx: &TransactionSignedEcRecovered,
     ) -> Result<ResultAndState, EVMError<DB::Error>> {
         self.evm.context.external.set_current_tx_hash(tx.hash());
-        *self.evm.tx_mut() = create_tx_env(tx, self.evm.spec_id());
+        *self.evm.tx_mut() = create_tx_env(tx);
         self.evm.transact()
     }
 
@@ -97,7 +97,7 @@ pub(crate) fn execute_multiple_tx<C: sov_modules_api::Context, EXT: CitreaExtern
                 return Err(L2BlockModuleCallError::EvmSystemTransactionPlacedAfterUserTx);
             }
 
-            post_fork2_system_tx_verifier(evm.evm.db_mut(), tx, l2_height)?;
+            verify_system_tx(evm.evm.db_mut(), tx, l2_height)?;
         } else {
             should_be_end_of_sys_txs = true;
         }
@@ -143,7 +143,7 @@ pub(crate) fn execute_multiple_tx<C: sov_modules_api::Context, EXT: CitreaExtern
     Ok(tx_results)
 }
 
-fn post_fork2_system_tx_verifier<C: sov_modules_api::Context>(
+fn verify_system_tx<C: sov_modules_api::Context>(
     db: &mut EvmDb<C>,
     tx: &TransactionSignedEcRecovered,
     l2_height: u64,

@@ -142,7 +142,7 @@ where
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn dry_run_transactions_post_fork2(
+    async fn dry_run_transactions(
         &mut self,
         mut transactions: Box<
             dyn BestTransactions<Item = Arc<ValidPoolTransaction<EthPooledTransaction>>>,
@@ -338,7 +338,7 @@ where
                 // then there is no need to pass da data to the sequencer
                 da_blocks.clear();
             }
-            self.produce_l2_block_post_fork2(da_blocks, l1_fee_rate, l2_height, last_used_l1_height)
+            self.produce_l2_block_inner(da_blocks, l1_fee_rate, l2_height, last_used_l1_height)
                 .await
         };
 
@@ -353,7 +353,7 @@ where
     }
 
     /// Post fork2 block production
-    async fn produce_l2_block_post_fork2(
+    async fn produce_l2_block_inner(
         &mut self,
         da_blocks: Vec<Da::FilteredBlock>,
         l1_fee_rate: u128,
@@ -394,7 +394,7 @@ where
         // all transactions that would fit into the current block and the list of transactions
         // which do not have enough balance to pay for the L1 fee.
         let (txs_to_run, l1_fee_failed_txs) = self
-            .dry_run_transactions_post_fork2(
+            .dry_run_transactions(
                 evm_txs,
                 &pub_key,
                 prestate.clone(),
