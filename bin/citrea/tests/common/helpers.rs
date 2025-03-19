@@ -179,12 +179,14 @@ pub async fn start_rollup(
         }
     }
 
+    let (l2_block_tx, l2_block_rx) = l2_block_channel;
+
     let sequencer_client_url = rollup_config
         .runner
         .clone()
         .map(|runner| runner.sequencer_client_url);
     let l2_block_rx = if light_client_prover_config.is_none() {
-        l2_block_channel.1
+        l2_block_rx
     } else {
         None
     };
@@ -218,7 +220,7 @@ pub async fn start_rollup(
             da_service,
             ledger_db,
             storage_manager,
-            l2_block_channel.0,
+            l2_block_tx,
             rpc_module,
             backup_manager,
         )
@@ -249,7 +251,7 @@ pub async fn start_rollup(
             da_service,
             ledger_db.clone(),
             storage_manager,
-            l2_block_channel.0,
+            l2_block_tx,
             rpc_module,
             backup_manager,
         )
@@ -343,7 +345,7 @@ pub async fn start_rollup(
             da_service,
             ledger_db.clone(),
             storage_manager,
-            l2_block_channel.0,
+            l2_block_tx,
             backup_manager,
         )
         .instrument(span.clone())

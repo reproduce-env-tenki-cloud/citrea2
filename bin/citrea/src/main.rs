@@ -200,14 +200,14 @@ where
         )
         .await?;
 
+    let (l2_block_tx, l2_block_rx) = l2_block_channel;
+
     let sequencer_client_url = rollup_config
         .runner
         .clone()
         .map(|runner| runner.sequencer_client_url);
     let l2_block_rx = match node_type {
-        NodeType::Sequencer(_) | NodeType::BatchProver(_) | NodeType::FullNode => {
-            l2_block_channel.1
-        }
+        NodeType::Sequencer(_) | NodeType::BatchProver(_) | NodeType::FullNode => l2_block_rx,
         _ => None,
     };
 
@@ -239,7 +239,7 @@ where
                     da_service,
                     ledger_db,
                     storage_manager,
-                    l2_block_channel.0,
+                    l2_block_tx,
                     rpc_module,
                     backup_manager,
                 )
@@ -268,7 +268,7 @@ where
                     da_service,
                     ledger_db.clone(),
                     storage_manager,
-                    l2_block_channel.0,
+                    l2_block_tx,
                     rpc_module,
                     backup_manager,
                 )
@@ -357,7 +357,7 @@ where
                     da_service,
                     ledger_db.clone(),
                     storage_manager,
-                    l2_block_channel.0,
+                    l2_block_tx,
                     backup_manager,
                 )
                 .await
