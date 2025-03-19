@@ -178,7 +178,7 @@ fn test_cancun_transient_storage_activation() {
     l2_height += 1;
 
     let receipts: Vec<_> = evm
-        .receipts_rlp
+        .receipts
         .iter(&mut working_set.accessory_state())
         .collect();
 
@@ -202,7 +202,7 @@ fn test_cancun_transient_storage_activation() {
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     let receipts: Vec<_> = evm
-        .receipts_rlp
+        .receipts
         .iter(&mut working_set.accessory_state())
         .collect();
 
@@ -268,7 +268,7 @@ fn test_cancun_mcopy_activation() {
     // l2_height += 1;
 
     let receipts: Vec<_> = evm
-        .receipts_rlp
+        .receipts
         .iter(&mut working_set.accessory_state())
         .collect();
 
@@ -429,7 +429,7 @@ fn test_blob_base_fee_should_return_1() {
     // l2_height += 1;
 
     let receipts: Vec<_> = evm
-        .receipts_rlp
+        .receipts
         .iter(&mut working_set.accessory_state())
         .collect();
 
@@ -532,7 +532,7 @@ fn test_kzg_point_eval_should_revert() {
 
     // expect this call to fail because we do not have the kzg feature of revm enabled on fork1
     let receipts: Vec<_> = evm
-        .receipts_rlp
+        .receipts
         .iter(&mut working_set.accessory_state())
         .collect();
 
@@ -597,7 +597,7 @@ fn test_p256_verify() {
 
     // expect this call to success because we enabled the p256 feature of revm enabled on fork2
     let receipts: Vec<_> = evm
-        .receipts_rlp
+        .receipts
         .iter(&mut working_set.accessory_state())
         .collect();
 

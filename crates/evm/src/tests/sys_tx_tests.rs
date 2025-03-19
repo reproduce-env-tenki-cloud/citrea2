@@ -172,7 +172,7 @@ fn test_sys_bitcoin_light_client() {
     evm.finalize_hook(&[99u8; 32], &mut working_set.accessory_state());
 
     assert_eq!(
-        evm.receipts_rlp
+        evm.receipts
             .iter(&mut working_set.accessory_state())
             .collect::<Vec<_>>(),
         [
@@ -331,7 +331,7 @@ fn test_sys_bitcoin_light_client() {
     assert_eq!(system_account.nonce, 4);
 
     let receipts: Vec<_> = evm
-        .receipts_rlp
+        .receipts
         .iter(&mut working_set.accessory_state())
         .collect();
     assert_eq!(receipts.len(), 5); // 3 from first L2 block + 2 from second L2 block

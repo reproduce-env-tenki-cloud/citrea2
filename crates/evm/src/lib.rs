@@ -139,7 +139,7 @@ pub struct Evm<C: sov_modules_api::Context> {
 
     #[cfg(feature = "native")]
     #[state]
-    pub(crate) blocks_rlp: sov_modules_api::AccessoryStateVec<SealedBlock, RlpCodec>,
+    pub(crate) blocks: sov_modules_api::AccessoryStateVec<SealedBlock, RlpCodec>,
 
     /// Used only by the RPC: block_hash => block_number mapping,
     #[cfg(feature = "native")]
@@ -148,7 +148,7 @@ pub struct Evm<C: sov_modules_api::Context> {
 
     #[cfg(feature = "native")]
     #[state]
-    pub(crate) transactions_rlp:
+    pub(crate) transactions:
         sov_modules_api::AccessoryStateVec<TransactionSignedAndRecovered, RlpCodec>,
 
     /// Used only by the RPC: transaction_hash => transaction_index mapping.
@@ -158,7 +158,7 @@ pub struct Evm<C: sov_modules_api::Context> {
 
     #[cfg(feature = "native")]
     #[state]
-    pub(crate) receipts_rlp: sov_modules_api::AccessoryStateVec<Receipt, RlpCodec>,
+    pub(crate) receipts: sov_modules_api::AccessoryStateVec<Receipt, RlpCodec>,
 }
 
 impl<C: sov_modules_api::Context> sov_modules_api::Module for Evm<C> {
