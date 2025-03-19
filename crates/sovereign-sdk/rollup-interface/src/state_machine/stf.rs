@@ -143,8 +143,6 @@ pub enum L2BlockModuleCallError {
     EvmSystemTransactionPlacedAfterUserTx,
     /// System tx failed to parse
     EvmSystemTxParseError,
-    /// System tx is deprecated after fork2
-    EvmSystemTxNotAllowedAfterFork2,
 }
 
 #[derive(Debug, PartialEq)]
@@ -261,9 +259,6 @@ impl std::fmt::Display for L2BlockModuleCallError {
             }
             L2BlockModuleCallError::EvmSystemTxParseError => {
                 write!(f, "EVM system transaction parse error")
-            }
-            L2BlockModuleCallError::EvmSystemTxNotAllowedAfterFork2 => {
-                write!(f, "EVM system transaction not allowed after fork2")
             }
         }
     }

@@ -287,9 +287,6 @@ where
                             L2BlockModuleCallError::EvmSystemTxParseError => {
                                 panic!("Sequencer produced incorrectly formatted system tx")
                             }
-                            L2BlockModuleCallError::EvmSystemTxNotAllowedAfterFork2 => {
-                                panic!("System tx not allowed after fork2")
-                            }
                         },
                     }
                 };
