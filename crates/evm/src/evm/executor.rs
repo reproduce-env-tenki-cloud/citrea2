@@ -153,7 +153,7 @@ fn verify_system_tx<C: sov_modules_api::Context>(
     let function_selector: [u8; 4] = tx
         .input()
         .get(0..4)
-        .ok_or_else(|| L2BlockModuleCallError::EvmSystemTxParseError)?
+        .ok_or(L2BlockModuleCallError::EvmSystemTxParseError)?
         .try_into()
         .map_err(|_| L2BlockModuleCallError::EvmSystemTxParseError)?;
 
@@ -161,7 +161,7 @@ fn verify_system_tx<C: sov_modules_api::Context>(
         let l1_block_hash: [u8; 32] = tx
             .input()
             .get(4..36)
-            .ok_or_else(|| L2BlockModuleCallError::EvmSystemTxParseError)?
+            .ok_or(L2BlockModuleCallError::EvmSystemTxParseError)?
             .try_into()
             .map_err(|_| L2BlockModuleCallError::EvmSystemTxParseError)?;
         let shp_provider = SHORT_HEADER_PROOF_PROVIDER
@@ -170,10 +170,15 @@ fn verify_system_tx<C: sov_modules_api::Context>(
         let txs_commitment: [u8; 32] = tx
             .input()
             .get(36..68)
-            .ok_or_else(|| L2BlockModuleCallError::EvmSystemTxParseError)?
+            .ok_or(L2BlockModuleCallError::EvmSystemTxParseError)?
             .try_into()
             .map_err(|_| L2BlockModuleCallError::EvmSystemTxParseError)?;
-        let coinbase_depth: u8 = U256::from_be_slice(&tx.input()[68..100]).to::<u8>();
+        let coinbase_depth: u8 = U256::from_be_slice(
+            &tx.input()
+                .get(68..100)
+                .ok_or(L2BlockModuleCallError::EvmSystemTxParseError)?,
+        )
+        .to::<u8>();
 
         let (last_l1_height, prev_hash) =
             get_last_l1_height_and_hash_in_light_client::<C>(db.evm, db.working_set);
