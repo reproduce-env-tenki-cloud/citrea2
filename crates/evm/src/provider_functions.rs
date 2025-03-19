@@ -66,7 +66,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
     }
 
     /// Set the storage value for the given (account, key)
-    pub(crate) fn storage_set(
+    pub fn storage_set(
         &self,
         account: &Address,
         key: &U256,
