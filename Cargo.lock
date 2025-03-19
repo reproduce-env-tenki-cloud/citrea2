@@ -5554,7 +5554,6 @@ dependencies = [
  "sov-mock-da",
  "sov-mock-zkvm",
  "sov-rollup-interface",
- "sov-state",
  "tempfile",
  "tokio",
  "tracing",
@@ -8185,7 +8184,6 @@ name = "sov-keys"
 version = "0.6.0"
 dependencies = [
  "anyhow",
- "bincode",
  "borsh",
  "derive_more",
  "digest 0.10.7",
@@ -8350,7 +8348,6 @@ dependencies = [
  "borsh",
  "citrea-primitives",
  "hex",
- "itertools 0.13.0",
  "jmt",
  "jsonrpsee",
  "rs_merkle",
