@@ -491,7 +491,7 @@ impl TestCase for ParallelProvingTest {
 
     fn sequencer_config() -> SequencerConfig {
         SequencerConfig {
-            min_l2_blocks_per_commitment: 98,
+            min_l2_blocks_per_commitment: 100,
             mempool_conf: SequencerMempoolConfig {
                 max_account_slots: 1000,
                 ..Default::default()
