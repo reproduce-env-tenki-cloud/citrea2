@@ -81,7 +81,7 @@ fn end_l2_block_hook_sets_head() {
         .push(create_pending_transaction(2, 1));
 
     evm.end_l2_block_hook(&l2_block_info, &mut working_set);
-    let head = evm.head_rlp.get(&mut working_set).unwrap();
+    let head = evm.head.get(&mut working_set).unwrap();
     let pending_head = evm
         .pending_head
         .get(&mut working_set.accessory_state())

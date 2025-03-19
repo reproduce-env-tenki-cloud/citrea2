@@ -32,13 +32,13 @@ impl<C: sov_modules_api::Context> Evm<C> {
 
         let parent_block = {
             let mut parent_block = self
-                .head_rlp
+                .head
                 .get(working_set)
                 .expect("Head block should always be set");
 
             parent_block.header.state_root = B256::from_slice(&l2_block_info.pre_state_root());
 
-            self.head_rlp.set(&parent_block, working_set);
+            self.head.set(&parent_block, working_set);
 
             parent_block
         };
@@ -94,7 +94,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
         working_set: &mut WorkingSet<C::Storage>,
     ) {
         let parent_block = self
-            .head_rlp
+            .head
             .get(working_set)
             .expect("Head block should always be set");
 
@@ -169,7 +169,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
             transactions: start_tx_index..start_tx_index + pending_transactions.len() as u64,
         };
 
-        self.head_rlp.set(&block, working_set);
+        self.head.set(&block, working_set);
 
         #[cfg(not(feature = "native"))]
         pending_transactions.clear();
