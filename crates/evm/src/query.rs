@@ -315,23 +315,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
         block_id: Option<BlockId>,
         working_set: &mut WorkingSet<C::Storage>,
     ) -> RpcResult<B256> {
-        self.get_storage_at_inner(
-            address,
-            index,
-            block_id,
-            working_set,
-            fork_from_block_number,
-        )
-    }
-
-    pub(crate) fn get_storage_at_inner(
-        &self,
-        address: Address,
-        index: U256,
-        block_id: Option<BlockId>,
-        working_set: &mut WorkingSet<C::Storage>,
-        _fork_fn: impl Fn(u64) -> Fork,
-    ) -> RpcResult<B256> {
         // Specs from https://ethereum.org/en/developers/docs/apis/json-rpc
 
         self.set_state_to_end_of_evm_block_by_block_id(block_id, working_set)?;
@@ -370,16 +353,6 @@ impl<C: sov_modules_api::Context> Evm<C> {
         address: Address,
         block_id: Option<BlockId>,
         working_set: &mut WorkingSet<C::Storage>,
-    ) -> RpcResult<Bytes> {
-        self.get_code_inner(address, block_id, working_set, fork_from_block_number)
-    }
-
-    pub(crate) fn get_code_inner(
-        &self,
-        address: Address,
-        block_id: Option<BlockId>,
-        working_set: &mut WorkingSet<C::Storage>,
-        _fork_fn: impl Fn(u64) -> Fork,
     ) -> RpcResult<Bytes> {
         self.set_state_to_end_of_evm_block_by_block_id(block_id, working_set)?;
 

@@ -613,8 +613,6 @@ fn test_offchain_contract_storage_evm() {
     let (config, dev_signer, contract_addr) =
         get_evm_config(U256::from_str("100000000000000000000").unwrap(), None);
 
-    let fork_fn = |_: u64| Fork::new(SovSpecId::Fork2, 4);
-
     let (mut evm, mut working_set, _spec_id) = get_evm_with_spec(&config, SovSpecId::Fork2);
     let l1_fee_rate = 0;
     let mut l2_height = 2;
@@ -663,9 +661,7 @@ fn test_offchain_contract_storage_evm() {
         .unwrap();
 
     // Try to get the code from Fork2 fork and expect it to exist
-    let code = evm
-        .get_code_inner(contract_addr, None, &mut working_set, fork_fn)
-        .unwrap();
+    let code = evm.get_code(contract_addr, None, &mut working_set).unwrap();
 
     assert_eq!(*cont_code.original_byte_slice(), code);
 
@@ -675,13 +671,12 @@ fn test_offchain_contract_storage_evm() {
         .unwrap();
 
     let code = evm
-        .get_code_inner(
+        .get_code(
             contract_addr,
             Some(alloy_eips::BlockId::Number(
                 alloy_eips::BlockNumberOrTag::Latest,
             )),
             &mut working_set,
-            fork_fn,
         )
         .unwrap();
 
@@ -749,7 +744,7 @@ fn test_offchain_contract_storage_evm() {
 
     // Try to get the code from Fork2 fork and expect it to not exist because it is stored in offchain storage
     let code = evm
-        .get_code_inner(new_contract_address, None, &mut working_set, fork_fn)
+        .get_code(new_contract_address, None, &mut working_set)
         .unwrap();
     assert_eq!(code, *offchain_code.unwrap().original_byte_slice());
 
