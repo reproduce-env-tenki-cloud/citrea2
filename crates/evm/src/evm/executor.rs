@@ -148,23 +148,32 @@ fn verify_system_tx<C: sov_modules_api::Context>(
     tx: &TransactionSignedEcRecovered,
     l2_height: u64,
 ) -> Result<(), L2BlockModuleCallError> {
-    let function_selector: [u8; 4] = tx.input()[0..4]
-        .try_into()
-        .map_err(|_| L2BlockModuleCallError::EvmSystemTxParseError)?;
-
     // Early return if this is the first block because sequencer will not have any L1 block hash in system contract before setblock info call
     if l2_height == 1 {
         return Ok(());
     }
 
+    let function_selector: [u8; 4] = tx
+        .input()
+        .get(0..4)
+        .ok_or_else(|| L2BlockModuleCallError::EvmSystemTxParseError)?
+        .try_into()
+        .map_err(|_| L2BlockModuleCallError::EvmSystemTxParseError)?;
+
     if function_selector == BitcoinLightClientContract::setBlockInfoCall::SELECTOR {
-        let l1_block_hash: [u8; 32] = tx.input()[4..36]
+        let l1_block_hash: [u8; 32] = tx
+            .input()
+            .get(4..36)
+            .ok_or_else(|| L2BlockModuleCallError::EvmSystemTxParseError)?
             .try_into()
             .map_err(|_| L2BlockModuleCallError::EvmSystemTxParseError)?;
         let shp_provider = SHORT_HEADER_PROOF_PROVIDER
             .get()
             .expect("Short header proof provider not set");
-        let txs_commitment: [u8; 32] = tx.input()[36..68]
+        let txs_commitment: [u8; 32] = tx
+            .input()
+            .get(36..68)
+            .ok_or_else(|| L2BlockModuleCallError::EvmSystemTxParseError)?
             .try_into()
             .map_err(|_| L2BlockModuleCallError::EvmSystemTxParseError)?;
         let coinbase_depth: u8 = U256::from_be_slice(&tx.input()[68..100]).to::<u8>();
