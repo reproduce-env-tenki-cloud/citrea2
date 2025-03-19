@@ -38,7 +38,7 @@ const DB_ACCOUNT_SIZE_CONTRACT: usize = 75;
 /// 4 bytes of prefix ("E/a/") + 8 bytes of account id = 12 bytes
 const DB_ACCOUNT_KEY_SIZE: usize = 12;
 
-/// 4 bytes of prefix ("E/S/") + 32 bytes of storage hash = 36 bytes
+/// 4 bytes of prefix ("E/s/") + 32 bytes of storage hash = 36 bytes
 const STORAGE_KEY_SIZE: usize = 36;
 
 /// Storage value is 32 bytes
