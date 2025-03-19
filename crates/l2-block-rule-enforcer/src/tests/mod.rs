@@ -49,7 +49,7 @@ fn setup_evm(working_set: &mut WorkingSet<ProverStorage>) {
 
     evm.storage_set(
         &BITCOIN_LIGHT_CLIENT_CONTRACT_ADDRESS,
-        &keccak256(&bytes).into(),
+        &keccak256(bytes).into(),
         &U256::from_be_bytes([1u8; 32]),
         working_set,
     );
@@ -72,7 +72,7 @@ fn add_another_l1_hash(working_set: &mut WorkingSet<ProverStorage>) {
 
     evm.storage_set(
         &BITCOIN_LIGHT_CLIENT_CONTRACT_ADDRESS,
-        &keccak256(&bytes).into(),
+        &keccak256(bytes).into(),
         &U256::from_be_bytes([2u8; 32]),
         working_set,
     );

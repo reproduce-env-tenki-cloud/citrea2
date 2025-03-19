@@ -174,7 +174,7 @@ fn verify_system_tx<C: sov_modules_api::Context>(
             .try_into()
             .map_err(|_| L2BlockModuleCallError::EvmSystemTxParseError)?;
         let coinbase_depth: u8 = U256::from_be_slice(
-            &tx.input()
+            tx.input()
                 .get(68..100)
                 .ok_or(L2BlockModuleCallError::EvmSystemTxParseError)?,
         )
