@@ -1,15 +1,12 @@
 use alloy_primitives::{keccak256, U256};
 use alloy_sol_types::SolCall;
-use citrea_primitives::forks::fork_from_block_number;
 use reth_primitives::TransactionSignedEcRecovered;
 use revm::primitives::{
     BlockEnv, CfgEnvWithHandlerCfg, EVMError, Env, EvmState, ExecutionResult, ResultAndState,
 };
 use revm::{self, Context, Database, DatabaseCommit, EvmContext};
 use short_header_proof_provider::{ShortHeaderProofProviderError, SHORT_HEADER_PROOF_PROVIDER};
-use sov_modules_api::{
-    native_error, native_trace, L2BlockModuleCallError, SpecId as CitreaSpecId, WorkingSet,
-};
+use sov_modules_api::{native_error, native_trace, L2BlockModuleCallError, WorkingSet};
 #[cfg(feature = "native")]
 use tracing::trace_span;
 
@@ -178,10 +175,8 @@ fn verify_system_tx<C: sov_modules_api::Context>(
             .map_err(|_| L2BlockModuleCallError::EvmSystemTxParseError)?;
         let coinbase_depth: u8 = U256::from_be_slice(&tx.input()[68..100]).to::<u8>();
 
-        let citrea_spec = fork_from_block_number(l2_height).spec_id;
-
         let (last_l1_height, prev_hash) =
-            get_last_l1_height_and_hash_in_light_client::<C>(db.evm, citrea_spec, db.working_set);
+            get_last_l1_height_and_hash_in_light_client::<C>(db.evm, db.working_set);
 
         // counter intuitively the contract stores next block height (expected on setBlockInfo)
         let next_l1_height: u64 = last_l1_height.to::<u64>();
@@ -226,7 +221,6 @@ pub fn get_last_l1_height_in_light_client<C: sov_modules_api::Context>(
 /// Returns the last set l1 block hash in bitcoin light client contract
 pub fn get_last_l1_height_and_hash_in_light_client<C: sov_modules_api::Context>(
     evm: &Evm<C>,
-    _spec_id: CitreaSpecId,
     working_set: &mut WorkingSet<C::Storage>,
 ) -> (U256, Option<U256>) {
     let last_l1_height_in_contract = evm
