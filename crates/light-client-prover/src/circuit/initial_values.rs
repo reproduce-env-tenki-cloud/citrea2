@@ -24,7 +24,7 @@ const fn decode_to_u32_array(hex: &str) -> [u32; 8] {
 
 pub mod mockda {
     pub const GENESIS_ROOT: [u8; 32] = match const_hex::const_decode_to_array(
-        b"2439612f13f0d32a7b594946ef96814d47f371b7dc65dc9e1c9ee09ad08111e9",
+        b"f22c52bcfa974cb84d23fd15490aa928f1e259cc57ec635626d7ad28480f5343",
     ) {
         Ok(root) => root,
         Err(_) => panic!("Can't happen"),
@@ -76,7 +76,7 @@ pub mod bitcoinda {
     pub const NIGHTLY_GENESIS_ROOT: [u8; 32] = {
         let hex_root = match option_env!("L2_GENESIS_ROOT") {
             Some(hex_root) => hex_root,
-            None => "2439612f13f0d32a7b594946ef96814d47f371b7dc65dc9e1c9ee09ad08111e9",
+            None => "f22c52bcfa974cb84d23fd15490aa928f1e259cc57ec635626d7ad28480f5343",
         };
 
         match const_hex::const_decode_to_array(hex_root.as_bytes()) {

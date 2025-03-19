@@ -580,7 +580,6 @@ fn calc_diff_size<EXT, SPEC: Spec, DB: Database>(
         // No checks on code change as it is not part of the state diff
     }
 
-    println!("total diff size: {}", diff_size);
     Ok(diff_size)
 }
 
