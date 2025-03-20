@@ -1,7 +1,4 @@
 use core::result::Result::Ok;
-use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::path::PathBuf;
 use std::time::Instant;
 
 use bitcoin::blockdata::opcodes::all::{OP_ENDIF, OP_IF};
@@ -18,11 +15,10 @@ use secp256k1::SECP256K1;
 use serde::Serialize;
 use tracing::{instrument, trace, warn};
 
-use super::light_client_proof_namespace::hex_serialize_tx;
 use super::{
     build_commit_transaction, build_reveal_transaction, build_taproot, build_witness,
     get_size_reveal, sign_blob_with_private_key, update_witness, TransactionKindBatchProof,
-    TxListWithReveal, TxWithId,
+    TxWithId,
 };
 use crate::spec::utxo::UTXO;
 use crate::{REVEAL_OUTPUT_AMOUNT, REVEAL_OUTPUT_THRESHOLD};
@@ -32,27 +28,6 @@ use crate::{REVEAL_OUTPUT_AMOUNT, REVEAL_OUTPUT_THRESHOLD};
 pub(crate) struct BatchProvingTxs {
     pub(crate) commit: Transaction, // unsigned
     pub(crate) reveal: TxWithId,
-}
-
-impl TxListWithReveal for BatchProvingTxs {
-    fn write_to_file(&self, mut path: PathBuf) -> Result<(), anyhow::Error> {
-        let commit_id = self.commit.compute_txid();
-        path.push(format!(
-            "sequencer_commitment_inscription_commit_id_{}_reveal_id_{}.txs",
-            commit_id, self.reveal.id
-        ));
-        let file = File::create(path)?;
-        let mut writer: BufWriter<&File> = BufWriter::new(&file);
-
-        writer.write_all(format!("commit {}\n", commit_id).as_bytes())?;
-        writer.write_all(hex_serialize_tx(&self.commit).as_bytes())?;
-        writer.write_all(b"\n")?;
-
-        writer.write_all(format!("reveal {}\n", self.reveal.id).as_bytes())?;
-        writer.write_all(hex_serialize_tx(&self.reveal.tx).as_bytes())?;
-        writer.flush()?;
-        Ok(())
-    }
 }
 
 // Creates the batch proof transactions (commit and reveal)
