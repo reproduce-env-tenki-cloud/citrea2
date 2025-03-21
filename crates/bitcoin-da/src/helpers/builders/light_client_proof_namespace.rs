@@ -2,6 +2,7 @@ use core::result::Result::Ok;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use bitcoin::blockdata::opcodes::all::{OP_ENDIF, OP_IF};
 use bitcoin::blockdata::opcodes::OP_FALSE;
@@ -13,6 +14,7 @@ use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::{SecretKey, XOnlyPublicKey};
 use bitcoin::{consensus, Address, Amount, Network, Transaction};
 use itertools::Itertools;
+use metrics::histogram;
 use secp256k1::SECP256K1;
 use serde::Serialize;
 use sov_rollup_interface::da::DaDataLightClient;
