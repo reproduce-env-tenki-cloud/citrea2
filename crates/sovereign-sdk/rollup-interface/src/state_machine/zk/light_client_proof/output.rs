@@ -23,6 +23,10 @@ pub struct LightClientCircuitOutput {
     pub last_l2_height: u64,
     /// L2 activation height of the fork and the Method ids of the batch proofs that were verified in the light client proof
     pub batch_proof_method_ids: Vec<(u64, [u32; 8])>,
+    /// The last sequencer commitment index of the last fully stitched and verified batch proof
+    pub last_sequencer_commitment_index: u32,
+    /// Info about batch proof with missing sequencer commitments
+    pub batch_proofs_with_missing_sequencer_commitments: Vec<BatchProofInfo>,
 }
 
 /// The batch proof that was not verified in the light client circuit because it was missing another proof for state root chaining
@@ -36,6 +40,10 @@ pub struct BatchProofInfo {
     pub final_state_root: [u8; 32],
     /// The last processed l2 height in the batch proof
     pub last_l2_height: u64,
+    /// The sequencer commitment range of the batch proof
+    pub sequencer_commitment_range: (u32, u32),
+    /// (Commitment index, commitment hash)
+    pub missing_commitments: Vec<(u32, [u8; 32])>,
 }
 
 impl BatchProofInfo {
@@ -44,11 +52,15 @@ impl BatchProofInfo {
         initial_state_root: [u8; 32],
         final_state_root: [u8; 32],
         last_l2_height: u64,
+        sequencer_commitment_range: (u32, u32),
+        missing_commitments: Option<Vec<(u32, [u8; 32])>>,
     ) -> Self {
         Self {
             initial_state_root,
             final_state_root,
             last_l2_height,
+            sequencer_commitment_range,
+            missing_commitments: missing_commitments.unwrap_or_default(),
         }
     }
 }

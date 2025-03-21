@@ -1,35 +1,55 @@
 use sov_rollup_interface::zk::light_client_proof::output::BatchProofInfo;
 
 pub(crate) fn recursive_match_state_roots(
-    initial_to_final: &mut std::collections::BTreeMap<[u8; 32], ([u8; 32], u64)>,
+    initial_to_final: &mut std::collections::BTreeMap<[u8; 32], ([u8; 32], u64, (u32, u32))>,
     bp_info: &BatchProofInfo,
 ) {
-    if let Some((final_root, last_l2)) = initial_to_final.remove(&bp_info.final_state_root) {
+    if let Some((final_root, last_l2, seq_comm_range)) =
+        initial_to_final.remove(&bp_info.final_state_root)
+    {
         recursive_match_state_roots(
             initial_to_final,
-            &BatchProofInfo::new(bp_info.initial_state_root, final_root, last_l2),
+            &BatchProofInfo::new(
+                bp_info.initial_state_root,
+                final_root,
+                last_l2,
+                seq_comm_range,
+                None,
+            ),
         );
     } else {
         initial_to_final.insert(
             bp_info.initial_state_root,
-            (bp_info.final_state_root, bp_info.last_l2_height),
+            (
+                bp_info.final_state_root,
+                bp_info.last_l2_height,
+                bp_info.sequencer_commitment_range,
+            ),
         );
     }
 }
 
+// TODO: Also use seq comm ranges here?
 pub(crate) fn collect_unchained_outputs(
-    initial_to_final: &std::collections::BTreeMap<[u8; 32], ([u8; 32], u64)>,
+    initial_to_final: &std::collections::BTreeMap<[u8; 32], ([u8; 32], u64, (u32, u32))>,
     // This should not get anything less than the last l2 height
     state_root_l2_height: u64,
 ) -> Vec<BatchProofInfo> {
     initial_to_final
         .iter()
-        .filter(|&(_, &(_, last_l2_height))| last_l2_height > state_root_l2_height)
+        .filter(|&(_, &(_, last_l2_height, _))| last_l2_height > state_root_l2_height)
         .map(
-            |(&initial_state_root, &(final_state_root, last_l2_height))| BatchProofInfo {
-                initial_state_root,
-                final_state_root,
-                last_l2_height,
+            |(
+                &initial_state_root,
+                &(final_state_root, last_l2_height, sequencer_commitment_range),
+            )| {
+                BatchProofInfo::new(
+                    initial_state_root,
+                    final_state_root,
+                    last_l2_height,
+                    sequencer_commitment_range,
+                    None,
+                )
             },
         )
         .collect()
