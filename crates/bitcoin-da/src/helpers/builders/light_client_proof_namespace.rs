@@ -204,6 +204,8 @@ pub fn create_inscription_type_0(
     // sign the body for authentication of the sequencer
     let (signature, signer_public_key) = sign_blob_with_private_key(&body, da_private_key);
 
+    let start = Instant::now();
+
     // start creating inscription content
     let mut reveal_script_builder = script::Builder::new()
         .push_x_only_key(&public_key)
@@ -317,6 +319,12 @@ pub fn create_inscription_type_0(
                     commit_tx_address
                 );
 
+                histogram!("mine_da_transaction").record(
+                    Instant::now()
+                        .saturating_duration_since(start)
+                        .as_secs_f64(),
+                );
+
                 return Ok(LightClientTxs::Complete {
                     commit: unsigned_commit_tx,
                     reveal: TxWithId {
@@ -363,6 +371,8 @@ pub fn create_inscription_type_1(
 
     let mut commit_chunks: Vec<Transaction> = vec![];
     let mut reveal_chunks: Vec<Transaction> = vec![];
+
+    let start = Instant::now();
 
     for body in chunks {
         let kind = TransactionKindLightClient::ChunkedPart;
@@ -662,6 +672,12 @@ pub fn create_inscription_type_1(
                     commit_tx_address
                 );
 
+                histogram!("mine_da_transaction").record(
+                    Instant::now()
+                        .saturating_duration_since(start)
+                        .as_secs_f64(),
+                );
+
                 return Ok(LightClientTxs::Chunked {
                     commit_chunks,
                     reveal_chunks,
@@ -711,6 +727,8 @@ pub fn create_inscription_type_2(
 
     // sign the body for authentication of the sequencer
     let (signature, signer_public_key) = sign_blob_with_private_key(&body, da_private_key);
+
+    let start = Instant::now();
 
     // start creating inscription content
     let mut reveal_script_builder = script::Builder::new()
@@ -821,6 +839,12 @@ pub fn create_inscription_type_2(
                         network,
                     ),
                     commit_tx_address
+                );
+
+                histogram!("mine_da_transaction").record(
+                    Instant::now()
+                        .saturating_duration_since(start)
+                        .as_secs_f64(),
                 );
 
                 return Ok(LightClientTxs::BatchProofMethodId {
