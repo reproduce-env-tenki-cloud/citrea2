@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use crate::da::LatestDaState;
 use crate::zk::StorageRootHash;
 
+/// Type for the index and hash of a commitment
+pub type IndexAndHashOfCommitment = (u32, [u8; 32]);
+
 /// The output of light client proof
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize, PartialEq)]
 pub struct LightClientCircuitOutput {
@@ -40,10 +43,10 @@ pub struct BatchProofInfo {
     pub final_state_root: [u8; 32],
     /// The last processed l2 height in the batch proof
     pub last_l2_height: u64,
-    /// The sequencer commitment range of the batch proof
-    pub sequencer_commitment_range: (u32, u32),
+    /// The last processesd batch proofs last commitment's index
+    pub last_sequencer_commitment_index: u32,
     /// (Commitment index, commitment hash)
-    pub missing_commitments: Vec<(u32, [u8; 32])>,
+    pub missing_commitments: Vec<IndexAndHashOfCommitment>,
 }
 
 impl BatchProofInfo {
@@ -52,14 +55,14 @@ impl BatchProofInfo {
         initial_state_root: [u8; 32],
         final_state_root: [u8; 32],
         last_l2_height: u64,
-        sequencer_commitment_range: (u32, u32),
-        missing_commitments: Option<Vec<(u32, [u8; 32])>>,
+        last_sequencer_commitment_index: u32,
+        missing_commitments: Option<Vec<IndexAndHashOfCommitment>>,
     ) -> Self {
         Self {
             initial_state_root,
             final_state_root,
             last_l2_height,
-            sequencer_commitment_range,
+            last_sequencer_commitment_index,
             missing_commitments: missing_commitments.unwrap_or_default(),
         }
     }

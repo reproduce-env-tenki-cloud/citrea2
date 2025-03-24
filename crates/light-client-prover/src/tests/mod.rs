@@ -1242,6 +1242,8 @@ fn test_unknown_block_hash_in_batch_proof_not_verified() {
             initial_state_root: [4u8; 32],
             final_state_root: [5u8; 32],
             last_l2_height: 5,
+            last_sequencer_commitment_index: 5,
+            missing_commitments: vec![]
         }],
     );
     assert_eq!(output_2.last_l2_height, 2);

@@ -1,10 +1,10 @@
 use sov_rollup_interface::zk::light_client_proof::output::BatchProofInfo;
 
 pub(crate) fn recursive_match_state_roots(
-    initial_to_final: &mut std::collections::BTreeMap<[u8; 32], ([u8; 32], u64, (u32, u32))>,
+    initial_to_final: &mut std::collections::BTreeMap<[u8; 32], ([u8; 32], u64, u32)>,
     bp_info: &BatchProofInfo,
 ) {
-    if let Some((final_root, last_l2, seq_comm_range)) =
+    if let Some((final_root, last_l2, last_sequencer_commitment_index)) =
         initial_to_final.remove(&bp_info.final_state_root)
     {
         recursive_match_state_roots(
@@ -13,7 +13,7 @@ pub(crate) fn recursive_match_state_roots(
                 bp_info.initial_state_root,
                 final_root,
                 last_l2,
-                seq_comm_range,
+                last_sequencer_commitment_index,
                 None,
             ),
         );
@@ -23,7 +23,7 @@ pub(crate) fn recursive_match_state_roots(
             (
                 bp_info.final_state_root,
                 bp_info.last_l2_height,
-                bp_info.sequencer_commitment_range,
+                bp_info.last_sequencer_commitment_index,
             ),
         );
     }
@@ -31,23 +31,29 @@ pub(crate) fn recursive_match_state_roots(
 
 // TODO: Also use seq comm ranges here?
 pub(crate) fn collect_unchained_outputs(
-    initial_to_final: &std::collections::BTreeMap<[u8; 32], ([u8; 32], u64, (u32, u32))>,
+    initial_to_final: &std::collections::BTreeMap<[u8; 32], ([u8; 32], u64, u32)>,
     // This should not get anything less than the last l2 height
     state_root_l2_height: u64,
+    state_last_commitment_index: u32,
 ) -> Vec<BatchProofInfo> {
     initial_to_final
         .iter()
-        .filter(|&(_, &(_, last_l2_height, _))| last_l2_height > state_root_l2_height)
+        .filter(
+            |&(_, &(_, last_l2_height, last_sequencer_commitment_index))| {
+                last_l2_height > state_root_l2_height
+                    && last_sequencer_commitment_index > state_last_commitment_index
+            },
+        )
         .map(
             |(
                 &initial_state_root,
-                &(final_state_root, last_l2_height, sequencer_commitment_range),
+                &(final_state_root, last_l2_height, last_sequencer_commitment_index),
             )| {
                 BatchProofInfo::new(
                     initial_state_root,
                     final_state_root,
                     last_l2_height,
-                    sequencer_commitment_range,
+                    last_sequencer_commitment_index,
                     None,
                 )
             },
@@ -61,12 +67,13 @@ mod tests {
 
     #[test]
     fn test_recursive_match_state_roots() {
-        let mut initial_to_final = std::collections::BTreeMap::<[u8; 32], ([u8; 32], u64)>::new();
+        let mut initial_to_final =
+            std::collections::BTreeMap::<[u8; 32], ([u8; 32], u64, u32)>::new();
 
-        let bp_info = BatchProofInfo::new([2u8; 32], [3u8; 32], 1);
-        initial_to_final.insert([1u8; 32], ([2u8; 32], 1));
-        initial_to_final.insert([3u8; 32], ([4u8; 32], 3));
-        initial_to_final.insert([4u8; 32], ([5u8; 32], 4));
+        let bp_info = BatchProofInfo::new([2u8; 32], [3u8; 32], 1, 1, None);
+        initial_to_final.insert([1u8; 32], ([2u8; 32], 1, 1));
+        initial_to_final.insert([3u8; 32], ([4u8; 32], 3, 3));
+        initial_to_final.insert([4u8; 32], ([5u8; 32], 4, 4));
         // First of all this should chain 2 to 5 from 2-3 -> 3-4 -> 4-5
         recursive_match_state_roots(&mut initial_to_final, &bp_info);
 
@@ -78,7 +85,7 @@ mod tests {
         let second = initial_to_final.get(&[2u8; 32]).unwrap();
         assert_eq!(second.0, [5u8; 32]);
 
-        let bp_info_prev_state = BatchProofInfo::new([1u8; 32], [1u8; 32], 0);
+        let bp_info_prev_state = BatchProofInfo::new([1u8; 32], [1u8; 32], 0, 0, None);
 
         recursive_match_state_roots(&mut initial_to_final, &bp_info_prev_state);
 
@@ -89,22 +96,26 @@ mod tests {
 
         let mut last_l2_height = 0;
         let mut last_state_root = [0u8; 32];
-        if let Some((final_root, last_l2)) =
+        let mut last_commitment_index = 0;
+        if let Some((final_root, last_l2, last_commitment_idx)) =
             initial_to_final.remove(&bp_info_prev_state.final_state_root)
         {
             last_l2_height = last_l2;
             last_state_root = final_root;
+            last_commitment_index = last_commitment_idx;
         }
 
         assert_eq!(last_l2_height, 4);
         assert_eq!(last_state_root, [5u8; 32]);
+        assert_eq!(last_commitment_index, 4);
     }
 
     #[test]
     fn test_recursive_match_state_roots_empty_btreemap() {
-        let mut initial_to_final = std::collections::BTreeMap::<[u8; 32], ([u8; 32], u64)>::new();
+        let mut initial_to_final =
+            std::collections::BTreeMap::<[u8; 32], ([u8; 32], u64, u32)>::new();
 
-        let bp_info = BatchProofInfo::new([2u8; 32], [3u8; 32], 1);
+        let bp_info = BatchProofInfo::new([2u8; 32], [3u8; 32], 1, 1, None);
         // First of all this should chain 2 to 5 from 2-3 -> 3-4 -> 4-5
         recursive_match_state_roots(&mut initial_to_final, &bp_info);
 
@@ -116,12 +127,13 @@ mod tests {
 
     #[test]
     fn test_recursive_match_state_roots_with_unchainable_elements() {
-        let mut initial_to_final = std::collections::BTreeMap::<[u8; 32], ([u8; 32], u64)>::new();
+        let mut initial_to_final =
+            std::collections::BTreeMap::<[u8; 32], ([u8; 32], u64, u32)>::new();
 
-        let bp_info = BatchProofInfo::new([45u8; 32], [46u8; 32], 46);
-        initial_to_final.insert([1u8; 32], ([2u8; 32], 2));
-        initial_to_final.insert([3u8; 32], ([5u8; 32], 5));
-        initial_to_final.insert([6u8; 32], ([7u8; 32], 7));
+        let bp_info = BatchProofInfo::new([45u8; 32], [46u8; 32], 46, 46, None);
+        initial_to_final.insert([1u8; 32], ([2u8; 32], 2, 2));
+        initial_to_final.insert([3u8; 32], ([5u8; 32], 5, 5));
+        initial_to_final.insert([6u8; 32], ([7u8; 32], 7, 7));
 
         recursive_match_state_roots(&mut initial_to_final, &bp_info);
 
@@ -145,7 +157,7 @@ mod tests {
         assert_eq!(fourth.0, [46u8; 32]);
         assert_eq!(fourth.1, 46);
 
-        let bp_info_prev = BatchProofInfo::new([1u8; 32], [1u8; 32], 1);
+        let bp_info_prev = BatchProofInfo::new([1u8; 32], [1u8; 32], 1, 1, None);
 
         recursive_match_state_roots(&mut initial_to_final, &bp_info_prev);
 
@@ -155,17 +167,22 @@ mod tests {
         assert_eq!(first.0, [2u8; 32]);
 
         let mut last_l2_height = 0;
+        let mut last_commitment_index = 0;
         let mut last_state_root = [0u8; 32];
-        if let Some((final_root, last_l2)) = initial_to_final.remove(&bp_info_prev.final_state_root)
+        if let Some((final_root, last_l2, last_commitment_idx)) =
+            initial_to_final.remove(&bp_info_prev.final_state_root)
         {
             last_l2_height = last_l2;
             last_state_root = final_root;
+            last_commitment_index = last_commitment_idx;
         }
 
         assert_eq!(last_l2_height, 2);
         assert_eq!(last_state_root, [2u8; 32]);
+        assert_eq!(last_commitment_index, 2);
 
-        let unchained_outputs = collect_unchained_outputs(&initial_to_final, last_l2_height);
+        let unchained_outputs =
+            collect_unchained_outputs(&initial_to_final, last_l2_height, last_commitment_index);
         assert_eq!(unchained_outputs.len(), 3);
         assert_eq!(unchained_outputs[0].initial_state_root, [3u8; 32]);
         assert_eq!(unchained_outputs[1].initial_state_root, [6u8; 32]);
@@ -174,13 +191,14 @@ mod tests {
 
     #[test]
     fn test_recursive_match_state_roots_with_genesis_state_root() {
-        let mut initial_to_final = std::collections::BTreeMap::<[u8; 32], ([u8; 32], u64)>::new();
+        let mut initial_to_final =
+            std::collections::BTreeMap::<[u8; 32], ([u8; 32], u64, u32)>::new();
 
-        let genesis_bp_info = BatchProofInfo::new([0u8; 32], [0u8; 32], 0);
+        let genesis_bp_info = BatchProofInfo::new([0u8; 32], [0u8; 32], 0, 0, None);
         // Let there be some batch proofs in that DA block
-        let bp1 = BatchProofInfo::new([1u8; 32], [2u8; 32], 2);
-        let bp2 = BatchProofInfo::new([3u8; 32], [5u8; 32], 5);
-        let bp3 = BatchProofInfo::new([6u8; 32], [7u8; 32], 7);
+        let bp1 = BatchProofInfo::new([1u8; 32], [2u8; 32], 2, 2, None);
+        let bp2 = BatchProofInfo::new([3u8; 32], [5u8; 32], 5, 5, None);
+        let bp3 = BatchProofInfo::new([6u8; 32], [7u8; 32], 7, 7, None);
 
         recursive_match_state_roots(&mut initial_to_final, &bp1);
         // Assert that bp1 is in
@@ -216,7 +234,7 @@ mod tests {
         6-7
          */
         // Look! A new DA block arrived with the batch proof of 0 -> 1
-        let bp0_1 = BatchProofInfo::new([0u8; 32], [1u8; 32], 1);
+        let bp0_1 = BatchProofInfo::new([0u8; 32], [1u8; 32], 1, 1, None);
         // This should match 0-2 using 0-0 -> 0-1 -> 1-2
         recursive_match_state_roots(&mut initial_to_final, &bp0_1);
 
@@ -266,9 +284,9 @@ mod tests {
            7-8
            8-9
         */
-        let bp2_3 = BatchProofInfo::new([2u8; 32], [3u8; 32], 3);
-        let bp7_8 = BatchProofInfo::new([7u8; 32], [8u8; 32], 8);
-        let bp8_9 = BatchProofInfo::new([8u8; 32], [9u8; 32], 9);
+        let bp2_3 = BatchProofInfo::new([2u8; 32], [3u8; 32], 3, 3, None);
+        let bp7_8 = BatchProofInfo::new([7u8; 32], [8u8; 32], 8, 8, None);
+        let bp8_9 = BatchProofInfo::new([8u8; 32], [9u8; 32], 9, 9, None);
 
         recursive_match_state_roots(&mut initial_to_final, &bp2_3);
         recursive_match_state_roots(&mut initial_to_final, &bp7_8);
@@ -283,7 +301,7 @@ mod tests {
         assert_eq!(elem.0, [7u8; 32]);
 
         // Lets call with last state root
-        let bp_sr = BatchProofInfo::new([2u8; 32], [2u8; 32], 2);
+        let bp_sr = BatchProofInfo::new([2u8; 32], [2u8; 32], 2, 2, None);
         recursive_match_state_roots(&mut initial_to_final, &bp_sr);
         assert_eq!(initial_to_final.len(), 5);
         let elem = initial_to_final.get(&[0u8; 32]).unwrap();
@@ -292,7 +310,7 @@ mod tests {
         assert_eq!(elem.0, [5u8; 32]);
 
         // This will throw
-        let res = collect_unchained_outputs(&initial_to_final, 5);
+        let res = collect_unchained_outputs(&initial_to_final, 5, 5);
         assert_eq!(res.len(), 3);
         assert_eq!(res[0].initial_state_root, [6u8; 32]);
         assert_eq!(res[1].initial_state_root, [7u8; 32]);
@@ -302,12 +320,12 @@ mod tests {
         initial_to_final.clear();
 
         // Fill the map for the next block
-        initial_to_final.insert([6u8; 32], ([7u8; 32], 7));
-        initial_to_final.insert([7u8; 32], ([8u8; 32], 8));
-        initial_to_final.insert([8u8; 32], ([9u8; 32], 9));
+        initial_to_final.insert([6u8; 32], ([7u8; 32], 7, 7));
+        initial_to_final.insert([7u8; 32], ([8u8; 32], 8, 8));
+        initial_to_final.insert([8u8; 32], ([9u8; 32], 9, 9));
 
         // Now assume on the next block we got 5-6
-        let bp5_6 = BatchProofInfo::new([5u8; 32], [6u8; 32], 6);
+        let bp5_6 = BatchProofInfo::new([5u8; 32], [6u8; 32], 6, 6, None);
 
         recursive_match_state_roots(&mut initial_to_final, &bp5_6);
 

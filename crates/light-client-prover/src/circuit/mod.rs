@@ -11,7 +11,7 @@ use sov_rollup_interface::witness::Witness;
 use sov_rollup_interface::zk::batch_proof::output::BatchProofCircuitOutput;
 use sov_rollup_interface::zk::light_client_proof::input::LightClientCircuitInput;
 use sov_rollup_interface::zk::light_client_proof::output::{
-    BatchProofInfo, LightClientCircuitOutput,
+    BatchProofInfo, IndexAndHashOfCommitment, LightClientCircuitOutput,
 };
 use sov_rollup_interface::zk::ZkvmGuest;
 use sov_rollup_interface::Network;
@@ -39,9 +39,7 @@ pub enum LightClientVerificationError<DaV: DaVerifier> {
 
 pub enum ProofProcess {
     Correct,
-    MissingSequencerCommitment(Vec<(u32, [u8; 32])>),
-    // Discard reason
-    // TODO: Maybe DiscardReason enum?
+    MissingSequencerCommitment(Vec<IndexAndHashOfCommitment>),
     Discard(String),
 }
 
@@ -49,6 +47,8 @@ impl ProofProcess {
     pub fn push_missing_sequencer_commitment_data(&mut self, idx: u32, hash: [u8; 32]) {
         if let ProofProcess::MissingSequencerCommitment(vec) = self {
             vec.push((idx, hash));
+        } else {
+            panic!("Should be missing sequencer commitment");
         }
     }
 }
@@ -78,14 +78,17 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
 
     fn verify_seq_comm_relation(
         &self,
-        batch_proof_output: BatchProofCircuitOutput,
+        batch_proof_output: &BatchProofCircuitOutput,
         working_set: &mut WorkingSet<S>,
     ) -> ProofProcess {
         if !BlockHashAccessor::<S>::exists(
             batch_proof_output.last_l1_hash_on_bitcoin_light_client_contract(),
             working_set,
         ) {
-            return ProofProcess::Discard;
+            return ProofProcess::Discard(format!(
+                "Block hash does not exist in the jmt state: {:?}",
+                batch_proof_output.last_l1_hash_on_bitcoin_light_client_contract()
+            ));
         }
 
         let mut proof_process = ProofProcess::Correct;
@@ -96,10 +99,15 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
 
         // TODO: even if bp cant produce such an output, just discard on this
         // The index range len should be equal to the number of sequencer commitment hashes in the batch proof output
-        assert_eq!(
-            last_index - first_index + 1,
-            batch_proof_output_sequencer_commitment_hashes.len()
-        );
+        if (last_index - first_index + 1) as usize
+            != batch_proof_output_sequencer_commitment_hashes.len()
+        {
+            return ProofProcess::Discard(format!(
+                "Sequencer commitment index range length mismatch, expected: {}, got: {}",
+                (last_index - first_index + 1),
+                batch_proof_output_sequencer_commitment_hashes.len()
+            ));
+        }
 
         for (batch_proof_sequencer_commitment_index, batch_proof_sequencer_commitment_hash) in
             (first_index..=last_index).zip(batch_proof_output_sequencer_commitment_hashes)
@@ -117,6 +125,7 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
                         batch_proof_sequencer_commitment_index,
                         batch_proof_sequencer_commitment_hash,
                     );
+                    continue;
                 }
             };
             let jmt_commitment_hash = jmt_commitment.serialize_and_calculate_sha_256();
@@ -136,9 +145,9 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
         proof: &[u8],
         batch_proof_method_ids: &InitialBatchProofMethodIds,
         last_l2_height: &mut u64,
-        last_commitment_index: &mut Option<u32>,
+        last_commitment_index: &mut u32,
         last_l2_state_root: &mut [u8; 32],
-        fully_unstitched: &mut std::collections::BTreeMap<[u8; 32], ([u8; 32], u64, (u32, u32))>,
+        fully_unstitched: &mut std::collections::BTreeMap<[u8; 32], ([u8; 32], u64, u32)>,
         batch_proofs_with_missing_sequencer_commitments: &mut Vec<BatchProofInfo>,
         working_set: &mut WorkingSet<S>,
     ) -> Result<(), CircuitError> {
@@ -163,7 +172,7 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
 
         // Do not add if last l2 height is smaller or equal to previous output
         // This is to defend against replay attacks, for example if somehow there is the script of batch proof 1 we do not need to go through it again
-        if batch_proof_output_last_l2_height <= last_l2_height && last_l2_height != 0 {
+        if batch_proof_output_last_l2_height <= *last_l2_height && *last_l2_height != 0 {
             return Err("Last L2 height is less than proof's last l2 height");
         }
 
@@ -185,69 +194,34 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
 
         Z::verify(proof, &batch_proof_method_id.into()).map_err(|_| "Failed to verify proof")?;
 
-        match self.verify_seq_comm_relation(batch_proof_output, working_set) {
+        match self.verify_seq_comm_relation(&batch_proof_output, working_set) {
             ProofProcess::Correct => {
-                match last_commitment_index {
-                    Some(last_commitment_idx) => {
-                        // Both checks match, this is the expected case
-                        if batch_proof_output_sequencer_commitment_index_range.0
-                            == last_commitment_idx + 1
-                            && batch_proof_output.initial_state_root() == last_l2_state_root
-                        {
-                            *last_l2_state_root = batch_proof_output_final_state_root;
-                            *last_l2_height = batch_proof_output_last_l2_height;
-                            *last_commitment_index =
-                                Some(batch_proof_output_sequencer_commitment_index_range.0);
-                        }
-                        // None of the checks match, proof order is wrong, put it to unstitched
-                        else if batch_proof_output_sequencer_commitment_index_range.0
-                            != last_commitment_idx + 1
-                            && batch_proof_output.initial_state_root() != last_l2_state_root
-                        {
-                            fully_unstitched.insert(
-                                batch_proof_output_initial_state_root,
-                                (
-                                    batch_proof_output_final_state_root,
-                                    batch_proof_output_last_l2_height,
-                                    batch_proof_output_sequencer_commitment_index_range,
-                                ),
-                            );
-                        }
-                        // One of the checks is wrong, this should never happen, in this case the proof is discarded
-                        else {
-                            println!("Discarding proof, sequencer commitment index or initial state root is wrong\n Expected index: {}, got: {}\nExpected initial state root: {:?}, got: {:?}", last_commitment_idx + 1, batch_proof_output_sequencer_commitment_index_range.0, last_l2_state_root, batch_proof_output.initial_state_root());
-                        }
-                    }
-                    None => {
-                        // If this is the first light client proof only then this can be None
-                        // In that case we should check for the first commitment which is the commitment with index 0
-                        if batch_proof_output_sequencer_commitment_index_range.0 == 0
-                            && batch_proof_output.initial_state_root() == last_l2_state_root
-                        {
-                            *last_l2_state_root = batch_proof_output_final_state_root;
-                            *last_l2_height = batch_proof_output_last_l2_height;
-                            *last_commitment_index =
-                                Some(batch_proof_output_sequencer_commitment_index_range.0);
-                        }
-                        // None of the checks match, proof order is wrong, put it to unstitched
-                        else if batch_proof_output_sequencer_commitment_index_range.0
-                            != last_commitment_idx + 1
-                            && batch_proof_output.initial_state_root() != last_l2_state_root
-                        {
-                            fully_unstitched.insert(
-                                batch_proof_output_initial_state_root,
-                                (
-                                    batch_proof_output_final_state_root,
-                                    batch_proof_output_last_l2_height,
-                                    batch_proof_output_sequencer_commitment_index_range,
-                                ),
-                            );
-                        }
-                        // One of the checks is wrong, this should never happen, in this case the proof is discarded
-                        else {
-                            return Err(&format!("Discarding proof, sequencer commitment index or initial state root is wrong\n Expected index: {}, got: {}\nExpected initial state root: {:?}, got: {:?}", 0, batch_proof_output_sequencer_commitment_index_range.0, last_l2_state_root, batch_proof_output.initial_state_root()));
-                        }
-                    }
+                // Both checks match, this is the expected case
+                if batch_proof_output_sequencer_commitment_index_range.0
+                    == *last_commitment_index + 1
+                    && batch_proof_output.initial_state_root() == *last_l2_state_root
+                {
+                    *last_l2_state_root = batch_proof_output_final_state_root;
+                    *last_l2_height = batch_proof_output_last_l2_height;
+                    *last_commitment_index = batch_proof_output_sequencer_commitment_index_range.0;
+                }
+                // None of the checks match, proof order is wrong, put it to unstitched
+                else if batch_proof_output_sequencer_commitment_index_range.0
+                    != *last_commitment_index + 1
+                    && batch_proof_output.initial_state_root() != *last_l2_state_root
+                {
+                    fully_unstitched.insert(
+                        batch_proof_output_initial_state_root,
+                        (
+                            batch_proof_output_final_state_root,
+                            batch_proof_output_last_l2_height,
+                            batch_proof_output_sequencer_commitment_index_range.1,
+                        ),
+                    );
+                }
+                // One of the checks is wrong, this should never happen, in this case the proof is discarded
+                else {
+                    println!("Discarding proof, sequencer commitment index or initial state root is wrong\n Expected index: {}, got: {}\nExpected initial state root: {:?}, got: {:?}", *last_commitment_index + 1, batch_proof_output_sequencer_commitment_index_range.0, *last_l2_state_root, batch_proof_output.initial_state_root());
                 }
             }
             ProofProcess::MissingSequencerCommitment(missing_commitments) => {
@@ -255,13 +229,13 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
                     batch_proof_output_initial_state_root,
                     batch_proof_output_final_state_root,
                     batch_proof_output_last_l2_height,
-                    batch_proof_output_sequencer_commitment_index_range,
+                    batch_proof_output_sequencer_commitment_index_range.1,
                     Some(missing_commitments),
                 ));
                 return Ok(());
             }
-            ProofProcess::Discard(e) => {
-                return Err(&format!("Proof discarded: {}", e));
+            ProofProcess::Discard(_) => {
+                return Err("Proof discarded");
             }
         }
 
@@ -271,7 +245,7 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
                 batch_proof_output_initial_state_root,
                 batch_proof_output_final_state_root,
                 batch_proof_output_last_l2_height,
-                batch_proof_output.sequencer_commitment_index_range(),
+                batch_proof_output_sequencer_commitment_index_range.1,
                 None,
             ),
         );
@@ -300,21 +274,29 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
         BlockHashAccessor::<S>::insert(da_block_header.hash().into(), &mut working_set);
 
         // Mapping from initial state root to final state root, last L2 height and sequencer commitment range
-        let mut initial_to_final = BTreeMap::<[u8; 32], ([u8; 32], u64, (u32, u32))>::new();
+        let mut initial_to_final = BTreeMap::<[u8; 32], ([u8; 32], u64, u32)>::new();
 
-        let mut batch_proofs_with_missing_sequencer_commitments =
-            previous_light_client_proof_output
-                .map(|o| o.batch_proofs_with_missing_sequencer_commitments)
-                .unwrap_or_default();
-
-        let (mut last_l2_state_root, mut last_l2_height) =
-            previous_light_client_proof_output.as_ref().map_or_else(
-                || {
-                    // if no previous proof, we start from genesis state root
-                    (l2_genesis_root, 0)
-                },
-                |prev_journal| (prev_journal.l2_state_root, prev_journal.last_l2_height),
-            );
+        let (
+            mut last_l2_state_root,
+            mut last_l2_height,
+            mut last_sequencer_commitment_index,
+            mut batch_proofs_with_missing_sequencer_commitments,
+        ) = previous_light_client_proof_output.as_ref().map_or_else(
+            || {
+                // if no previous proof, we start from genesis state root
+                (l2_genesis_root, 0, 0, vec![])
+            },
+            |prev_journal| {
+                (
+                    prev_journal.l2_state_root,
+                    prev_journal.last_l2_height,
+                    prev_journal.last_sequencer_commitment_index,
+                    prev_journal
+                        .batch_proofs_with_missing_sequencer_commitments
+                        .clone(),
+                )
+            },
+        );
 
         // If we have a previous light client proof, check they can be chained
         // If not, skip for now
@@ -326,7 +308,7 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
                     (
                         unchained_info.final_state_root,
                         unchained_info.last_l2_height,
-                        unchained_info.sequencer_commitment_range,
+                        unchained_info.last_sequencer_commitment_index,
                     ),
                 );
             }
@@ -337,9 +319,6 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
             .map_or(initial_batch_proof_method_ids, |o| {
                 o.batch_proof_method_ids.clone()
             });
-
-        let mut last_sequencer_commitment_index =
-            previous_light_client_proof_output.map(|o| o.last_sequencer_commitment_index);
 
         'blob_loop: for blob in da_txs {
             let Ok(data) = DataOnDa::try_from_slice(blob.full_data()) else {
@@ -465,7 +444,7 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
                     {
                         SequencerCommitmentAccessor::<S>::insert(
                             commitment.index,
-                            commitment,
+                            commitment.clone(),
                             &mut working_set,
                         );
                         // TODO: Optimize below, use sth like:
@@ -480,7 +459,7 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
                         let mut remove_batch_proof_indexes = vec![];
                         for (proof_index, batch_proof_with_missing_seq_comms) in
                             batch_proofs_with_missing_sequencer_commitments
-                                .iter()
+                                .iter_mut()
                                 .enumerate()
                         {
                             let mut missing_comm_idx_to_remove = vec![];
@@ -531,16 +510,20 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
         );
 
         // Now only thing left is the state update if exists and others are unchained
-        if let Some((final_root, last_l2, last_seq_comm_range)) =
+        if let Some((final_root, last_l2, last_commitment_index)) =
             initial_to_final.remove(&last_l2_state_root)
         {
             last_l2_height = last_l2;
             last_l2_state_root = final_root;
-            last_sequencer_commitment_index = Some(last_seq_comm_range.1);
+            last_sequencer_commitment_index = last_commitment_index;
         }
 
         // Collect unchained outputs
-        let unchained_outputs = collect_unchained_outputs(&initial_to_final, last_l2_height);
+        let unchained_outputs = collect_unchained_outputs(
+            &initial_to_final,
+            last_l2_height,
+            last_sequencer_commitment_index,
+        );
 
         let (read_write_log, mut witness) = working_set.checkpoint().freeze();
 
@@ -574,8 +557,7 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
             batch_proof_method_ids,
             witness,
             change_set: storage,
-            last_sequencer_commitment_index: last_sequencer_commitment_index
-                .expect("There must be sequencer commitment index"),
+            last_sequencer_commitment_index: last_sequencer_commitment_index,
             semi_unstitched: batch_proofs_with_missing_sequencer_commitments,
         }
     }
