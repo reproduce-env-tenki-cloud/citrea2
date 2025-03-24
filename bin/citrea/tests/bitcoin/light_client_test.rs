@@ -73,6 +73,10 @@ impl TestCase for LightClientProvingTest {
         }
     }
 
+    fn scan_l1_start_height() -> Option<u64> {
+        Some(169)
+    }
+
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
         let da = f.bitcoin_nodes.get(0).unwrap();
         let sequencer = f.sequencer.as_ref().unwrap();

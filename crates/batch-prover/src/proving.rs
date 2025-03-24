@@ -205,16 +205,21 @@ where
             })?
             .expect("There should be a state root");
 
-        let previous_sequencer_commitment = sequencer_commitments
-            [*sequencer_commitments_range.start()]
-        .index
-        .checked_sub(1)
-        .map(|index| {
-            ledger
-                .get_commitment_by_index(index)
-                .expect("Should get commitment")
-                .expect("Commitment should exist")
-        });
+        let previous_sequencer_commitment =
+        // If first commitment (index == 1) then the previous commitment will be None
+            if sequencer_commitments[*sequencer_commitments_range.start()].index == 1 {
+                None
+            } else {
+                sequencer_commitments[*sequencer_commitments_range.start()]
+                    .index
+                    .checked_sub(1)
+                    .map(|index| {
+                        ledger
+                            .get_commitment_by_index(index)
+                            .expect("Should get commitment")
+                            .expect("Commitment should exist")
+                    })
+            };
 
         let input = BatchProofCircuitInputV3 {
             initial_state_root,
