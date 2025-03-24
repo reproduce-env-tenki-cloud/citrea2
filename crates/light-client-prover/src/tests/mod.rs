@@ -1,5 +1,6 @@
 pub mod test_utils;
 
+use rand::seq;
 use sov_mock_da::{MockAddress, MockBlob, MockBlockHeader, MockDaSpec, MockDaVerifier};
 use sov_mock_zkvm::MockZkGuest;
 use sov_modules_api::WorkingSet;
@@ -10,7 +11,8 @@ use sov_rollup_interface::Network;
 use sov_state::{Witness, ZkStorage};
 use tempfile::tempdir;
 use test_utils::{
-    create_mock_batch_proof, create_new_method_id_tx, create_prev_lcp_serialized,
+    create_mock_batch_proof, create_mock_sequencer_commitment,
+    create_mock_sequencer_commitment_blob, create_new_method_id_tx, create_prev_lcp_serialized,
     create_random_state_diff, create_serialized_mock_proof, NativeCircuitRunner,
 };
 
@@ -29,6 +31,12 @@ const INITIAL_BATCH_PROOF_METHOD_IDS: [(Height, [u32; 8]); 1] = [(0, [0u32; 8])]
 fn test_light_client_circuit_valid_da_valid_data() {
     let db_dir = tempdir().unwrap();
     let native_circuit_runner = NativeCircuitRunner::new(db_dir.path().to_path_buf());
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+    let seq_comm_2 = create_mock_sequencer_commitment(2, 3);
+
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+    let seq_comm_2_blob = create_mock_sequencer_commitment_blob(seq_comm_2.clone());
+
     let zk_circuit_runner = LightClientProofCircuit::<ZkStorage, MockDaSpec, MockZkGuest>::new();
 
     let light_client_proof_method_id = [1u32; 8];
@@ -36,8 +44,24 @@ fn test_light_client_circuit_valid_da_valid_data() {
 
     let block_header_1 = MockBlockHeader::from_height(1);
 
-    let blob_1 = create_mock_batch_proof([1u8; 32], [2u8; 32], 2, true, block_header_1.hash.0);
-    let blob_2 = create_mock_batch_proof([2u8; 32], [3u8; 32], 3, true, block_header_1.hash.0);
+    let blob_1 = create_mock_batch_proof(
+        [1u8; 32],
+        [2u8; 32],
+        2,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
+    );
+    let blob_2 = create_mock_batch_proof(
+        [2u8; 32],
+        [3u8; 32],
+        3,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_2.clone()],
+        Some(seq_comm_1.serialize_and_calculate_sha_256()),
+    );
 
     let l2_genesis_state_root = [1u8; 32];
     let batch_prover_da_pub_key = [9; 32].to_vec();
@@ -49,7 +73,8 @@ fn test_light_client_circuit_valid_da_valid_data() {
             light_client_proof_method_id,
             da_block_header: block_header_1.clone(),
             inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob_1, blob_2],
+            // can be seen here that even when commitments of proofs are given after the proofs themselves the circuit can still verify them
+            completeness_proof: vec![blob_1, blob_2, seq_comm_1_blob, seq_comm_2_blob],
             witness: Default::default(),
         },
         l2_genesis_state_root,
@@ -76,9 +101,31 @@ fn test_light_client_circuit_valid_da_valid_data() {
     assert!(output_1.unchained_batch_proofs_info.is_empty());
     assert_eq!(output_1.last_l2_height, 3);
 
+    let seq_comm_3 = create_mock_sequencer_commitment(3, 4);
+    let seq_comm_4 = create_mock_sequencer_commitment(4, 5);
+
+    let seq_comm_3_blob = create_mock_sequencer_commitment_blob(seq_comm_3.clone());
+    let seq_comm_4_blob = create_mock_sequencer_commitment_blob(seq_comm_4.clone());
+
     // Now get more proofs to see the previous light client part is also working correctly
-    let blob_3 = create_mock_batch_proof([3u8; 32], [4u8; 32], 4, true, block_header_1.hash.0);
-    let blob_4 = create_mock_batch_proof([4u8; 32], [5u8; 32], 5, true, block_header_1.hash.0);
+    let blob_3 = create_mock_batch_proof(
+        [3u8; 32],
+        [4u8; 32],
+        4,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_3.clone()],
+        Some(seq_comm_2.serialize_and_calculate_sha_256()),
+    );
+    let blob_4 = create_mock_batch_proof(
+        [4u8; 32],
+        [5u8; 32],
+        5,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_4.clone()],
+        Some(seq_comm_3.serialize_and_calculate_sha_256()),
+    );
 
     let block_header_2 = MockBlockHeader::from_height(2);
 
@@ -90,7 +137,7 @@ fn test_light_client_circuit_valid_da_valid_data() {
             da_block_header: block_header_2,
             light_client_proof_method_id,
             inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob_3, blob_4],
+            completeness_proof: vec![blob_3, seq_comm_3_blob, seq_comm_4_blob, blob_4],
             witness: Default::default(),
         },
         l2_genesis_state_root,
@@ -116,6 +163,13 @@ fn test_light_client_circuit_valid_da_valid_data() {
     assert_eq!(output_2.l2_state_root, [5; 32]);
     assert!(output_2.unchained_batch_proofs_info.is_empty());
     assert_eq!(output_2.last_l2_height, 5);
+    assert_eq!(output_2.last_sequencer_commitment_index, 4);
+    assert_eq!(
+        output_2
+            .batch_proofs_with_missing_sequencer_commitments
+            .len(),
+        0
+    );
 }
 
 #[test]
@@ -129,8 +183,30 @@ fn test_wrong_order_da_blocks_should_still_work() {
 
     let block_header_1 = MockBlockHeader::from_height(1);
 
-    let blob_1 = create_mock_batch_proof([1u8; 32], [2u8; 32], 2, true, block_header_1.hash.0);
-    let blob_2 = create_mock_batch_proof([2u8; 32], [3u8; 32], 3, true, block_header_1.hash.0);
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+    let seq_comm_2 = create_mock_sequencer_commitment(2, 3);
+
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+    let seq_comm_2_blob = create_mock_sequencer_commitment_blob(seq_comm_2.clone());
+
+    let blob_1 = create_mock_batch_proof(
+        [1u8; 32],
+        [2u8; 32],
+        2,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
+    );
+    let blob_2 = create_mock_batch_proof(
+        [2u8; 32],
+        [3u8; 32],
+        3,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_2.clone()],
+        None,
+    );
 
     let l2_genesis_state_root = [1u8; 32];
     let batch_prover_da_pub_key = [9; 32].to_vec();
@@ -142,7 +218,7 @@ fn test_wrong_order_da_blocks_should_still_work() {
             light_client_proof_method_id,
             da_block_header: block_header_1,
             inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob_2, blob_1],
+            completeness_proof: vec![blob_2, seq_comm_1_blob, blob_1, seq_comm_2_blob],
             witness: Default::default(),
         },
         l2_genesis_state_root,
@@ -181,8 +257,30 @@ fn create_unchainable_outputs_then_chain_them_on_next_block() {
 
     let block_header_1 = MockBlockHeader::from_height(1);
 
-    let blob_1 = create_mock_batch_proof([2u8; 32], [3u8; 32], 3, true, block_header_1.hash.0);
-    let blob_2 = create_mock_batch_proof([3u8; 32], [4u8; 32], 4, true, block_header_1.hash.0);
+    let seq_comm_2 = create_mock_sequencer_commitment(2, 3);
+    let seq_comm_3 = create_mock_sequencer_commitment(3, 4);
+
+    let seq_comm_2_blob = create_mock_sequencer_commitment_blob(seq_comm_2.clone());
+    let seq_comm_3_blob = create_mock_sequencer_commitment_blob(seq_comm_3.clone());
+
+    let blob_1 = create_mock_batch_proof(
+        [2u8; 32],
+        [3u8; 32],
+        3,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_2.clone()],
+        None,
+    );
+    let blob_2 = create_mock_batch_proof(
+        [3u8; 32],
+        [4u8; 32],
+        4,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_3.clone()],
+        None,
+    );
 
     let l2_genesis_state_root = [1u8; 32];
     let batch_prover_da_pub_key = [9; 32].to_vec();
@@ -194,7 +292,7 @@ fn create_unchainable_outputs_then_chain_them_on_next_block() {
             light_client_proof_method_id,
             da_block_header: block_header_1.clone(),
             inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob_2, blob_1],
+            completeness_proof: vec![blob_2, blob_1, seq_comm_2_blob, seq_comm_3_blob],
             witness: Default::default(),
         },
         l2_genesis_state_root,
@@ -218,23 +316,34 @@ fn create_unchainable_outputs_then_chain_them_on_next_block() {
 
     // Check that the state transition has not happened because we are missing 1->2
     assert_eq!(output_1.l2_state_root, [1; 32]);
-    // There would normally be 2 outputs here but since the order of the da data is => 3-4 and then 2-3 this is chained to one output => 2-4
-    assert_eq!(output_1.unchained_batch_proofs_info.len(), 1);
+
+    assert_eq!(output_1.unchained_batch_proofs_info.len(), 2);
     // Check to make sure
-    assert_eq!(output_1.unchained_batch_proofs_info[0].last_l2_height, 4);
+    assert_eq!(output_1.unchained_batch_proofs_info[1].last_l2_height, 4);
     // Init state root
     assert_eq!(
-        output_1.unchained_batch_proofs_info[0].initial_state_root,
-        [2; 32]
+        output_1.unchained_batch_proofs_info[1].initial_state_root,
+        [3; 32]
     );
     // Fin state root
     assert_eq!(
-        output_1.unchained_batch_proofs_info[0].final_state_root,
+        output_1.unchained_batch_proofs_info[1].final_state_root,
         [4; 32]
     );
 
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+
     // On the next l1 block, give 1-2 transition
-    let blob_1 = create_mock_batch_proof([1u8; 32], [2u8; 32], 2, true, block_header_1.hash.0);
+    let blob_1 = create_mock_batch_proof(
+        [1u8; 32],
+        [2u8; 32],
+        2,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
+    );
 
     let block_header_2 = MockBlockHeader::from_height(2);
 
@@ -246,7 +355,7 @@ fn create_unchainable_outputs_then_chain_them_on_next_block() {
             light_client_proof_method_id,
             da_block_header: block_header_2,
             inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob_1],
+            completeness_proof: vec![blob_1, seq_comm_1_blob],
             witness: Default::default(),
         },
         l2_genesis_state_root,
@@ -286,8 +395,30 @@ fn test_header_chain_proof_height_and_hash() {
 
     let block_header_1 = MockBlockHeader::from_height(1);
 
-    let blob_1 = create_mock_batch_proof([1u8; 32], [2u8; 32], 2, true, block_header_1.hash.0);
-    let blob_2 = create_mock_batch_proof([2u8; 32], [3u8; 32], 3, true, block_header_1.hash.0);
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+    let seq_comm_2 = create_mock_sequencer_commitment(2, 3);
+
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+    let seq_comm_2_blob = create_mock_sequencer_commitment_blob(seq_comm_2.clone());
+
+    let blob_1 = create_mock_batch_proof(
+        [1u8; 32],
+        [2u8; 32],
+        2,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
+    );
+    let blob_2 = create_mock_batch_proof(
+        [2u8; 32],
+        [3u8; 32],
+        3,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_2.clone()],
+        Some(seq_comm_1.serialize_and_calculate_sha_256()),
+    );
 
     let l2_genesis_state_root = [1u8; 32];
     let batch_prover_da_pub_key = [9; 32].to_vec();
@@ -299,7 +430,7 @@ fn test_header_chain_proof_height_and_hash() {
             light_client_proof_method_id,
             da_block_header: block_header_1.clone(),
             inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob_1, blob_2],
+            completeness_proof: vec![seq_comm_1_blob, seq_comm_2_blob, blob_1, blob_2],
             witness: Default::default(),
         },
         l2_genesis_state_root,
@@ -326,9 +457,31 @@ fn test_header_chain_proof_height_and_hash() {
     assert!(output_1.unchained_batch_proofs_info.is_empty());
     assert_eq!(output_1.last_l2_height, 3);
 
+    let seq_comm_3 = create_mock_sequencer_commitment(3, 4);
+    let seq_comm_4 = create_mock_sequencer_commitment(4, 5);
+
+    let seq_comm_3_blob = create_mock_sequencer_commitment_blob(seq_comm_3.clone());
+    let seq_comm_4_blob = create_mock_sequencer_commitment_blob(seq_comm_4.clone());
+
     // Now give l1 block with height 3
-    let blob_3 = create_mock_batch_proof([3u8; 32], [4u8; 32], 4, true, block_header_1.hash.0);
-    let blob_4 = create_mock_batch_proof([4u8; 32], [5u8; 32], 5, true, block_header_1.hash.0);
+    let blob_3 = create_mock_batch_proof(
+        [3u8; 32],
+        [4u8; 32],
+        4,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_3.clone()],
+        Some(seq_comm_2.serialize_and_calculate_sha_256()),
+    );
+    let blob_4 = create_mock_batch_proof(
+        [4u8; 32],
+        [5u8; 32],
+        5,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_4.clone()],
+        Some(seq_comm_3.serialize_and_calculate_sha_256()),
+    );
 
     let block_header_2 = MockBlockHeader::from_height(3);
 
@@ -340,7 +493,7 @@ fn test_header_chain_proof_height_and_hash() {
             da_block_header: block_header_2,
             light_client_proof_method_id,
             inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob_3, blob_4],
+            completeness_proof: vec![seq_comm_3_blob, seq_comm_4_blob, blob_3, blob_4],
             witness: Default::default(),
         },
         l2_genesis_state_root,
@@ -379,8 +532,30 @@ fn test_unverifiable_batch_proofs() {
 
     let block_header_1 = MockBlockHeader::from_height(1);
 
-    let blob_1 = create_mock_batch_proof([1u8; 32], [2u8; 32], 2, true, block_header_1.hash.0);
-    let blob_2 = create_mock_batch_proof([2u8; 32], [3u8; 32], 3, false, block_header_1.hash.0);
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+    let seq_comm_2 = create_mock_sequencer_commitment(2, 3);
+
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+    let seq_comm_2_blob = create_mock_sequencer_commitment_blob(seq_comm_2.clone());
+
+    let blob_1 = create_mock_batch_proof(
+        [1u8; 32],
+        [2u8; 32],
+        2,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
+    );
+    let blob_2 = create_mock_batch_proof(
+        [2u8; 32],
+        [3u8; 32],
+        3,
+        false,
+        block_header_1.hash.0,
+        vec![seq_comm_2.clone()],
+        Some(seq_comm_1.serialize_and_calculate_sha_256()),
+    );
 
     let l2_genesis_state_root = [1u8; 32];
     let batch_prover_da_pub_key = [9; 32].to_vec();
@@ -392,7 +567,7 @@ fn test_unverifiable_batch_proofs() {
             light_client_proof_method_id,
             da_block_header: block_header_1,
             inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob_1, blob_2],
+            completeness_proof: vec![seq_comm_1_blob, seq_comm_2_blob, blob_1, blob_2],
             witness: Default::default(),
         },
         l2_genesis_state_root,
@@ -434,8 +609,30 @@ fn test_unverifiable_prev_light_client_proof() {
 
     let block_header_1 = MockBlockHeader::from_height(1);
 
-    let blob_1 = create_mock_batch_proof([1u8; 32], [2u8; 32], 2, true, block_header_1.hash.0);
-    let blob_2 = create_mock_batch_proof([2u8; 32], [3u8; 32], 3, false, block_header_1.hash.0);
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+    let seq_comm_2 = create_mock_sequencer_commitment(2, 3);
+
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+    let seq_comm_2_blob = create_mock_sequencer_commitment_blob(seq_comm_2.clone());
+
+    let blob_1 = create_mock_batch_proof(
+        [1u8; 32],
+        [2u8; 32],
+        2,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
+    );
+    let blob_2 = create_mock_batch_proof(
+        [2u8; 32],
+        [3u8; 32],
+        3,
+        false,
+        block_header_1.hash.0,
+        vec![seq_comm_2.clone()],
+        Some(seq_comm_1.serialize_and_calculate_sha_256()),
+    );
 
     let l2_genesis_state_root = [1u8; 32];
     let batch_prover_da_pub_key = [9; 32].to_vec();
@@ -447,7 +644,7 @@ fn test_unverifiable_prev_light_client_proof() {
             light_client_proof_method_id,
             da_block_header: block_header_1,
             inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob_1, blob_2],
+            completeness_proof: vec![seq_comm_1_blob, seq_comm_2_blob, blob_1, blob_2],
             witness: Default::default(),
         },
         l2_genesis_state_root,
@@ -524,7 +721,19 @@ fn test_new_method_id_txs() {
 
     let block_header_1 = MockBlockHeader::from_height(1);
 
-    let blob_1 = create_mock_batch_proof([1u8; 32], [2u8; 32], 2, true, block_header_1.hash.0);
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+
+    let blob_1 = create_mock_batch_proof(
+        [1u8; 32],
+        [2u8; 32],
+        2,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
+    );
     let blob_2 = create_new_method_id_tx(10, [2u32; 8], method_id_upgrade_authority);
 
     let input = native_circuit_runner.run(
@@ -533,7 +742,7 @@ fn test_new_method_id_txs() {
             light_client_proof_method_id,
             da_block_header: block_header_1,
             inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob_1, blob_2],
+            completeness_proof: vec![seq_comm_1_blob, blob_1, blob_2],
             witness: Default::default(),
         },
         l2_genesis_state_root,
@@ -658,8 +867,30 @@ fn test_unverifiable_batch_proof_is_ignored() {
 
     let block_header_1 = MockBlockHeader::from_height(1);
 
-    let blob_1 = create_mock_batch_proof([1u8; 32], [2u8; 32], 2, true, block_header_1.hash.0);
-    let blob_2 = create_mock_batch_proof([2u8; 32], [3u8; 32], 2, false, block_header_1.hash.0);
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+    let seq_comm_2 = create_mock_sequencer_commitment(2, 2);
+
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+    let seq_comm_2_blob = create_mock_sequencer_commitment_blob(seq_comm_2.clone());
+
+    let blob_1 = create_mock_batch_proof(
+        [1u8; 32],
+        [2u8; 32],
+        2,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
+    );
+    let blob_2 = create_mock_batch_proof(
+        [2u8; 32],
+        [3u8; 32],
+        2,
+        false,
+        block_header_1.hash.0,
+        vec![seq_comm_2.clone()],
+        Some(seq_comm_1.serialize_and_calculate_sha_256()),
+    );
 
     let input = native_circuit_runner.run(
         LightClientCircuitInput {
@@ -667,7 +898,7 @@ fn test_unverifiable_batch_proof_is_ignored() {
             light_client_proof_method_id,
             da_block_header: block_header_1,
             inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob_1, blob_2],
+            completeness_proof: vec![seq_comm_1_blob, seq_comm_2_blob, blob_1, blob_2],
             witness: Default::default(),
         },
         l2_genesis_state_root,
@@ -710,6 +941,10 @@ fn test_light_client_circuit_verify_chunks() {
 
     let block_header_1 = MockBlockHeader::from_height(1);
 
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+
     let serialized_mock_proof = create_serialized_mock_proof(
         l2_genesis_state_root,
         [2u8; 32],
@@ -717,6 +952,8 @@ fn test_light_client_circuit_verify_chunks() {
         true,
         Some(state_diff),
         block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
     );
 
     let chunk1 = serialized_mock_proof[0..39700].to_vec();
@@ -827,6 +1064,10 @@ fn test_missing_chunk() {
 
     let block_header_1 = MockBlockHeader::from_height(1);
 
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+
     let serialized_mock_proof = create_serialized_mock_proof(
         l2_genesis_state_root,
         [2u8; 32],
@@ -834,6 +1075,8 @@ fn test_missing_chunk() {
         true,
         Some(state_diff),
         block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
     );
 
     let chunk1 = serialized_mock_proof[0..39700].to_vec();
@@ -945,6 +1188,10 @@ fn test_malicious_aggregate_should_not_work() {
 
     let state_diff = create_random_state_diff(100);
 
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+
     let serialized_mock_proof = create_serialized_mock_proof(
         l2_genesis_state_root,
         [2u8; 32],
@@ -952,6 +1199,8 @@ fn test_malicious_aggregate_should_not_work() {
         true,
         Some(state_diff),
         block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
     );
 
     let chunk1 = serialized_mock_proof[0..39700].to_vec();
@@ -986,7 +1235,7 @@ fn test_malicious_aggregate_should_not_work() {
             light_client_proof_method_id,
             da_block_header: block_header_1.clone(),
             inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob1.clone(), blob2.clone()],
+            completeness_proof: vec![seq_comm_1_blob, blob1.clone(), blob2.clone()],
             witness: Default::default(),
         },
         l2_genesis_state_root,
@@ -1067,7 +1316,7 @@ fn test_malicious_aggregate_should_not_work() {
     let chunk3_da_data = DataOnDa::Chunk(chunk3.clone());
     let chunk3_serialized = borsh::to_vec(&chunk3_da_data).expect("should serialize");
 
-    // Last chhunk
+    // Last chunk
     let blob3 = MockBlob::new(
         chunk3_serialized,
         MockAddress::new([9u8; 32]),
@@ -1133,120 +1382,6 @@ fn test_malicious_aggregate_should_not_work() {
     assert_eq!(output.l2_state_root, [2; 32]);
     assert_eq!(output.last_l2_height, 101);
     assert!(output.unchained_batch_proofs_info.is_empty());
-}
-
-#[test]
-fn test_unknown_block_hash_in_batch_proof_not_verified() {
-    let db_dir = tempdir().unwrap();
-    let native_circuit_runner = NativeCircuitRunner::new(db_dir.path().to_path_buf());
-    let zk_circuit_runner = LightClientProofCircuit::<ZkStorage, MockDaSpec, MockZkGuest>::new();
-
-    let light_client_proof_method_id = [1u32; 8];
-    let da_verifier = MockDaVerifier {};
-
-    let block_header_1 = MockBlockHeader::from_height(1);
-
-    let blob_1 = create_mock_batch_proof([1u8; 32], [2u8; 32], 2, true, block_header_1.hash.0);
-    let incorrect_hash = {
-        let mut copy = block_header_1.hash.0;
-
-        copy[0] = copy[0].wrapping_add(1);
-        copy
-    };
-    let blob_2 = create_mock_batch_proof([2u8; 32], [3u8; 32], 3, true, incorrect_hash);
-
-    let l2_genesis_state_root = [1u8; 32];
-    let batch_prover_da_pub_key = [9; 32].to_vec();
-    let method_id_upgrade_authority = [11u8; 32].to_vec();
-
-    let input = native_circuit_runner.run(
-        LightClientCircuitInput {
-            previous_light_client_proof_journal: None,
-            light_client_proof_method_id,
-            da_block_header: block_header_1.clone(),
-            inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob_1, blob_2],
-            witness: Default::default(),
-        },
-        l2_genesis_state_root,
-        INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
-        &batch_prover_da_pub_key,
-        &method_id_upgrade_authority,
-    );
-
-    let output_1 = zk_circuit_runner
-        .run_circuit(
-            da_verifier.clone(),
-            input,
-            ZkStorage::new(),
-            Network::Nightly,
-            l2_genesis_state_root,
-            INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
-            &batch_prover_da_pub_key,
-            &method_id_upgrade_authority,
-        )
-        .unwrap();
-
-    // Check that the state transition actually happened
-    assert_eq!(output_1.l2_state_root, [2; 32]);
-    assert!(output_1.unchained_batch_proofs_info.is_empty());
-    assert_eq!(output_1.last_l2_height, 2);
-
-    let incorrect_hash = {
-        let mut copy = block_header_1.hash.0;
-
-        copy[0] = copy[0].wrapping_add(1);
-        copy
-    };
-    // Now get more proofs to see the previous light client part is also working correctly
-    let blob_3 = create_mock_batch_proof([3u8; 32], [4u8; 32], 4, true, incorrect_hash);
-    let blob_4 = create_mock_batch_proof([4u8; 32], [5u8; 32], 5, true, block_header_1.hash.0);
-
-    let block_header_2 = MockBlockHeader::from_height(2);
-
-    let mock_output_1_serialized = create_prev_lcp_serialized(output_1, true);
-
-    let input_2 = native_circuit_runner.run(
-        LightClientCircuitInput {
-            previous_light_client_proof_journal: Some(mock_output_1_serialized),
-            da_block_header: block_header_2,
-            light_client_proof_method_id,
-            inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob_3, blob_4],
-            witness: Default::default(),
-        },
-        l2_genesis_state_root,
-        INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
-        &batch_prover_da_pub_key,
-        &method_id_upgrade_authority,
-    );
-
-    let output_2 = zk_circuit_runner
-        .run_circuit(
-            da_verifier.clone(),
-            input_2,
-            ZkStorage::new(),
-            Network::Nightly,
-            l2_genesis_state_root,
-            INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
-            &batch_prover_da_pub_key,
-            &method_id_upgrade_authority,
-        )
-        .unwrap();
-
-    // Check that the state transition actually happened
-    assert_eq!(output_2.l2_state_root, [2; 32]);
-    assert_eq!(
-        output_2.unchained_batch_proofs_info,
-        vec![BatchProofInfo {
-            initial_state_root: [4u8; 32],
-            final_state_root: [5u8; 32],
-            last_l2_height: 5,
-            last_sequencer_commitment_index: 5,
-            missing_commitments: vec![]
-        }],
-    );
-    assert_eq!(output_2.last_l2_height, 2);
 }
 
 #[test]

@@ -5,15 +5,41 @@ use std::sync::Arc;
 use rand::{thread_rng, Rng};
 use sov_mock_da::{MockAddress, MockBlob, MockDaSpec, MockDaVerifier};
 use sov_mock_zkvm::{MockCodeCommitment, MockJournal, MockProof, MockZkvm};
-use sov_modules_api::Zkvm;
+use sov_modules_api::{WorkingSet, Zkvm};
+use sov_modules_core::{ReadWriteLog, Storage};
 use sov_prover_storage_manager::{Config, ProverStorage, ProverStorageManager};
-use sov_rollup_interface::da::{BatchProofMethodId, BlobReaderTrait, DaVerifier, DataOnDa};
+use sov_rollup_interface::da::{
+    BatchProofMethodId, BlobReaderTrait, DaVerifier, DataOnDa, SequencerCommitment,
+};
 use sov_rollup_interface::zk::batch_proof::output::v3::BatchProofCircuitOutputV3;
 use sov_rollup_interface::zk::batch_proof::output::{BatchProofCircuitOutput, CumulativeStateDiff};
 use sov_rollup_interface::zk::light_client_proof::input::LightClientCircuitInput;
 use sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
+use sov_state::Witness;
 
+use crate::circuit::accessors::SequencerCommitmentAccessor;
 use crate::circuit::LightClientProofCircuit;
+
+pub(crate) fn create_mock_sequencer_commitment(index: u32, l2_end: u64) -> SequencerCommitment {
+    SequencerCommitment {
+        index,
+        l2_end_block_number: l2_end,
+        merkle_root: [0u8; 32],
+    }
+}
+
+pub(crate) fn create_mock_sequencer_commitment_blob(
+    sequencer_commitment: SequencerCommitment,
+) -> MockBlob {
+    let da_data = DataOnDa::SequencerCommitment(sequencer_commitment);
+
+    let da_data_ser = borsh::to_vec(&da_data).expect("should serialize");
+
+    let blob = MockBlob::new(da_data_ser, MockAddress::new([9u8; 32]), [0u8; 32], None);
+    blob.full_data();
+
+    blob
+}
 
 pub(crate) fn create_mock_batch_proof(
     initial_state_root: [u8; 32],
@@ -21,22 +47,34 @@ pub(crate) fn create_mock_batch_proof(
     last_l2_height: u64,
     is_valid: bool,
     last_l1_hash_on_bitcoin_light_client_contract: [u8; 32],
+    commitments: Vec<SequencerCommitment>,
+    prev_commitment_hash: Option<[u8; 32]>,
 ) -> MockBlob {
     let batch_proof_method_id = MockCodeCommitment([0u8; 32]);
+    let commitment_hashes: Vec<[u8; 32]> = commitments
+        .iter()
+        .map(|c| c.serialize_and_calculate_sha_256())
+        .collect();
+    let prev_index = if commitments[0].index == 1 {
+        None
+    } else {
+        Some(commitments[0].index - 1)
+    };
 
-    //TODO: FIXME The new added values are all wrong
     let bp = BatchProofCircuitOutput::V3(BatchProofCircuitOutputV3 {
         initial_state_root,
         final_state_root,
         final_l2_block_hash: [4; 32],
         state_diff: BTreeMap::new(),
         last_l2_height,
-        // TODO: Update this
-        sequencer_commitment_hashes: vec![],
+        sequencer_commitment_hashes: commitment_hashes,
         last_l1_hash_on_bitcoin_light_client_contract,
-        sequencer_commitment_index_range: (0, 0),
-        previous_commitment_index: None,
-        previous_commitment_hash: None,
+        sequencer_commitment_index_range: (
+            commitments[0].index,
+            commitments[commitments.len() - 1].index,
+        ),
+        previous_commitment_index: prev_index,
+        previous_commitment_hash: prev_commitment_hash,
     });
 
     let bp_serialized = borsh::to_vec(&bp).expect("should serialize");
@@ -68,8 +106,20 @@ pub(crate) fn create_serialized_mock_proof(
     is_valid: bool,
     state_diff: Option<CumulativeStateDiff>,
     last_l1_hash_on_bitcoin_light_client_contract: [u8; 32],
+    commitments: Vec<SequencerCommitment>,
+    prev_commitment_hash: Option<[u8; 32]>,
 ) -> Vec<u8> {
     let batch_proof_method_id = MockCodeCommitment([0u8; 32]);
+
+    let commitment_hashes: Vec<[u8; 32]> = commitments
+        .iter()
+        .map(|c| c.serialize_and_calculate_sha_256())
+        .collect();
+    let prev_index = if commitments[0].index == 1 {
+        None
+    } else {
+        Some(commitments[0].index - 1)
+    };
 
     //TODO: FIXME The new added values are all wrong
     let bp = BatchProofCircuitOutput::V3(BatchProofCircuitOutputV3 {
@@ -78,12 +128,14 @@ pub(crate) fn create_serialized_mock_proof(
         final_l2_block_hash: [4; 32],
         state_diff: state_diff.unwrap_or_default(),
         last_l2_height,
-        // TODO: Update this
-        sequencer_commitment_hashes: vec![],
+        sequencer_commitment_hashes: commitment_hashes,
         last_l1_hash_on_bitcoin_light_client_contract,
-        sequencer_commitment_index_range: (0, 0),
-        previous_commitment_index: None,
-        previous_commitment_hash: None,
+        sequencer_commitment_index_range: (
+            commitments[0].index,
+            commitments[commitments.len() - 1].index,
+        ),
+        previous_commitment_index: prev_index,
+        previous_commitment_hash: prev_commitment_hash,
     });
 
     let bp_serialized = borsh::to_vec(&bp).expect("should serialize");
@@ -188,6 +240,34 @@ impl NativeCircuitRunner {
             circuit,
             prover_storage_manager,
         }
+    }
+
+    pub fn insert_sequencer_commitment(
+        &self,
+        seq_comm: SequencerCommitment,
+        witness: Option<Witness>,
+    ) {
+        let prover_storage = self
+            .prover_storage_manager
+            .create_storage_for_next_l2_height();
+        let mut working_set = WorkingSet::with_witness(
+            prover_storage.clone(),
+            witness.unwrap_or_default(),
+            Default::default(),
+        );
+        SequencerCommitmentAccessor::<ProverStorage>::insert(
+            seq_comm.index,
+            seq_comm,
+            &mut working_set,
+        );
+        let (read_write_log, mut witness) = working_set.checkpoint().freeze();
+
+        let (_, jmt_state_update, _) = prover_storage
+            .compute_state_update(&read_write_log, &mut witness, false)
+            .expect("jellyfish merkle tree update must succeed");
+
+        prover_storage.commit(&jmt_state_update, &vec![], &ReadWriteLog::default());
+        self.prover_storage_manager.finalize_storage(prover_storage);
     }
 
     /// Run the circuit with the given input and return the input with its witness filled
