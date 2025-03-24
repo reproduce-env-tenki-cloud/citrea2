@@ -242,34 +242,6 @@ impl NativeCircuitRunner {
         }
     }
 
-    pub fn insert_sequencer_commitment(
-        &self,
-        seq_comm: SequencerCommitment,
-        witness: Option<Witness>,
-    ) {
-        let prover_storage = self
-            .prover_storage_manager
-            .create_storage_for_next_l2_height();
-        let mut working_set = WorkingSet::with_witness(
-            prover_storage.clone(),
-            witness.unwrap_or_default(),
-            Default::default(),
-        );
-        SequencerCommitmentAccessor::<ProverStorage>::insert(
-            seq_comm.index,
-            seq_comm,
-            &mut working_set,
-        );
-        let (read_write_log, mut witness) = working_set.checkpoint().freeze();
-
-        let (_, jmt_state_update, _) = prover_storage
-            .compute_state_update(&read_write_log, &mut witness, false)
-            .expect("jellyfish merkle tree update must succeed");
-
-        prover_storage.commit(&jmt_state_update, &vec![], &ReadWriteLog::default());
-        self.prover_storage_manager.finalize_storage(prover_storage);
-    }
-
     /// Run the circuit with the given input and return the input with its witness filled
     /// that will be used to run the circuit in ZK context
     pub fn run(

@@ -1064,8 +1064,6 @@ fn test_missing_chunk() {
 
     let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
 
-    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
-
     let serialized_mock_proof = create_serialized_mock_proof(
         l2_genesis_state_root,
         [2u8; 32],
