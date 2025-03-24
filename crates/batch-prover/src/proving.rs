@@ -95,7 +95,7 @@ where
             .expect("Should store commitment");
     }
 
-    let l2_start_block_number = if sequencer_commitments[0].index == 0 {
+    let l2_start_block_number = if sequencer_commitments[0].index == 1 {
         // If this is the first commitment in fork2, the start l2 height will be fork2 activation height
         // Start block number should be fork2  activation height
         get_fork2_activation_height_non_zero()
@@ -615,7 +615,7 @@ pub(crate) fn save_commitments<DB>(
     DB: BatchProverLedgerOps,
 {
     for sequencer_commitment in sequencer_commitments.iter() {
-        let l2_start_block_number = if sequencer_commitment.index == 0 {
+        let l2_start_block_number = if sequencer_commitment.index == 1 {
             get_fork2_activation_height_non_zero()
         } else {
             ledger_db
