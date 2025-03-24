@@ -490,6 +490,18 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
                         }
 
                         for idx in remove_batch_proof_indexes.iter().rev() {
+                            initial_to_final.insert(
+                                batch_proofs_with_missing_sequencer_commitments[*idx]
+                                    .initial_state_root,
+                                (
+                                    batch_proofs_with_missing_sequencer_commitments[*idx]
+                                        .final_state_root,
+                                    batch_proofs_with_missing_sequencer_commitments[*idx]
+                                        .last_l2_height,
+                                    batch_proofs_with_missing_sequencer_commitments[*idx]
+                                        .last_sequencer_commitment_index,
+                                ),
+                            );
                             batch_proofs_with_missing_sequencer_commitments.remove(*idx);
                         }
                     }
@@ -527,9 +539,6 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
 
         let (read_write_log, mut witness) = working_set.checkpoint().freeze();
 
-        // https://github.com/chainwayxyz/citrea/issues/2046
-        // which we don't need in this circuit
-        // maybe create new function or pass argument for state diff building
         let (lcp_state_root_transition, jmt_state_update, _) = storage
             .compute_state_update(&read_write_log, &mut witness, false)
             .expect("jellyfish merkle tree update must succeed");
