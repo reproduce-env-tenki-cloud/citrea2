@@ -1,12 +1,10 @@
 pub mod test_utils;
 
-use rand::seq;
 use sov_mock_da::{MockAddress, MockBlob, MockBlockHeader, MockDaSpec, MockDaVerifier};
 use sov_mock_zkvm::MockZkGuest;
 use sov_modules_api::WorkingSet;
 use sov_rollup_interface::da::{BlobReaderTrait, DataOnDa, SequencerCommitment};
 use sov_rollup_interface::zk::light_client_proof::input::LightClientCircuitInput;
-use sov_rollup_interface::zk::light_client_proof::output::BatchProofInfo;
 use sov_rollup_interface::Network;
 use sov_state::{Witness, ZkStorage};
 use tempfile::tempdir;

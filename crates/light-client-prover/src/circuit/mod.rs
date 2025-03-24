@@ -579,7 +579,7 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
             batch_proof_method_ids,
             witness,
             change_set: storage,
-            last_sequencer_commitment_index: last_sequencer_commitment_index,
+            last_sequencer_commitment_index,
             semi_unstitched: batch_proofs_with_missing_sequencer_commitments,
         }
     }
