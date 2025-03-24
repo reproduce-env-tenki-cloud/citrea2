@@ -204,6 +204,19 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
                     *last_l2_state_root = batch_proof_output_final_state_root;
                     *last_l2_height = batch_proof_output_last_l2_height;
                     *last_commitment_index = batch_proof_output_sequencer_commitment_index_range.0;
+
+                    // Do recursive matching for previous state root
+                    recursive_match_state_roots(
+                        fully_unstitched,
+                        &BatchProofInfo::new(
+                            *last_l2_state_root,
+                            *last_l2_state_root,
+                            *last_l2_height,
+                            *last_commitment_index,
+                            None,
+                        ),
+                    );
+                    return Ok(());
                 }
                 // None of the checks match, proof order is wrong, put it to unstitched
                 else if batch_proof_output_sequencer_commitment_index_range.0
