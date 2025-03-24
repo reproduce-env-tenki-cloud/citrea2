@@ -1022,7 +1022,7 @@ fn test_light_client_circuit_verify_chunks() {
             light_client_proof_method_id,
             da_block_header: block_header_1,
             inclusion_proof: [1u8; 32],
-            completeness_proof: vec![blob1, blob2, blob3, blob4],
+            completeness_proof: vec![seq_comm_1_blob, blob1, blob2, blob3, blob4],
             witness: Default::default(),
         },
         l2_genesis_state_root,
