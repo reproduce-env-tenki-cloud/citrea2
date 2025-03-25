@@ -455,6 +455,7 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
                 }
                 DataOnDa::SequencerCommitment(commitment) => {
                     println!("Found sequencer commitment with index {}", commitment.index);
+
                     if SequencerCommitmentAccessor::<S>::get(commitment.index, &mut working_set)
                         .is_none()
                     {
@@ -463,65 +464,39 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
                             commitment.clone(),
                             &mut working_set,
                         );
-                        // TODO: Optimize below, use sth like:
-                        /*
-                            particles.retain(|particle| {
-                                let delete = {
-                                    // Do stuff ...
-                                };
-                                !delete
-                           })
-                        */
-                        let mut remove_batch_proof_indexes = vec![];
-                        for (proof_index, batch_proof_with_missing_seq_comms) in
-                            batch_proofs_with_missing_sequencer_commitments
-                                .iter_mut()
-                                .enumerate()
-                        {
-                            let mut missing_comm_idx_to_remove = vec![];
-                            for (idx, missing_seq_comm) in batch_proof_with_missing_seq_comms
-                                .missing_commitments
-                                .iter()
-                                .enumerate()
-                            {
-                                if missing_seq_comm.0 == commitment.index
-                                    && missing_seq_comm.1
-                                        == commitment.serialize_and_calculate_sha_256()
-                                {
-                                    missing_comm_idx_to_remove.push(idx);
-                                }
-                            }
-                            for idx in missing_comm_idx_to_remove.iter().rev() {
-                                batch_proof_with_missing_seq_comms
-                                    .missing_commitments
-                                    .remove(*idx);
-                            }
 
-                            if batch_proof_with_missing_seq_comms
-                                .missing_commitments
-                                .is_empty()
-                            {
-                                remove_batch_proof_indexes.push(proof_index);
-                            }
-                        }
+                        let serialized_commitment = commitment.serialize_and_calculate_sha_256();
 
-                        for idx in remove_batch_proof_indexes.iter().rev() {
-                            initial_to_final.insert(
-                                batch_proofs_with_missing_sequencer_commitments[*idx]
-                                    .initial_state_root,
-                                (
-                                    batch_proofs_with_missing_sequencer_commitments[*idx]
-                                        .final_state_root,
-                                    batch_proofs_with_missing_sequencer_commitments[*idx]
-                                        .last_l2_height,
-                                    batch_proofs_with_missing_sequencer_commitments[*idx]
-                                        .last_sequencer_commitment_index,
-                                ),
-                            );
-                            batch_proofs_with_missing_sequencer_commitments.remove(*idx);
-                        }
+                        // Retain only those batch proofs that still have missing commitments after this one is resolved
+                        batch_proofs_with_missing_sequencer_commitments.retain_mut(|batch_proof| {
+                            // Retain only the missing commitments that are not resolved by this commitment
+                            batch_proof.missing_commitments.retain(|(idx, hash)| {
+                                !(idx == &commitment.index && hash == &serialized_commitment)
+                            });
+
+                            // If no missing commitments remain, move to final state
+                            if batch_proof.missing_commitments.is_empty() {
+                                initial_to_final.insert(
+                                    batch_proof.initial_state_root,
+                                    (
+                                        batch_proof.final_state_root,
+                                        batch_proof.last_l2_height,
+                                        batch_proof.last_sequencer_commitment_index,
+                                    ),
+                                );
+                                false // Remove from list
+                            } else {
+                                true // Keep in list
+                            }
+                        });
                     } else {
-                        println!("Found a commitment that already exists in the JMT with index: {:?}, The invalid commitment's l2 end height is: {:?} and merkle root is: {:?}", commitment.index, commitment.l2_end_block_number, commitment.merkle_root);
+                        println!(
+                            "Found a commitment that already exists in the JMT with index: {:?}, \
+                            The invalid commitment's l2 end height is: {:?} and merkle root is: {:?}",
+                            commitment.index,
+                            commitment.l2_end_block_number,
+                            commitment.merkle_root
+                        );
                     }
                 }
             }
