@@ -61,6 +61,17 @@ pub(crate) fn collect_unchained_outputs(
         .collect()
 }
 
+pub(crate) fn prune_batch_proofs_with_missing_commitments(
+    proofs_with_missing_commitments: &mut Vec<BatchProofInfo>,
+    last_l2_height: u64,
+    last_sequencer_commitment_index: u32,
+) {
+    proofs_with_missing_commitments.retain(|bp| {
+        bp.last_l2_height > last_l2_height
+            && bp.last_sequencer_commitment_index > last_sequencer_commitment_index
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
