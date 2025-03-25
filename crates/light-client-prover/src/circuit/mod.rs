@@ -15,6 +15,7 @@ use sov_rollup_interface::zk::light_client_proof::output::{
 };
 use sov_rollup_interface::zk::ZkvmGuest;
 use sov_rollup_interface::Network;
+use utils::prune_batch_proofs_with_missing_commitments;
 
 use crate::circuit::utils::{collect_unchained_outputs, recursive_match_state_roots};
 
@@ -236,6 +237,7 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
                 // One of the checks is wrong, this should never happen, in this case the proof is discarded
                 else {
                     println!("Discarding proof, sequencer commitment index or initial state root is wrong\n Expected index: {}, got: {}\nExpected initial state root: {:?}, got: {:?}", *last_commitment_index + 1, batch_proof_output_sequencer_commitment_index_range.0, *last_l2_state_root, batch_proof_output.initial_state_root());
+                    return Err("Proof discarded");
                 }
             }
             ProofProcess::MissingSequencerCommitment(missing_commitments) => {
@@ -518,6 +520,8 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
                             );
                             batch_proofs_with_missing_sequencer_commitments.remove(*idx);
                         }
+                    } else {
+                        println!("Found a commitment that already exists in the JMT with index: {:?}, The invalid commitment's l2 end height is: {:?} and merkle root is: {:?}", commitment.index, commitment.l2_end_block_number, commitment.merkle_root);
                     }
                 }
             }
@@ -547,6 +551,14 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
         // Collect unchained outputs
         let unchained_outputs = collect_unchained_outputs(
             &initial_to_final,
+            last_l2_height,
+            last_sequencer_commitment_index,
+        );
+
+        // Prune batch proofs with missing commitments
+        // Remove proofs below last l2 height and index
+        prune_batch_proofs_with_missing_commitments(
+            &mut batch_proofs_with_missing_sequencer_commitments,
             last_l2_height,
             last_sequencer_commitment_index,
         );
