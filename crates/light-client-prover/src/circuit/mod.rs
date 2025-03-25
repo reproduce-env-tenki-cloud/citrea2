@@ -289,7 +289,7 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
         // first insert the block hash into the JMT
         BlockHashAccessor::<S>::insert(da_block_header.hash().into(), &mut working_set);
 
-        // Mapping from initial state root to final state root, last L2 height and sequencer commitment range
+        // Mapping from initial state root to final state root, last L2 height and last sequencer commitment index
         let mut initial_to_final = BTreeMap::<[u8; 32], ([u8; 32], u64, u32)>::new();
 
         let (

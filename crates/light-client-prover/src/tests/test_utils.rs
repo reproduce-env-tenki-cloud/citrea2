@@ -5,8 +5,7 @@ use std::sync::Arc;
 use rand::{thread_rng, Rng};
 use sov_mock_da::{MockAddress, MockBlob, MockDaSpec, MockDaVerifier};
 use sov_mock_zkvm::{MockCodeCommitment, MockJournal, MockProof, MockZkvm};
-use sov_modules_api::{WorkingSet, Zkvm};
-use sov_modules_core::{ReadWriteLog, Storage};
+use sov_modules_api::Zkvm;
 use sov_prover_storage_manager::{Config, ProverStorage, ProverStorageManager};
 use sov_rollup_interface::da::{
     BatchProofMethodId, BlobReaderTrait, DaVerifier, DataOnDa, SequencerCommitment,
@@ -15,9 +14,7 @@ use sov_rollup_interface::zk::batch_proof::output::v3::BatchProofCircuitOutputV3
 use sov_rollup_interface::zk::batch_proof::output::{BatchProofCircuitOutput, CumulativeStateDiff};
 use sov_rollup_interface::zk::light_client_proof::input::LightClientCircuitInput;
 use sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
-use sov_state::Witness;
 
-use crate::circuit::accessors::SequencerCommitmentAccessor;
 use crate::circuit::LightClientProofCircuit;
 
 pub(crate) fn create_mock_sequencer_commitment(index: u32, l2_end: u64) -> SequencerCommitment {
