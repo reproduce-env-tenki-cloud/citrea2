@@ -382,6 +382,472 @@ fn create_unchainable_outputs_then_chain_them_on_next_block() {
     assert_eq!(output_2.last_l2_height, 4);
 }
 
+/// Creates semi-unchainable outputs (batch proofs with missing sequencer commitments) and then chains them on the next block
+#[test]
+fn create_semi_unchainable_outputs_then_chain_them_on_next_block() {
+    let db_dir = tempdir().unwrap();
+    let native_circuit_runner = NativeCircuitRunner::new(db_dir.path().to_path_buf());
+    let zk_circuit_runner = LightClientProofCircuit::<ZkStorage, MockDaSpec, MockZkGuest>::new();
+
+    let light_client_proof_method_id = [1u32; 8];
+    let da_verifier = MockDaVerifier {};
+
+    let block_header_1 = MockBlockHeader::from_height(1);
+
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+    let seq_comm_2 = create_mock_sequencer_commitment(2, 3);
+    let seq_comm_3 = create_mock_sequencer_commitment(3, 4);
+    let seq_comm_4 = create_mock_sequencer_commitment(4, 5);
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+    let seq_comm_2_blob = create_mock_sequencer_commitment_blob(seq_comm_2.clone());
+    let seq_comm_3_blob = create_mock_sequencer_commitment_blob(seq_comm_3.clone());
+    let seq_comm_4_blob = create_mock_sequencer_commitment_blob(seq_comm_4.clone());
+
+    let blob_1 = create_mock_batch_proof(
+        [1u8; 32],
+        [2u8; 32],
+        2,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
+    );
+
+    // Sending this with a missing commitment on the first block
+    let blob_2 = create_mock_batch_proof(
+        [2u8; 32],
+        [3u8; 32],
+        4,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_2.clone(), seq_comm_3.clone()],
+        Some(seq_comm_1.serialize_and_calculate_sha_256()),
+    );
+    let blob_3 = create_mock_batch_proof(
+        [3u8; 32],
+        [4u8; 32],
+        5,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_4.clone()],
+        Some(seq_comm_3.serialize_and_calculate_sha_256()),
+    );
+
+    let l2_genesis_state_root = [1u8; 32];
+    let batch_prover_da_pub_key = [9; 32].to_vec();
+    let method_id_upgrade_authority = [11u8; 32].to_vec();
+
+    let input = native_circuit_runner.run(
+        LightClientCircuitInput {
+            previous_light_client_proof_journal: None,
+            light_client_proof_method_id,
+            da_block_header: block_header_1.clone(),
+            inclusion_proof: [1u8; 32],
+            completeness_proof: vec![blob_2, blob_1, seq_comm_2_blob, seq_comm_1_blob],
+            witness: Default::default(),
+        },
+        l2_genesis_state_root,
+        INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
+        &batch_prover_da_pub_key,
+        &method_id_upgrade_authority,
+    );
+
+    let output_1 = zk_circuit_runner
+        .run_circuit(
+            da_verifier.clone(),
+            input,
+            ZkStorage::new(),
+            Network::Nightly,
+            l2_genesis_state_root,
+            INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
+            &batch_prover_da_pub_key,
+            &method_id_upgrade_authority,
+        )
+        .unwrap();
+
+    // Check that the state transition has not happened because we are missing 1->2
+    assert_eq!(output_1.l2_state_root, [2; 32]);
+
+    assert_eq!(output_1.unchained_batch_proofs_info.len(), 0);
+
+    // Since the seq comm is missing this is where it will be
+    assert_eq!(
+        output_1
+            .batch_proofs_with_missing_sequencer_commitments
+            .len(),
+        1
+    );
+    assert_eq!(
+        output_1.batch_proofs_with_missing_sequencer_commitments[0].last_l2_height,
+        4
+    );
+    assert_eq!(
+        output_1.batch_proofs_with_missing_sequencer_commitments[0].initial_state_root,
+        [2; 32]
+    );
+    assert_eq!(
+        output_1.batch_proofs_with_missing_sequencer_commitments[0].final_state_root,
+        [3; 32]
+    );
+
+    // On the next l1 block, give the next batch proof and missing commitment
+    let block_header_2 = MockBlockHeader::from_height(2);
+
+    let mock_output_1_ser = create_prev_lcp_serialized(output_1, true);
+
+    let input_2 = native_circuit_runner.run(
+        LightClientCircuitInput {
+            previous_light_client_proof_journal: Some(mock_output_1_ser),
+            light_client_proof_method_id,
+            da_block_header: block_header_2,
+            inclusion_proof: [1u8; 32],
+            completeness_proof: vec![blob_3, seq_comm_3_blob, seq_comm_4_blob],
+            witness: Default::default(),
+        },
+        l2_genesis_state_root,
+        INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
+        &batch_prover_da_pub_key,
+        &method_id_upgrade_authority,
+    );
+
+    let output_2 = zk_circuit_runner
+        .run_circuit(
+            da_verifier.clone(),
+            input_2,
+            ZkStorage::new(),
+            Network::Nightly,
+            l2_genesis_state_root,
+            INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
+            &batch_prover_da_pub_key,
+            &method_id_upgrade_authority,
+        )
+        .unwrap();
+
+    // Check that the state transition actually happened from 1-4 now
+
+    assert_eq!(output_2.l2_state_root, [4; 32]);
+    assert!(output_2.unchained_batch_proofs_info.is_empty());
+    assert!(output_2
+        .batch_proofs_with_missing_sequencer_commitments
+        .is_empty());
+    assert_eq!(output_2.last_l2_height, 5);
+}
+
+#[test]
+fn test_multiple_commitments_with_same_index_does_not_break_circuit() {
+    let db_dir = tempdir().unwrap();
+    let native_circuit_runner = NativeCircuitRunner::new(db_dir.path().to_path_buf());
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+    // This is an invalid seq  comm that points to 1000
+    let seq_comm_invalid = create_mock_sequencer_commitment(1, 1000);
+    let seq_comm_2 = create_mock_sequencer_commitment(2, 3);
+
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+    let seq_comm_invalid_blob = create_mock_sequencer_commitment_blob(seq_comm_invalid.clone());
+    let seq_comm_2_blob = create_mock_sequencer_commitment_blob(seq_comm_2.clone());
+
+    let zk_circuit_runner = LightClientProofCircuit::<ZkStorage, MockDaSpec, MockZkGuest>::new();
+
+    let light_client_proof_method_id = [1u32; 8];
+    let da_verifier = MockDaVerifier {};
+
+    let block_header_1 = MockBlockHeader::from_height(1);
+
+    let blob_1 = create_mock_batch_proof(
+        [1u8; 32],
+        [2u8; 32],
+        2,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
+    );
+    let blob_2 = create_mock_batch_proof(
+        [2u8; 32],
+        [3u8; 32],
+        3,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_2.clone()],
+        Some(seq_comm_1.serialize_and_calculate_sha_256()),
+    );
+
+    let l2_genesis_state_root = [1u8; 32];
+    let batch_prover_da_pub_key = [9; 32].to_vec();
+    let method_id_upgrade_authority = [11u8; 32].to_vec();
+
+    let input = native_circuit_runner.run(
+        LightClientCircuitInput {
+            previous_light_client_proof_journal: None,
+            light_client_proof_method_id,
+            da_block_header: block_header_1.clone(),
+            inclusion_proof: [1u8; 32],
+            // can be seen here that even when commitments of proofs are given after the proofs themselves the circuit can still verify them
+            completeness_proof: vec![
+                blob_1,
+                blob_2,
+                seq_comm_1_blob,
+                seq_comm_2_blob,
+                seq_comm_invalid_blob,
+            ],
+            witness: Default::default(),
+        },
+        l2_genesis_state_root,
+        INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
+        &batch_prover_da_pub_key,
+        &method_id_upgrade_authority,
+    );
+
+    let output_1 = zk_circuit_runner
+        .run_circuit(
+            da_verifier.clone(),
+            input,
+            ZkStorage::new(),
+            Network::Nightly,
+            l2_genesis_state_root,
+            INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
+            &batch_prover_da_pub_key,
+            &method_id_upgrade_authority,
+        )
+        .unwrap();
+
+    // Check that the state transition actually happened
+    assert_eq!(output_1.l2_state_root, [3; 32]);
+    assert!(output_1.unchained_batch_proofs_info.is_empty());
+    assert_eq!(output_1.last_l2_height, 3);
+    assert_eq!(output_1.last_sequencer_commitment_index, 2);
+    assert_eq!(
+        output_1
+            .batch_proofs_with_missing_sequencer_commitments
+            .len(),
+        0
+    );
+}
+
+#[test]
+fn test_proofs_with_invalid_commitment_discarded() {
+    let db_dir = tempdir().unwrap();
+    let native_circuit_runner = NativeCircuitRunner::new(db_dir.path().to_path_buf());
+    let seq_comm_1 = create_mock_sequencer_commitment(1, 2);
+    let seq_comm_2 = create_mock_sequencer_commitment(2, 3);
+    let seq_comm_3 = create_mock_sequencer_commitment(3, 4);
+    let seq_comm_4 = create_mock_sequencer_commitment(4, 5);
+    // This is an invalid seq  comm that points to 1000
+    let seq_comm_4_invalid = create_mock_sequencer_commitment(4, 1000);
+
+    let seq_comm_1_blob = create_mock_sequencer_commitment_blob(seq_comm_1.clone());
+    let seq_comm_2_blob = create_mock_sequencer_commitment_blob(seq_comm_2.clone());
+    let seq_comm_3_blob = create_mock_sequencer_commitment_blob(seq_comm_3.clone());
+    let seq_comm_4_blob = create_mock_sequencer_commitment_blob(seq_comm_4.clone());
+    let seq_comm_4_invalid_blob = create_mock_sequencer_commitment_blob(seq_comm_4_invalid.clone());
+
+    let zk_circuit_runner = LightClientProofCircuit::<ZkStorage, MockDaSpec, MockZkGuest>::new();
+
+    let light_client_proof_method_id = [1u32; 8];
+    let da_verifier = MockDaVerifier {};
+
+    let block_header_1 = MockBlockHeader::from_height(1);
+
+    let blob_1 = create_mock_batch_proof(
+        [1u8; 32],
+        [2u8; 32],
+        2,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_1.clone()],
+        None,
+    );
+    let blob_2 = create_mock_batch_proof(
+        [2u8; 32],
+        [3u8; 32],
+        3,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_2.clone()],
+        Some(seq_comm_1.serialize_and_calculate_sha_256()),
+    );
+    let blob_3 = create_mock_batch_proof(
+        [3u8; 32],
+        [4u8; 32],
+        4,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_3.clone()],
+        Some(seq_comm_2.serialize_and_calculate_sha_256()),
+    );
+
+    // Should be discarded because has a commitment that was already processed
+    let repeating_commitment_blob_3 = create_mock_batch_proof(
+        [3u8; 32],
+        [4u8; 32],
+        4,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_2.clone()],
+        Some(seq_comm_1.serialize_and_calculate_sha_256()),
+    );
+
+    let blob_4 = create_mock_batch_proof(
+        [4u8; 32],
+        [5u8; 32],
+        5,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_4.clone()],
+        Some(seq_comm_3.serialize_and_calculate_sha_256()),
+    );
+    // Should be discarded
+    let invalid_blob_4 = create_mock_batch_proof(
+        [4u8; 32],
+        [5u8; 32],
+        1000,
+        true,
+        block_header_1.hash.0,
+        vec![seq_comm_4_invalid.clone()],
+        Some(seq_comm_3.serialize_and_calculate_sha_256()),
+    );
+
+    let l2_genesis_state_root = [1u8; 32];
+    let batch_prover_da_pub_key = [9; 32].to_vec();
+    let method_id_upgrade_authority = [11u8; 32].to_vec();
+
+    let input = native_circuit_runner.run(
+        LightClientCircuitInput {
+            previous_light_client_proof_journal: None,
+            light_client_proof_method_id,
+            da_block_header: block_header_1.clone(),
+            inclusion_proof: [1u8; 32],
+            // can be seen here that even when commitments of proofs are given after the proofs themselves the circuit can still verify them
+            completeness_proof: vec![
+                seq_comm_1_blob,
+                seq_comm_2_blob,
+                seq_comm_4_blob,
+                seq_comm_4_invalid_blob,
+                blob_1,
+                blob_2,
+                blob_4,
+                invalid_blob_4,
+            ],
+            witness: Default::default(),
+        },
+        l2_genesis_state_root,
+        INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
+        &batch_prover_da_pub_key,
+        &method_id_upgrade_authority,
+    );
+
+    let output_1 = zk_circuit_runner
+        .run_circuit(
+            da_verifier.clone(),
+            input,
+            ZkStorage::new(),
+            Network::Nightly,
+            l2_genesis_state_root,
+            INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
+            &batch_prover_da_pub_key,
+            &method_id_upgrade_authority,
+        )
+        .unwrap();
+
+    // Check that the state transition actually happened
+    assert_eq!(output_1.l2_state_root, [3; 32]);
+    assert_eq!(output_1.unchained_batch_proofs_info.len(), 1);
+    assert_eq!(output_1.last_l2_height, 3);
+    assert_eq!(output_1.last_sequencer_commitment_index, 2);
+    assert_eq!(
+        output_1
+            .batch_proofs_with_missing_sequencer_commitments
+            .len(),
+        0
+    );
+
+    let block_header_2 = MockBlockHeader::from_height(2);
+
+    let mock_output_1_serialized = create_prev_lcp_serialized(output_1, true);
+
+    let input_2 = native_circuit_runner.run(
+        LightClientCircuitInput {
+            previous_light_client_proof_journal: Some(mock_output_1_serialized),
+            da_block_header: block_header_2,
+            light_client_proof_method_id,
+            inclusion_proof: [1u8; 32],
+            completeness_proof: vec![repeating_commitment_blob_3, seq_comm_3_blob],
+            witness: Default::default(),
+        },
+        l2_genesis_state_root,
+        INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
+        &batch_prover_da_pub_key,
+        &method_id_upgrade_authority,
+    );
+
+    let output_2 = zk_circuit_runner
+        .run_circuit(
+            da_verifier.clone(),
+            input_2,
+            ZkStorage::new(),
+            Network::Nightly,
+            l2_genesis_state_root,
+            INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
+            &batch_prover_da_pub_key,
+            &method_id_upgrade_authority,
+        )
+        .unwrap();
+    // Check that the state transition actually happened
+    assert_eq!(output_2.l2_state_root, [3; 32]);
+    assert_eq!(output_2.unchained_batch_proofs_info.len(), 1);
+    assert_eq!(output_2.last_l2_height, 3);
+    assert_eq!(output_2.last_sequencer_commitment_index, 2);
+    assert_eq!(
+        output_2
+            .batch_proofs_with_missing_sequencer_commitments
+            .len(),
+        0
+    );
+
+    let block_header_3 = MockBlockHeader::from_height(3);
+
+    let mock_output_2_serialized = create_prev_lcp_serialized(output_2, true);
+
+    let input_3 = native_circuit_runner.run(
+        LightClientCircuitInput {
+            previous_light_client_proof_journal: Some(mock_output_2_serialized),
+            da_block_header: block_header_3,
+            light_client_proof_method_id,
+            inclusion_proof: [1u8; 32],
+            completeness_proof: vec![blob_3],
+            witness: Default::default(),
+        },
+        l2_genesis_state_root,
+        INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
+        &batch_prover_da_pub_key,
+        &method_id_upgrade_authority,
+    );
+
+    let output_3 = zk_circuit_runner
+        .run_circuit(
+            da_verifier.clone(),
+            input_3,
+            ZkStorage::new(),
+            Network::Nightly,
+            l2_genesis_state_root,
+            INITIAL_BATCH_PROOF_METHOD_IDS.to_vec(),
+            &batch_prover_da_pub_key,
+            &method_id_upgrade_authority,
+        )
+        .unwrap();
+    // Check that the state transition actually happened
+    assert_eq!(output_3.l2_state_root, [5; 32]);
+    assert!(output_3.unchained_batch_proofs_info.is_empty());
+    assert_eq!(output_3.last_l2_height, 5);
+    assert_eq!(output_3.last_sequencer_commitment_index, 4);
+    assert_eq!(
+        output_3
+            .batch_proofs_with_missing_sequencer_commitments
+            .len(),
+        0
+    );
+}
+
 #[test]
 fn test_header_chain_proof_height_and_hash() {
     let db_dir = tempdir().unwrap();
