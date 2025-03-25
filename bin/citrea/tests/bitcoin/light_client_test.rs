@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy_primitives::U64;
+use alloy_primitives::{U32, U64};
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin_da::service::{BitcoinService, BitcoinServiceConfig, FINALITY_DEPTH};
@@ -1682,12 +1682,16 @@ impl TestCase for UnchainedBatchProofsTest {
                 BatchProofInfoRpcResponse {
                     initial_state_root: [2; 32],
                     final_state_root: [3; 32],
-                    last_l2_height: U64::from(300)
+                    last_l2_height: U64::from(300),
+                    last_sequencer_commitment_index: U32::from(3),
+                    missing_commitments: vec![]
                 },
                 BatchProofInfoRpcResponse {
                     initial_state_root: [3; 32],
                     final_state_root: [4; 32],
-                    last_l2_height: U64::from(400)
+                    last_l2_height: U64::from(400),
+                    last_sequencer_commitment_index: U32::from(4),
+                    missing_commitments: vec![]
                 }
             ]
         );

@@ -90,6 +90,12 @@ impl From<StoredLightClientProofOutput> for LightClientProofOutputRpcResponse {
                 })
                 .collect(),
             lcp_state_root: value.lcp_state_root,
+            last_sequencer_commitment_index: value.last_sequencer_commitment_index,
+            batch_proofs_with_missing_sequencer_commitments: value
+                .batch_proofs_with_missing_sequencer_commitments
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }

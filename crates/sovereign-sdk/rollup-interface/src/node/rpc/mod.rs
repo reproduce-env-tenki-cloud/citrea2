@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::da::SequencerCommitment;
 use crate::mmr::MMRGuest;
 use crate::zk::batch_proof::output::CumulativeStateDiff;
-use crate::zk::light_client_proof::output::BatchProofInfo;
+use crate::zk::light_client_proof::output::{BatchProofInfo, IndexAndHashOfCommitment};
 use crate::RefCount;
 
 /// L2 Block response
@@ -92,6 +92,26 @@ pub struct BatchProofMethodIdRpcResponse {
     pub method_id: Digest,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// Index and hash of commitment
+pub struct IndexAndHashOfCommitmentRpcResponse {
+    /// Commitment index
+    pub index: U32,
+    #[serde(with = "utils::rpc_hex")]
+    /// Commitment hash
+    pub hash: [u8; 32],
+}
+
+impl From<IndexAndHashOfCommitment> for IndexAndHashOfCommitmentRpcResponse {
+    fn from(info: IndexAndHashOfCommitment) -> Self {
+        Self {
+            index: U32::from(info.0),
+            hash: info.1,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Hex serializable BatchProofInfo
@@ -104,6 +124,10 @@ pub struct BatchProofInfoRpcResponse {
     pub final_state_root: [u8; 32],
     /// The last processed l2 height in the batch proof
     pub last_l2_height: U64,
+    /// The last processesd batch proofs last commitment's index
+    pub last_sequencer_commitment_index: U32,
+    /// (Commitment index, commitment hash)
+    pub missing_commitments: Vec<IndexAndHashOfCommitmentRpcResponse>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,6 +160,12 @@ impl From<BatchProofInfo> for BatchProofInfoRpcResponse {
             initial_state_root: info.initial_state_root,
             final_state_root: info.final_state_root,
             last_l2_height: U64::from(info.last_l2_height),
+            last_sequencer_commitment_index: U32::from(info.last_sequencer_commitment_index),
+            missing_commitments: info
+                .missing_commitments
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }
@@ -162,6 +192,10 @@ pub struct LightClientProofOutputRpcResponse {
     pub last_l2_height: U64,
     /// L2 activation height of the fork and the Method ids of the batch proofs that were verified in the light client proof
     pub batch_proof_method_ids: Vec<BatchProofMethodIdRpcResponse>,
+    /// The last sequencer commitment index of the last fully stitched and verified batch proof
+    pub last_sequencer_commitment_index: u32,
+    /// Info about batch proof with missing sequencer commitments
+    pub batch_proofs_with_missing_sequencer_commitments: Vec<BatchProofInfoRpcResponse>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
