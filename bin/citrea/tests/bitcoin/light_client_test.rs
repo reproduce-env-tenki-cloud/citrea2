@@ -2216,6 +2216,7 @@ pub(crate) fn create_random_state_diff(size_in_kb: u64) -> BTreeMap<Arc<[u8]>, O
     map
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_serialized_fake_receipt_batch_proof(
     initial_state_root: [u8; 32],
     final_state_root: [u8; 32],

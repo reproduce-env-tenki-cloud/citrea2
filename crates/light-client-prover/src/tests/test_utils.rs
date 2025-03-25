@@ -96,6 +96,7 @@ pub(crate) fn create_mock_batch_proof(
     blob
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn create_serialized_mock_proof(
     initial_state_root: [u8; 32],
     final_state_root: [u8; 32],

@@ -141,7 +141,7 @@ impl<S: Storage, DS: DaSpec, Z: Zkvm> LightClientProofCircuit<S, DS, Z> {
         proof_process
     }
 
-    // TODO: Too many args
+    #[allow(clippy::too_many_arguments)]
     fn process_complete_proof(
         &self,
         proof: &[u8],
