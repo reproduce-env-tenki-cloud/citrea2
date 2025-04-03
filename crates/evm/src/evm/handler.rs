@@ -22,6 +22,7 @@ use sov_modules_api::{native_debug, native_error};
 #[cfg(feature = "native")]
 use tracing::instrument;
 
+use crate::precompiles::schnorr::SCHNORRVERIFY;
 use crate::system_events::SYSTEM_SIGNER;
 use crate::{BASE_FEE_VAULT, L1_FEE_VAULT};
 
@@ -317,6 +318,7 @@ impl<SPEC: Spec, EXT: CitreaExternalExt, DB: Database> CitreaHandler<SPEC, EXT, 
     pub(crate) fn load_precompiles() -> ContextPrecompiles<DB> {
         fn our_precompiles<SPEC: Spec, DB: Database>() -> ContextPrecompiles<DB> {
             let mut precompiles = revm::handler::mainnet::load_precompiles::<SPEC, DB>();
+            precompiles.extend([P256VERIFY, SCHNORRVERIFY]);
 
             let p = precompiles.to_mut();
             p.remove(&u64_to_address(0x0A))
@@ -335,8 +337,6 @@ impl<SPEC: Spec, EXT: CitreaExternalExt, DB: Database> CitreaHandler<SPEC, EXT, 
             // remvoe these as EIP now defined 0xb to 0x11
             p.remove(&u64_to_address(0x12));
             p.remove(&u64_to_address(0x13));
-
-            precompiles.extend([P256VERIFY]);
 
             precompiles
         }
