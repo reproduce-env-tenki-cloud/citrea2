@@ -265,7 +265,8 @@ pub fn create_inscription_type_0(
             &reveal_script,
             &control_block,
         ) as u64
-            * reveal_fee_rate;
+            * reveal_fee_rate
+            + 546;
         let reveal_input_value = fee + reveal_value + REVEAL_OUTPUT_THRESHOLD;
 
         // build commit tx
@@ -431,7 +432,8 @@ pub fn create_inscription_type_1(
                 &reveal_script,
                 &control_block,
             ) as u64
-                * reveal_fee_rate;
+                * reveal_fee_rate
+                + 546;
             let reveal_input_value = fee + reveal_value + REVEAL_OUTPUT_THRESHOLD;
 
             // build commit tx
@@ -618,7 +620,8 @@ pub fn create_inscription_type_1(
             &reveal_script,
             &control_block,
         ) as u64
-            * reveal_fee_rate;
+            * reveal_fee_rate
+            + 546;
         let reveal_input_value = fee + reveal_value + REVEAL_OUTPUT_THRESHOLD;
 
         // build commit tx
@@ -789,7 +792,8 @@ pub fn create_inscription_type_2(
             &reveal_script,
             &control_block,
         ) as u64
-            * reveal_fee_rate;
+            * reveal_fee_rate
+            + 546;
         let reveal_input_value = fee + reveal_value + REVEAL_OUTPUT_THRESHOLD;
 
         // build commit tx

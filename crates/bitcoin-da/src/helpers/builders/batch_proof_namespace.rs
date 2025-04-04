@@ -136,7 +136,8 @@ pub fn create_batchproof_type_0(
             &reveal_script,
             &control_block,
         ) as u64
-            * reveal_fee_rate;
+            * reveal_fee_rate
+            + 546; // some buffer for errors on tx bulding
         let reveal_input_value = fee + reveal_value + REVEAL_OUTPUT_THRESHOLD;
 
         // build commit tx
@@ -174,7 +175,7 @@ pub fn create_batchproof_type_0(
         );
 
         let min_commit_value = Amount::from_sat(fee + reveal_value);
-        while unsigned_commit_tx.output[0].value >= min_commit_value
+        while unsigned_commit_tx.output[0].value > min_commit_value
             && reveal_tx.output[0].value > Amount::from_sat(REVEAL_OUTPUT_AMOUNT)
         {
             // tracing::info!("reveal output: {}", reveal_tx.output[0].value);
