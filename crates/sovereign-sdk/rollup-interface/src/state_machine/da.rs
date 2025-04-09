@@ -68,6 +68,7 @@ pub enum DaTxRequest {
 
 /// Data written to DA and read from DA must be the borsh serialization of this enum
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[repr(u8)]
 pub enum DataOnDa {
     /// A zk proof and state diff
     Complete(Proof),
