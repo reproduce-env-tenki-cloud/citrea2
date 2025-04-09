@@ -74,7 +74,7 @@ pub mod bitcoinda {
     };
 
     pub const DEVNET_GENESIS_ROOT: [u8; 32] = match const_hex::const_decode_to_array(
-        b"7bc4a868439b637b57fcc55bf6e119e51996d6a4127a39f1393c8c1e29d37365",
+        b"0000000000000000000000000000000000000000000000000000000000000000", // will be set after first fork2 commitment
     ) {
         Ok(root) => root,
         Err(_) => panic!("Can't happen"),
