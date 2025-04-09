@@ -117,16 +117,11 @@ pub mod bitcoinda {
         ),
     ];
 
-    pub const DEVNET_INITIAL_BATCH_PROOF_METHOD_IDS: &[(u64, [u32; 8])] = &[
-        (
-            0,
-            decode_to_u32_array("3631d90630a3f0deb47f3a3411fe6e7ede1b0d86ad4216c75041e1a2020f009f"),
-        ),
-        (
-            1921835,
-            decode_to_u32_array("0ef8aaa707662dc591558890d6e98fe25070392b342f447532cc4325547ad1a8"),
-        ),
-    ];
+    pub const DEVNET_INITIAL_BATCH_PROOF_METHOD_IDS: &[(u64, [u32; 8])] = &[(
+        0,
+        // TODO: UPDATE
+        decode_to_u32_array("3631d90630a3f0deb47f3a3411fe6e7ede1b0d86ad4216c75041e1a2020f009f"),
+    )];
 
     pub const NIGHTLY_INITIAL_BATCH_PROOF_METHOD_IDS: &[(u64, [u32; 8])] = {
         match option_env!("BATCH_PROOF_METHOD_ID") {
