@@ -363,6 +363,13 @@ where
 
         let mut previous_batch_proof_l2_end_height = tangerine_activation_height;
 
+        // If tangerine start height is not 0 meaning there are other forks before tangerine,
+        // then the previous batch proof l2 end height should be the tangerine start height - 1
+        // Because the first l2 height of the first tangerine batch proof must be non-zero tangerine activation height
+        if tangerine_activation_height != 0 {
+            previous_batch_proof_l2_end_height = tangerine_activation_height - 1;
+        }
+
         // If there is no previous commitment, then this is the first batch proof
         // and this should start from proving the first l2 block
         let (previous_commitment_index, previous_commitment_hash) =
@@ -442,12 +449,6 @@ where
                         "L2 block previous hash must match the hash of the block before"
                     );
                 }
-
-                assert_eq!(
-                    l2_block.height(),
-                    l2_height,
-                    "L2 block heights not sequential"
-                );
 
                 let result = self
                     .apply_l2_block(
