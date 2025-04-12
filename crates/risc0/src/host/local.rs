@@ -111,6 +111,11 @@ impl LocalProver {
             }
         }
 
+        if self.dev_mode {
+            // on dev mode always propagate dev mode to the guest
+            env.env_var("RISC0_DEV_MODE", "1");
+        }
+
         // Add input
         let env = env.write_slice(&input).build().unwrap();
 

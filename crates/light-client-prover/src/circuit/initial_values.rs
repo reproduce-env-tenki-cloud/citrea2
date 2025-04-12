@@ -74,7 +74,7 @@ pub mod bitcoinda {
     };
 
     pub const DEVNET_GENESIS_ROOT: [u8; 32] = match const_hex::const_decode_to_array(
-        b"0000000000000000000000000000000000000000000000000000000000000000", // will be set after first fork2 commitment
+        b"e5bb343b25b6ef5341c8d1d04e388d31c448248c5f8a86ed7db3f134463220b7",
     ) {
         Ok(root) => root,
         Err(_) => panic!("Can't happen"),
@@ -119,7 +119,7 @@ pub mod bitcoinda {
 
     pub const DEVNET_INITIAL_BATCH_PROOF_METHOD_IDS: &[(u64, [u32; 8])] = &[(
         0,
-        decode_to_u32_array("0e97a121e3648a612596c11c9af2de48d146ed55f149186e1b759a2eb8efd9ab"),
+        decode_to_u32_array("e61101ffeef3a30cbf301b09288934f82767d1026d2a2672ec790979363ac1e0"),
     )];
 
     pub const NIGHTLY_INITIAL_BATCH_PROOF_METHOD_IDS: &[(u64, [u32; 8])] = {
