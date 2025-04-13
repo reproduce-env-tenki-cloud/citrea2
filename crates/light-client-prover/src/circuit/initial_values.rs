@@ -74,7 +74,7 @@ pub mod bitcoinda {
     };
 
     pub const DEVNET_GENESIS_ROOT: [u8; 32] = match const_hex::const_decode_to_array(
-        b"ecd69237c759ed001d39984d52c0b6102a459f16a9c923df01d3216918c8877a",
+        b"ee72838efc878217d4a8150828f19afa9e58c3270269413a3c757aeddbad05a6",
     ) {
         Ok(root) => root,
         Err(_) => panic!("Can't happen"),
