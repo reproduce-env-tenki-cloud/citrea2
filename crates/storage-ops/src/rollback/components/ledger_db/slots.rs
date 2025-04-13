@@ -1,6 +1,6 @@
 use sov_db::schema::tables::{
     CommitmentIndicesByL1, CommitmentsByNumber, L2StatusHeights, LightClientProofBySlotNumber,
-    ShortHeaderProofBySlotHash, SlotByHash, VerifiedBatchProofsBySlotNumber,
+    ProverLastScannedSlot, ShortHeaderProofBySlotHash, SlotByHash, VerifiedBatchProofsBySlotNumber,
 };
 use sov_db::schema::types::{L2HeightStatus, SlotNumber};
 use sov_schema_db::{ScanDirection, DB};
@@ -40,6 +40,16 @@ pub(crate) fn rollback_slots(
         }
 
         deleted += 1;
+    }
+
+    if matches!(node_type, StorageNodeType::FullNode) {
+        let last_scanned_l1_height = ledger_db
+            .get::<ProverLastScannedSlot>(&())?
+            .unwrap_or_default();
+        for l1_height in (target_l1..=last_scanned_l1_height.0).rev() {
+            ledger_db.delete::<L2StatusHeights>(&(L2HeightStatus::Committed, l1_height))?;
+            ledger_db.delete::<L2StatusHeights>(&(L2HeightStatus::Proven, l1_height))?;
+        }
     }
 
     Ok(deleted)
@@ -157,13 +167,6 @@ fn rollback_verified_proofs_by_slot_number(
         }
 
         ledger_db.delete::<VerifiedBatchProofsBySlotNumber>(&record.key)?;
-
-        let proofs = record.value;
-        for proof in proofs.into_iter().rev() {
-            let output = proof.proof_output;
-            ledger_db
-                .delete::<L2StatusHeights>(&(L2HeightStatus::Proven, output.last_l2_height()))?;
-        }
     }
 
     Ok(())
