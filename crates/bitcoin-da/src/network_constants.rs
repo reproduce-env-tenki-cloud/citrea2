@@ -68,8 +68,8 @@ pub const INITIAL_SIGNET_STATE: LatestDaState = LatestDaState {
     ],
     block_height: 12,
     total_work: [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 213,
-        125, 203, 60,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 191,
+        197, 4,
     ],
     current_target_bits: 0x1e0377ae,
     epoch_start_time: 1598918400,
