@@ -61,11 +61,7 @@ pub const TESTNET_FORKS: [Fork; 3] = [
     Fork::new(SpecId::Tangerine, 5546000 * 4), // TODO: Update
 ];
 
-pub const DEVNET_FORKS: [Fork; 3] = [
-    Fork::new(SpecId::Genesis, 0),
-    Fork::new(SpecId::Kumquat, 1921835),
-    Fork::new(SpecId::Tangerine, 5625700),
-];
+pub const DEVNET_FORKS: [Fork; 1] = [Fork::new(SpecId::Tangerine, 0)];
 
 pub const NIGHTLY_FORKS: [Fork; 1] = [Fork::new(SpecId::Tangerine, 0)];
 
