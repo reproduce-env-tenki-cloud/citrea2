@@ -6,7 +6,8 @@ use std::time::Duration;
 use std::vec;
 
 use alloy_eips::eip2718::Encodable2718;
-use alloy_primitives::U256;
+use alloy_primitives::{address, U256};
+use alloy_rpc_types::TransactionTrait;
 use anyhow::{anyhow, bail};
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
@@ -53,7 +54,6 @@ use super::types::SoftConfirmationResponse;
 use super::utils::collect_user_txs;
 
 // TODO: Ignore devnet and testnet contract upgrade txs with tx hashes
-// TODO: Break the loop after the sync is complete
 
 /// This block's txs are ignored because this block contains BitcoinLightClient contract upgrade tx which actually downgrades the current contract
 /// There are no other txs other than that in this block
@@ -609,8 +609,24 @@ where
             &mut nonce,
         )?;
 
+        // Replace txs
+        // These txs work when they should be reverting, because we have cancun activated from the start
+        // Normally these txs revert with Shanghai but since we do not use shanghai theses txs pass
         for evm_tx in user_transactions {
-            let buf = evm_tx.encoded_2718();
+            let buf = if evm_tx.signer() == address!("0x082e52771e3bcB9b05F3d1d6A42c3756386886BB") {
+                if evm_tx.nonce() == 40 {
+                    hex::decode("02f8688213fb286483989680830186a094082e52771e3bcb9b05f3d1d6a42c3756386886bb8080c080a06f2eea7c8c83db60dabb3cd4c6837c247022d46eb7b3a412603c5d845083c622a07738b328021968ff18c5a9a28243ae5e83e5a272be3b928601d57f676b889edd").unwrap()
+                } else if evm_tx.nonce() == 41 {
+                    hex::decode("02f8688213fb296483989680830186a094082e52771e3bcb9b05f3d1d6a42c3756386886bb8080c080a09abb6901f4ccb347e16374d507a53e07412ce2fdb510d00cb53054d070b3d51aa055b49ecda1dc0c21cb10b3a47e299dd1a345bbb8754d2a60f4d4a36c562e4502").unwrap()
+                } else if evm_tx.nonce() == 42 {
+                    hex::decode("02f8688213fb2a6483989680830186a094082e52771e3bcb9b05f3d1d6a42c3756386886bb8080c001a0be7b207050f635cf6da8fd3fb3134f921385e1d02ded13f3e8fbc894fc9faa49a00f771c1858f7a2247426989564d91410458f02235473f6b0801ec28863a1bb8a").unwrap()
+                } else {
+                    evm_tx.encoded_2718()
+                }
+            } else {
+                evm_tx.encoded_2718()
+            };
+
             let rlp_tx = RlpEvmTransaction { rlp: buf };
             let call_txs = CallMessage {
                 txs: vec![rlp_tx.clone()],
@@ -644,7 +660,7 @@ where
                 let tx = Recovered::try_from(rlp_tx.clone())
                     .expect("Should deserialize evm transaction");
 
-                writeln!(file, "Error: {:?}, tx hash: {:?} Transaction rlp: {:?}, tx signed ec recovered: {:?}, l2 block info: {:?}\n", e, tx.hash(), rlp_tx, tx, l2_block_info)?;
+                writeln!(file, "Error: {:?}, tx hash: {:?} Transaction rlp: {:?}, tx signed ec recovered: {:?}, l2 block info: {:?}\n", e, tx.hash(), hex::encode(rlp_tx.rlp), tx, l2_block_info)?;
 
                 match e {
                     // Since this is the sequencer, it should never get a soft confirmation error or a hook error
