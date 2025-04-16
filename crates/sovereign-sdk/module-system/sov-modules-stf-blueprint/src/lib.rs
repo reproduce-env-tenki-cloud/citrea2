@@ -1,6 +1,8 @@
 #![deny(missing_docs)]
 #![doc = include_str!("../README.md")]
 
+use std::collections::VecDeque;
+
 use borsh::BorshDeserialize;
 use citrea_primitives::EMPTY_TX_ROOT;
 use rs_merkle::algorithms::Sha256;
@@ -349,6 +351,7 @@ where
         let mut current_state_root = *initial_state_root;
         let mut prev_l2_block_hash: Option<[u8; 32]> = None;
 
+        println!("reading group count from host");
         let group_count: u32 = guest.read_from_host();
 
         assert_eq!(group_count, sequencer_commitments.len() as u32);
@@ -426,15 +429,43 @@ where
 
             let mut l2_height = sequencer_commitment_l2_start_height;
 
+            println!("reading state change count from host");
             let state_change_count: u32 = guest.read_from_host();
             let mut l2_block_hashes = Vec::with_capacity(state_change_count as usize);
 
             for _ in 0..state_change_count {
+                println!("reading l2 block height from host");
                 let l2_block_l2_height = guest.read_from_host::<u64>();
                 fork_manager.register_block(l2_block_l2_height).unwrap();
 
-                let (l2_block, state_witness, offchain_witness) =
-                    guest.read_from_host::<(L2Block, Witness, Witness)>();
+                println!("reading block {} from host", l2_block_l2_height);
+                let (l2_block, state_witness, offchain_witness) = {
+                    println!("reading l2 block from host");
+                    let l2_block: L2Block = guest.read_from_host();
+                    println!("reading state witness from host");
+                    let vec_dequeue_len: u32 = guest.read_from_host();
+                    println!("len: {}", vec_dequeue_len);
+
+                    let mut v = VecDeque::new();
+
+                    for _ in 0..vec_dequeue_len {
+                        // to have less logs
+                        if l2_block_l2_height == 71373 {
+                            println!("reading inner vec of witness")
+                        }
+                        let hint: Vec<u8> = guest.read_from_host();
+                        v.push_back(hint);
+                    }
+
+                    let state_witness: Witness = Witness { hints: v };
+                    println!("reading offchain witness from host");
+
+                    let offchain_witness: Witness = guest.read_from_host();
+
+                    println!("offchain len: {}", offchain_witness.hints.len());
+
+                    (l2_block, state_witness, offchain_witness)
+                };
 
                 assert_eq!(
                     l2_block.height(),

@@ -23,6 +23,7 @@ impl ZkvmGuest for Risc0Guest {
         let mut reader = env::stdin();
         // deserialize
         BorshDeserialize::deserialize_reader(&mut reader)
+            .inspect_err(|e| println!("error {:?}", e))
             .expect("Failed to deserialize input from host")
     }
 

@@ -21,7 +21,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 /// ```
 #[derive(Default, BorshDeserialize, BorshSerialize, Debug)]
 pub struct Witness {
-    hints: VecDeque<Vec<u8>>,
+    /// anan
+    pub hints: VecDeque<Vec<u8>>,
 }
 
 impl Witness {
