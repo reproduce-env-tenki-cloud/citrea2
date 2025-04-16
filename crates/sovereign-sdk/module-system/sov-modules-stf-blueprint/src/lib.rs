@@ -435,6 +435,8 @@ where
 
             for _ in 0..state_change_count {
                 println!("reading l2 block height from host");
+                // TODO: this is not needed anymore, reading block does not depend on the height
+                // even if this stayed there needs to be an assert for this
                 let l2_block_l2_height = guest.read_from_host::<u64>();
                 fork_manager.register_block(l2_block_l2_height).unwrap();
 
@@ -442,19 +444,25 @@ where
                 let (l2_block, state_witness, offchain_witness) = {
                     println!("reading l2 block from host");
                     let l2_block: L2Block = guest.read_from_host();
+
                     println!("reading state witness from host");
                     let vec_dequeue_len: u32 = guest.read_from_host();
                     println!("len: {}", vec_dequeue_len);
 
+                    // on block 71373 we couldn't read the Witness type
+                    // so switching to manually reading it from the input stream
                     let mut v = VecDeque::new();
 
                     for _ in 0..vec_dequeue_len {
-                        // to have less logs
-                        if l2_block_l2_height == 71373 {
-                            println!("reading inner vec of witness")
+                        let vec_len = guest.read_from_host::<u32>();
+
+                        let mut v_inner = vec![];
+
+                        for _ in 0..vec_len {
+                            let elem: u8 = guest.read_from_host();
+                            v_inner.push(elem);
                         }
-                        let hint: Vec<u8> = guest.read_from_host();
-                        v.push_back(hint);
+                        v.push_back(v_inner);
                     }
 
                     let state_witness: Witness = Witness { hints: v };
