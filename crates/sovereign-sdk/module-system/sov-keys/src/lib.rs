@@ -6,7 +6,10 @@ use std::hash::Hash;
 use default_signature::SigVerificationError;
 
 pub mod default_signature;
+
+#[cfg(feature = "native")]
 mod pub_key_hex;
+#[cfg(feature = "native")]
 mod serde_pub_key;
 
 pub use pub_key_hex::PublicKeyHex;

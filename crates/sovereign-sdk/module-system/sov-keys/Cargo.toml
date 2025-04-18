@@ -29,6 +29,7 @@ serde_json = { workspace = true }
 [features]
 default = ["native"]
 native = [
+    "derive_more/display",
     "serde",
     "rand",
     "schemars"
