@@ -60,7 +60,12 @@ coverage-ci:
 test: build-test ## Runs test suite using next test
 	TEST_SKIP_GUEST_BUILD=1 $(MAKE) test-ci -- $(filter-out $@,$(MAKECMDGOALS))
 
-coverage: build-test coverage-ci ## Coverage in lcov format
+
+.PHONY: build-test-coverage
+build-test-coverage: $(EF_TESTS_DIR)
+	RUSTFLAGS="-C instrument-coverage" cargo build --locked $(TEST_FEATURES)
+
+coverage: build-test-coverage coverage-ci ## Coverage in lcov format
 
 coverage-html: ## Coverage in HTML format
 	cargo llvm-cov --locked --all-features --html nextest --workspace --all-features
