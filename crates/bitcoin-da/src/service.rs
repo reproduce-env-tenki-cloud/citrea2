@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use sov_rollup_interface::da::{DaSpec, DaTxRequest, DataOnDa, SequencerCommitment};
 use sov_rollup_interface::services::da::{DaService, TxRequestWithNotifier};
 use sov_rollup_interface::zk::Proof;
+use sov_rollup_interface::Network;
 use tokio::select;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::channel as oneshot_channel;
@@ -44,6 +45,7 @@ use crate::helpers::merkle_tree;
 use crate::helpers::merkle_tree::BitcoinMerkleTree;
 use crate::helpers::parsers::{parse_relevant_transaction, ParsedTransaction, VerifyParsed};
 use crate::monitoring::{MonitoredTxKind, MonitoringConfig, MonitoringService, TxStatus};
+use crate::network_constants::{get_network_constants, NetworkConstants};
 use crate::spec::blob::BlobWithSender;
 use crate::spec::block::BitcoinBlock;
 use crate::spec::header::HeaderWrapper;
@@ -58,11 +60,16 @@ use crate::REVEAL_OUTPUT_AMOUNT;
 
 type Result<T> = std::result::Result<T, BitcoinServiceError>;
 
-#[cfg(feature = "testing")]
-pub const FINALITY_DEPTH: u64 = 5; // blocks
-#[cfg(not(feature = "testing"))]
-pub const FINALITY_DEPTH: u64 = 100; // blocks
 const POLLING_INTERVAL: u64 = 10; // seconds
+
+pub fn network_to_bitcoin_network(network: &Network) -> bitcoin::Network {
+    match network {
+        Network::Mainnet => bitcoin::Network::Bitcoin,
+        Network::Testnet => bitcoin::Network::Testnet4,
+        Network::Devnet => bitcoin::Network::Signet,
+        Network::Nightly | Network::TestNetworkWithForks => bitcoin::Network::Regtest,
+    }
+}
 
 /// Runtime configuration for the DA service
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -71,9 +78,6 @@ pub struct BitcoinServiceConfig {
     pub node_url: String,
     pub node_username: String,
     pub node_password: String,
-
-    // network of the bitcoin node
-    pub network: bitcoin::Network,
 
     // da private key of the sequencer
     pub da_private_key: Option<String>,
@@ -91,7 +95,6 @@ impl citrea_common::FromEnv for BitcoinServiceConfig {
             node_url: read_env("NODE_URL")?,
             node_username: read_env("NODE_USERNAME")?,
             node_password: read_env("NODE_PASSWORD")?,
-            network: serde_json::from_str(&format!("\"{}\"", read_env("NETWORK")?))?,
             da_private_key: read_env("DA_PRIVATE_KEY").ok(),
             tx_backup_dir: read_env("TX_BACKUP_DIR")?,
             monitoring: MonitoringConfig::from_env().ok(),
@@ -105,6 +108,7 @@ impl citrea_common::FromEnv for BitcoinServiceConfig {
 pub struct BitcoinService {
     client: Arc<Client>,
     network: bitcoin::Network,
+    network_constants: NetworkConstants,
     da_private_key: Option<SecretKey>,
     reveal_tx_prefix: Vec<u8>,
     inscribes_queue: UnboundedSender<TxRequestWithNotifier<TxidWrapper>>,
@@ -150,11 +154,18 @@ impl BitcoinService {
                 .context("Failed to create tx backup directory")?;
         }
 
-        let monitoring = Arc::new(MonitoringService::new(client.clone(), config.monitoring));
-        let fee = FeeService::new(client.clone(), config.network, config.mempool_space_url);
+        let network = network_to_bitcoin_network(&chain_params.network);
+        let network_constants = get_network_constants(&network);
+        let monitoring = Arc::new(MonitoringService::new(
+            client.clone(),
+            config.monitoring,
+            network_constants.finality_depth,
+        ));
+        let fee = FeeService::new(client.clone(), network, config.mempool_space_url);
         Ok(Self {
             client,
-            network: config.network,
+            network_constants,
+            network,
             da_private_key: private_key,
             reveal_tx_prefix: chain_params.reveal_tx_prefix,
             inscribes_queue: tx,
@@ -191,12 +202,19 @@ impl BitcoinService {
                 .context("Failed to create tx backup directory")?;
         }
 
-        let monitoring = Arc::new(MonitoringService::new(client.clone(), config.monitoring));
-        let fee = FeeService::new(client.clone(), config.network, config.mempool_space_url);
+        let network = network_to_bitcoin_network(&chain_params.network);
+        let network_constants = get_network_constants(&network);
+        let monitoring = Arc::new(MonitoringService::new(
+            client.clone(),
+            config.monitoring,
+            network_constants.finality_depth,
+        ));
+        let fee = FeeService::new(client.clone(), network, config.mempool_space_url);
 
         Ok(Self {
             client,
-            network: config.network,
+            network_constants,
+            network,
             da_private_key,
             reveal_tx_prefix: chain_params.reveal_tx_prefix,
             inscribes_queue: tx,
@@ -795,7 +813,11 @@ impl DaService for BitcoinService {
 
         let finalized_blockhash = self
             .client
-            .get_block_hash(block_count.saturating_sub(FINALITY_DEPTH).saturating_add(1))
+            .get_block_hash(
+                block_count
+                    .saturating_sub(self.network_constants.finality_depth)
+                    .saturating_add(1),
+            )
             .await?;
 
         let finalized_block_header = self.get_block_by_hash(finalized_blockhash.into()).await?;
