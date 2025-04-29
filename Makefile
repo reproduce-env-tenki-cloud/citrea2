@@ -73,6 +73,16 @@ coverage-ci:
 		--ignore-filename-regex='/.cargo/registry' \
 		--ignore-filename-regex='tests/'
 
+	llvm-profdata merge -sparse target/llvm-cov-target/*.profraw -o target/llvm-cov-target/merged.profdata
+
+	llvm-cov export \
+		--format=lcov \
+		--instr-profile=target/llvm-cov-target/merged.profdata \
+		--ignore-filename-regex='/.cargo/registry' \
+		--ignore-filename-regex='tests/' \
+		$(shell find target/debug -type f -executable) \
+		> lcov.info
+
 test: build-test ## Runs test suite using next test
 	TEST_SKIP_GUEST_BUILD=1 $(MAKE) test-ci -- $(filter-out $@,$(MAKECMDGOALS))
 
