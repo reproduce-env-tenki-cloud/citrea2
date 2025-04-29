@@ -170,10 +170,8 @@ fn verify_system_tx<C: sov_modules_api::Context>(
         .map_err(|_| L2BlockModuleCallError::EvmSystemTxParseError)?;
 
     if function_selector == BitcoinLightClientContract::setBlockInfoCall::SELECTOR {
-        let call = BitcoinLightClientContract::setBlockInfoCall::abi_decode(
-            tx.input(),
-        )
-        .map_err(|_| L2BlockModuleCallError::EvmSystemTxParseError)?;
+        let call = BitcoinLightClientContract::setBlockInfoCall::abi_decode(tx.input())
+            .map_err(|_| L2BlockModuleCallError::EvmSystemTxParseError)?;
 
         let l1_block_hash = call._blockHash;
         let txs_commitment = call._witnessRoot;
