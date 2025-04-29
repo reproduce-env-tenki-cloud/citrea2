@@ -172,7 +172,6 @@ fn verify_system_tx<C: sov_modules_api::Context>(
     if function_selector == BitcoinLightClientContract::setBlockInfoCall::SELECTOR {
         let call = BitcoinLightClientContract::setBlockInfoCall::abi_decode(
             tx.input(),
-            /*validate*/ true,
         )
         .map_err(|_| L2BlockModuleCallError::EvmSystemTxParseError)?;
 

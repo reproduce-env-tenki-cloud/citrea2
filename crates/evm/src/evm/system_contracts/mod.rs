@@ -161,7 +161,7 @@ impl WCBTC {
     }
 
     pub fn balance_of(account: Address) -> Bytes {
-        WCBTC9Contract::balanceOfCall { _0: account }
+        WCBTC9Contract::balanceOfCall(account)
             .abi_encode()
             .into()
     }
