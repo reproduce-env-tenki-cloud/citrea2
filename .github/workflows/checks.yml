@@ -286,6 +286,10 @@ jobs:
         with:
           name: e2e-test-dir-coverage
           path: ${{ runner.temp }}/coverage
+      - name: Check coverage files
+        run: |
+          find target/llvm-cov-target -name "*.profraw" | sort
+          ls -la target/llvm-cov-target/*.profraw
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:
