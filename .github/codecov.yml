@@ -13,8 +13,8 @@ coverage:
     patch: off
 
 # Test files aren't important for coverage
-ignore:
-  - "tests"
+# ignore:
+#   - "tests"
 
 # Make comments less noisy
 comment:
