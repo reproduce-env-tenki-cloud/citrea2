@@ -56,17 +56,22 @@ test-ci:
 
 .PHONY: coverage-ci
 coverage-ci:
-	RISC0_DEV_MODE=1 PARALLEL_PROOF_LIMIT=1 cargo llvm-cov --locked --lcov --output-path lcov.info nextest -j10 --workspace --all-features
+	RISC0_DEV_MODE=1 PARALLEL_PROOF_LIMIT=1 cargo llvm-cov --no-report --locked --lcov --output-path lcov.info nextest -j10 --workspace --all-features
 
-	llvm-profdata merge -sparse target/llvm-cov-target/*.profraw -o target/llvm-cov-target/merged.profdata
-
-	llvm-cov export \
-		--format=lcov \
-		--instr-profile=target/llvm-cov-target/merged.profdata \
+	CARGO_LLVM_COV=1 \
+	cargo llvm-cov report \
+		--locked \
+		--all-features \
+		--lcov \
+		--output-path lcov.info \
 		--ignore-filename-regex='/.cargo/registry' \
-		--ignore-filename-regex='tests/' \
-		$(shell find target/debug -type f -executable) \
-		> lcov.info
+		--ignore-filename-regex='tests/'
+
+	cargo llvm-cov report \
+		--locked \
+		--all-features \
+		--ignore-filename-regex='/.cargo/registry' \
+		--ignore-filename-regex='tests/'
 
 test: build-test ## Runs test suite using next test
 	TEST_SKIP_GUEST_BUILD=1 $(MAKE) test-ci -- $(filter-out $@,$(MAKECMDGOALS))
