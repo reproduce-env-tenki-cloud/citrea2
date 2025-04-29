@@ -290,6 +290,14 @@ jobs:
         run: |
           find target/llvm-cov-target -name "*.profraw" | sort
           ls -la target/llvm-cov-target/*.profraw
+
+      - name: Debug coverage report
+        run: |
+          echo "Number of profraw files found: $(find target/llvm-cov-target -name '*.profraw' | wc -l)"
+          echo "Size of merged profdata: $(ls -lh target/llvm-cov-target/merged.profdata || echo 'Not found')"
+          echo "Number of executables included: $(find target/debug -type f -executable | wc -l)"
+          echo "Coverage report size: $(ls -lh lcov.info)"
+
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:

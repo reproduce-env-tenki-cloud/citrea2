@@ -54,8 +54,19 @@ test-legacy: ## Runs test suite with output from tests printed
 test-ci:
 	RISC0_DEV_MODE=1 PARALLEL_PROOF_LIMIT=1 cargo nextest run -j15 --locked --workspace --all-features --no-fail-fast $(filter-out $@,$(MAKECMDGOALS))
 
+.PHONY: coverage-ci
 coverage-ci:
 	RISC0_DEV_MODE=1 PARALLEL_PROOF_LIMIT=1 cargo llvm-cov --locked --lcov --output-path lcov.info nextest -j10 --workspace --all-features
+
+	llvm-profdata merge -sparse target/llvm-cov-target/*.profraw -o target/llvm-cov-target/merged.profdata
+
+	llvm-cov export \
+		--format=lcov \
+		--instr-profile=target/llvm-cov-target/merged.profdata \
+		--ignore-filename-regex='/.cargo/registry' \
+		--ignore-filename-regex='tests/' \
+		$(shell find target/debug -type f -executable) \
+		> lcov.info
 
 test: build-test ## Runs test suite using next test
 	TEST_SKIP_GUEST_BUILD=1 $(MAKE) test-ci -- $(filter-out $@,$(MAKECMDGOALS))
