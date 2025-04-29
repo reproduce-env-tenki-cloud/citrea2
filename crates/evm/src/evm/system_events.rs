@@ -1,5 +1,5 @@
 use alloy_consensus::TxEip1559;
-use alloy_primitives::{address, Address, PrimitiveSignature, TxKind, U256};
+use alloy_primitives::{address, Address, Signature, TxKind, U256};
 use reth_primitives::{Recovered, Transaction, TransactionSigned};
 
 use super::system_contracts::{BitcoinLightClient, BridgeWrapper};
@@ -86,7 +86,7 @@ pub(crate) fn signed_system_transaction(
     let signed_no_hash = TransactionSigned::new_unhashed(
         transaction,
         // This is a special signature to force tx.signer to be set to SYSTEM_SIGNER
-        PrimitiveSignature::new(U256::ZERO, U256::ZERO, false),
+        Signature::new(U256::ZERO, U256::ZERO, false),
     );
     Recovered::new_unchecked(signed_no_hash, SYSTEM_SIGNER)
 }
