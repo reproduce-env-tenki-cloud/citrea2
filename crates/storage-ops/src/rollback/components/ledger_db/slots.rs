@@ -1,6 +1,7 @@
 use sov_db::schema::tables::{
-    CommitmentIndicesByL1, CommitmentsByNumber, L2StatusHeights, LightClientProofBySlotNumber,
-    ProverLastScannedSlot, ShortHeaderProofBySlotHash, SlotByHash, VerifiedBatchProofsBySlotNumber,
+    CommitmentIndicesByL1, CommitmentsByNumber, L2StatusHeights, LastScannedL1Height,
+    LightClientProofBySlotNumber, ShortHeaderProofBySlotHash, SlotByHash,
+    VerifiedBatchProofsBySlotNumber,
 };
 use sov_db::schema::types::{L2HeightStatus, SlotNumber};
 use sov_schema_db::{ScanDirection, DB};
@@ -44,7 +45,7 @@ pub(crate) fn rollback_slots(
 
     if matches!(node_type, StorageNodeType::FullNode) {
         let last_scanned_l1_height = ledger_db
-            .get::<ProverLastScannedSlot>(&())?
+            .get::<LastScannedL1Height>(&())?
             .unwrap_or_default();
         for l1_height in (target_l1..=last_scanned_l1_height.0).rev() {
             ledger_db.delete::<L2StatusHeights>(&(L2HeightStatus::Committed, l1_height))?;

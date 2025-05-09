@@ -65,7 +65,7 @@ pub const SEQUENCER_LEDGER_TABLES: &[&str] = &[
     // to remove these tables first as demonstrated by the
     // `test_sequencer_crash_and_replace_full_node` test.
     VerifiedBatchProofsBySlotNumber::table_name(),
-    ProverLastScannedSlot::table_name(),
+    LastScannedL1Height::table_name(),
     SlotByHash::table_name(),
     ShortHeaderProofBySlotHash::table_name(),
     CommitmentMerkleRoots::table_name(),
@@ -90,7 +90,7 @@ pub const FULL_NODE_LEDGER_TABLES: &[&str] = &[
     ShortHeaderProofBySlotHash::table_name(),
     L2RangeByL1Height::table_name(),
     L2GenesisStateRoot::table_name(),
-    ProverLastScannedSlot::table_name(),
+    LastScannedL1Height::table_name(),
     CommitmentsByNumber::table_name(),
     LastPrunedBlock::table_name(),
     VerifiedBatchProofsBySlotNumber::table_name(),
@@ -113,7 +113,7 @@ pub const BATCH_PROVER_LEDGER_TABLES: &[&str] = &[
     L2BlockByHash::table_name(),
     ShortHeaderProofBySlotHash::table_name(),
     L2GenesisStateRoot::table_name(),
-    ProverLastScannedSlot::table_name(),
+    LastScannedL1Height::table_name(),
     ProverStateDiffs::table_name(),
     LastPrunedBlock::table_name(),
     SequencerCommitmentByIndex::table_name(),
@@ -135,7 +135,7 @@ pub const LIGHT_CLIENT_PROVER_LEDGER_TABLES: &[&str] = &[
     SlotByHash::table_name(),
     L2BlockByNumber::table_name(),
     LightClientProofBySlotNumber::table_name(),
-    ProverLastScannedSlot::table_name(),
+    LastScannedL1Height::table_name(),
     // Don't know if this will be needed
     CommitmentMerkleRoots::table_name(),
     #[cfg(test)]
@@ -157,7 +157,7 @@ pub const LEDGER_TABLES: &[&str] = &[
     StateDiffByBlockNumber::table_name(),
     LightClientProofBySlotNumber::table_name(),
     PendingSequencerCommitment::table_name(),
-    ProverLastScannedSlot::table_name(),
+    LastScannedL1Height::table_name(),
     ShortHeaderProofBySlotHash::table_name(),
     CommitmentsByNumber::table_name(),
     ProofsBySlotNumber::table_name(),
@@ -435,7 +435,7 @@ define_table_with_seek_key_codec!(
     /// Full node also uses this table to store the last slot it scanned
     /// However, we don't rename here to avoid breaking changes on deployed nodes
     /// and prover.
-    (ProverLastScannedSlot) () => SlotNumber
+    (LastScannedL1Height) () => SlotNumber
 );
 
 define_table_without_codec!(

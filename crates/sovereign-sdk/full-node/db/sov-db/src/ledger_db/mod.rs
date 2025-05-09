@@ -17,10 +17,10 @@ use crate::schema::tables::TestTableNew;
 use crate::schema::tables::{
     CommitmentIndicesByJobId, CommitmentIndicesByL1, CommitmentMerkleRoots, CommitmentsByNumber,
     ExecutedMigrations, JobIdOfCommitment, L2BlockByHash, L2BlockByNumber, L2GenesisStateRoot,
-    L2RangeByL1Height, L2StatusHeights, LastPrunedBlock, LightClientProofBySlotNumber, MempoolTxs,
-    PendingBonsaiSessionByJobId, PendingL1SubmissionJobs, PendingProofs,
-    PendingSequencerCommitment, PendingSequencerCommitments, ProofByJobId, ProofsBySlotNumberV2,
-    ProverLastScannedSlot, ProverPendingCommitments, ProverStateDiffs, SequencerCommitmentByIndex,
+    L2RangeByL1Height, L2StatusHeights, LastPrunedBlock, LastScannedL1Height,
+    LightClientProofBySlotNumber, MempoolTxs, PendingBonsaiSessionByJobId, PendingL1SubmissionJobs,
+    PendingProofs, PendingSequencerCommitment, PendingSequencerCommitments, ProofByJobId,
+    ProofsBySlotNumberV2, ProverPendingCommitments, ProverStateDiffs, SequencerCommitmentByIndex,
     ShortHeaderProofBySlotHash, SlotByHash, StateDiffByBlockNumber,
     VerifiedBatchProofsBySlotNumber, LEDGER_TABLES,
 };
@@ -385,14 +385,14 @@ impl SharedLedgerOps for LedgerDB {
     /// Get the last scanned slot by the prover
     #[instrument(level = "trace", skip(self), err, ret)]
     fn get_last_scanned_l1_height(&self) -> anyhow::Result<Option<SlotNumber>> {
-        self.db.get::<ProverLastScannedSlot>(&())
+        self.db.get::<LastScannedL1Height>(&())
     }
 
     /// Set the last scanned slot by the prover
     /// Called by the prover.
     #[instrument(level = "trace", skip(self), err, ret)]
     fn set_last_scanned_l1_height(&self, l1_height: SlotNumber) -> anyhow::Result<()> {
-        self.db.put::<ProverLastScannedSlot>(&(), &l1_height)
+        self.db.put::<LastScannedL1Height>(&(), &l1_height)
     }
 
     #[instrument(level = "trace", skip(self), err, ret)]

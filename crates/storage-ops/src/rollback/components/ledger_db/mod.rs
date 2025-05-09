@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use l2_blocks::rollback_l2_blocks;
 use slots::{rollback_batch_prover_slots, rollback_light_client_slots, rollback_slots};
-use sov_db::schema::tables::ProverLastScannedSlot;
+use sov_db::schema::tables::LastScannedL1Height;
 use sov_db::schema::types::SlotNumber;
 use tracing::debug;
 
@@ -52,7 +52,7 @@ pub(crate) fn rollback_ledger_db(
         }
     }
 
-    let _ = ledger_db.put::<ProverLastScannedSlot>(&(), &SlotNumber(target_l1));
+    let _ = ledger_db.put::<LastScannedL1Height>(&(), &SlotNumber(target_l1));
 
     let _ = ledger_db.flush();
 }
