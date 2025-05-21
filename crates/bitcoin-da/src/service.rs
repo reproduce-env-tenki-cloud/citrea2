@@ -23,7 +23,7 @@ use bitcoincore_rpc::{Auth, Client, Error as BitcoinError, Error, RpcApi, RpcErr
 use borsh::BorshDeserialize;
 use citrea_common::utils::read_env;
 use citrea_primitives::compression::{compress_blob, decompress_blob};
-use citrea_primitives::MAX_TXBODY_SIZE;
+use citrea_primitives::MAX_TX_BODY_SIZE;
 use lru::LruCache;
 use metrics::histogram;
 use reth_tasks::shutdown::GracefulShutdown;
@@ -118,7 +118,7 @@ pub struct BitcoinService {
     pub(crate) tx_backup_dir: PathBuf,
     pub monitoring: Arc<MonitoringService>,
     fee: FeeService,
-    l1_block_hash_to_map: Arc<Mutex<LruCache<BlockHash, usize>>>,
+    l1_block_hash_to_height: Arc<Mutex<LruCache<BlockHash, usize>>>,
 }
 
 impl BitcoinService {
@@ -166,7 +166,7 @@ impl BitcoinService {
             network_constants.finality_depth,
         ));
         let fee = FeeService::new(client.clone(), network, config.mempool_space_url);
-        let l1_block_hash_to_map =
+        let l1_block_hash_to_height =
             Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(100).unwrap())));
         Ok(Self {
             client,
@@ -178,7 +178,7 @@ impl BitcoinService {
             tx_backup_dir: tx_backup_dir.to_path_buf(),
             monitoring,
             fee,
-            l1_block_hash_to_map,
+            l1_block_hash_to_height,
         })
     }
 
@@ -217,7 +217,7 @@ impl BitcoinService {
             network_constants.finality_depth,
         ));
         let fee = FeeService::new(client.clone(), network, config.mempool_space_url);
-        let l1_block_hash_to_map =
+        let l1_block_hash_to_height =
             Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(100).unwrap())));
 
         Ok(Self {
@@ -230,7 +230,7 @@ impl BitcoinService {
             tx_backup_dir: tx_backup_dir.to_path_buf(),
             monitoring,
             fee,
-            l1_block_hash_to_map,
+            l1_block_hash_to_height,
         })
     }
 
@@ -791,37 +791,8 @@ impl BitcoinService {
         } else {
             // If chunk does not exist, it means it is in a different block
             // Check the block height
-            let exponential_backoff = ExponentialBackoff::default();
             let tx_block_height = if let Some(tx_block_hash) = tx_block_hash {
-                if let Some(height) = self.l1_block_hash_to_map.lock().await.get(&tx_block_hash) {
-                    *height
-                } else {
-                    let res = retry_backoff(exponential_backoff, || async move {
-                        self.client
-                            .get_block_info(&tx_block_hash)
-                            .await
-                            .map_err(|e| match e {
-                                BitcoinError::Io(_) => backoff::Error::transient(e),
-                                _ => backoff::Error::permanent(e),
-                            })
-                    })
-                    .await;
-                    match res {
-                        Ok(r) => {
-                            self.l1_block_hash_to_map
-                                .lock()
-                                .await
-                                .put(tx_block_hash, r.height);
-                            r.height
-                        }
-                        Err(e) => {
-                            return Err(anyhow!(
-                                "Failed to request block by block hash:{:?} Error: {e}",
-                                tx_block_hash
-                            ));
-                        }
-                    }
-                }
+                self.get_block_height_from_block_hash(tx_block_hash).await?
             } else {
                 return Err(anyhow!(
                     "{}:{}: Failed to get block hash for chunk",
@@ -843,6 +814,44 @@ impl BitcoinService {
         }
 
         Ok(())
+    }
+
+    async fn get_block_height_from_block_hash(
+        &self,
+        tx_block_hash: BlockHash,
+    ) -> anyhow::Result<usize> {
+        if let Some(height) = self
+            .l1_block_hash_to_height
+            .lock()
+            .await
+            .get(&tx_block_hash)
+        {
+            return Ok(*height);
+        }
+        let exponential_backoff = ExponentialBackoff::default();
+        let res = retry_backoff(exponential_backoff, || async move {
+            self.client
+                .get_block_info(&tx_block_hash)
+                .await
+                .map_err(|e| match e {
+                    BitcoinError::Io(_) => backoff::Error::transient(e),
+                    _ => backoff::Error::permanent(e),
+                })
+        })
+        .await;
+        match res {
+            Ok(r) => {
+                self.l1_block_hash_to_height
+                    .lock()
+                    .await
+                    .put(tx_block_hash, r.height);
+                Ok(r.height)
+            }
+            Err(e) => Err(anyhow!(
+                "Failed to request block by block hash:{:?} Error: {e}",
+                tx_block_hash
+            )),
+        }
     }
 }
 
@@ -1461,20 +1470,20 @@ impl From<TxidWrapper> for [u8; 32] {
 /// 1: compress(borsh(DataOnDa::Complete(Proof)))
 /// 2:
 ///   let compressed = compress(borsh(Proof))
-///   let chunks = compressed.chunks(MAX_TXBODY_SIZE)
+///   let chunks = compressed.chunks(MAX_TX_BODY_SIZE)
 ///   [borsh(DataOnDa::Chunk(chunk)) for chunk in chunks]
 pub(crate) fn split_proof(zk_proof: Proof) -> anyhow::Result<RawTxData> {
     let original_blob = borsh::to_vec(&zk_proof).expect("zk::Proof serialize must not fail");
     let original_compressed = compress_blob(&original_blob)?;
 
-    if original_compressed.len() < MAX_TXBODY_SIZE {
+    if original_compressed.len() < MAX_TX_BODY_SIZE {
         let data = DataOnDa::Complete(zk_proof);
         let blob = borsh::to_vec(&data).expect("zk::Proof serialize must not fail");
         let blob = compress_blob(&blob)?;
         Ok(RawTxData::Complete(blob))
     } else {
         let mut chunks = vec![];
-        for chunk in original_compressed.chunks(MAX_TXBODY_SIZE) {
+        for chunk in original_compressed.chunks(MAX_TX_BODY_SIZE) {
             let data = DataOnDa::Chunk(chunk.to_vec());
             let blob = borsh::to_vec(&data).expect("zk::Proof Chunk serialize must not fail");
             chunks.push(blob)
