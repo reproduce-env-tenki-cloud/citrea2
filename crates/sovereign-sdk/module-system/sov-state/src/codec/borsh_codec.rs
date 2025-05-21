@@ -14,7 +14,11 @@ pub struct BorshCodec;
 
 impl StateKeyCodec<AlloyU256> for BorshCodec {
     fn encode_key<'k>(&self, key: &'k AlloyU256) -> Cow<'k, [u8]> {
-        Cow::Borrowed(key.as_le_slice())
+        #[cfg(target_endian = "little")]
+        return Cow::Borrowed(key.as_le_slice());
+
+        #[cfg(target_endian = "big")]
+        Cow::Owned(key.as_le_bytes().to_vec())
     }
 }
 
@@ -110,9 +114,14 @@ macro_rules! impl_borsh_codec {
     ($t:tt) => {
         impl StateKeyCodec<$t> for BorshCodec {
             fn encode_key<'k>(&self, key: &'k $t) -> Cow<'k, [u8]> {
-                use ::zerocopy::IntoBytes;
-                // This is hightly LE/BE platform specific.
-                Cow::Borrowed(key.as_bytes())
+                #[cfg(target_endian = "little")]
+                {
+                    use ::zerocopy::IntoBytes;
+                    Cow::Borrowed(key.as_bytes())
+                }
+
+                #[cfg(target_endian = "big")]
+                Cow::Owned(key.to_le_bytes().to_vec())
             }
         }
 
