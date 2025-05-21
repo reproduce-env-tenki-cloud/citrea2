@@ -13,7 +13,7 @@ use boundless_market::storage::StorageProviderConfig;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{
     compute_image_id, default_executor, AssumptionReceipt, Digest, ExecutorEnvBuilder,
-    Groth16Receipt, InnerReceipt, MaybePruned, Receipt, ReceiptClaim,
+    Groth16Receipt, InnerReceipt, Journal, MaybePruned, Receipt, ReceiptClaim,
 };
 use sov_db::ledger_db::LedgerDB;
 use sov_rollup_interface::zk::{ProofWithJob, ReceiptType};
@@ -142,87 +142,96 @@ impl BoundlessProver {
         let image_url = self.client.upload_program(&elf).await?;
         tracing::info!("Image URL: {}", image_url);
 
-        let mut env = ExecutorEnvBuilder::default();
-        for assumption in assumptions {
-            env.add_assumption(assumption);
-        }
+        // move non-Send logic to blocking thread
+        let (guest_env_bytes, journal, mcycles_count) = tokio::task::spawn_blocking({
+            let elf = elf.clone(); // clone since we move into thread
+            let input = input.clone();
+            let assumptions = assumptions.clone();
 
-        let env = env.write_slice(&input).build().unwrap();
+            move || -> anyhow::Result<(Vec<u8>, Journal, u64)> {
+                let mut env = ExecutorEnvBuilder::default();
+                for assumption in assumptions {
+                    env.add_assumption(assumption);
+                }
+                let env = env.write_slice(&input).build()?;
 
-        let session_info = default_executor().execute(env, &elf)?;
+                let session_info = default_executor().execute(env, &elf)?;
 
-        let total_cycles_approx = session_info
-            .segments
-            .iter()
-            .map(|segment| 1 << segment.po2)
-            .sum::<u64>();
-        let mcycles_count = total_cycles_approx.div_ceil(1_000_000);
-        let journal = session_info.journal;
+                let total_cycles_approx = session_info
+                    .segments
+                    .iter()
+                    .map(|segment| 1 << segment.po2)
+                    .sum::<u64>();
+                let mcycles_count = total_cycles_approx.div_ceil(1_000_000);
+                tracing::info!(
+                    "Boundless proving session with job id: {} takes {} cycles",
+                    job_id,
+                    total_cycles_approx
+                );
 
-        tracing::info!(
-            "Boundless proving session with job id: {} takes {} cycles",
-            job_id,
-            total_cycles_approx
-        );
+                let input_builder = InputBuilder::new().write_slice(&input);
+                let guest_env = input_builder.build_env()?;
+                let bytes = guest_env.encode()?.to_vec();
 
-        let input_builder = InputBuilder::new().write_slice(&input);
-        let guest_env = input_builder.clone().build_env()?;
-        let guest_env_bytes = guest_env.encode()?.to_vec();
+                Ok((bytes, session_info.journal, mcycles_count))
+            }
+        })
+        .await??;
         // Upload input
         let input_url = self.client.upload_input(&guest_env_bytes.clone()).await?;
-        // tracing::info!("Uploaded input to {}", input_url);
+        tracing::info!("Uploaded input to {}", input_url);
 
-        // let request = ProofRequestBuilder::new()
-        //     .with_image_url(image_url.to_string())
-        //     .with_input(input_url.clone())
-        //     .with_requirements(
-        //         Requirements::new(image_id, Predicate::digest_match(journal.clone().digest()))
-        //             .with_groth16_proof(),
-        //     )
-        //     .with_offer(
-        //         Offer::default()
-        //             // TODO: Get this from config maybe?
-        //             .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
-        //             .with_max_price_per_mcycle(parse_ether("0.05")?, mcycles_count)
-        //             .with_timeout(1000)
-        //             .with_lock_timeout(500)
-        //             .with_ramp_up_period(100),
-        //     )
-        //     .build()
-        //     .unwrap();
+        let request = ProofRequestBuilder::new()
+            .with_image_url(image_url.to_string())
+            .with_input(input_url.clone())
+            .with_requirements(
+                Requirements::new(image_id, Predicate::digest_match(journal.clone().digest()))
+                    .with_groth16_proof(),
+            )
+            .with_offer(
+                Offer::default()
+                    // TODO: Get this from config maybe?
+                    .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
+                    .with_max_price_per_mcycle(parse_ether("0.05")?, mcycles_count)
+                    .with_timeout(1000)
+                    .with_lock_timeout(500)
+                    .with_ramp_up_period(100),
+            )
+            .build()
+            .unwrap();
 
-        // // Start boundless proving session
-        // let (req_id, request_expiry) = match self.network {
-        //     BoundlessNetwork::Offchain => {
-        //         let req_id = self.client.submit_request_offchain(&request).await?;
-        //         tracing::info!("Request submitted to offchain boundless service");
-        //         (req_id.0.to_string(), req_id.1)
-        //     }
-        //     BoundlessNetwork::Onchain => {
-        //         let req_id = self.client.submit_request(&request).await?;
-        //         tracing::info!("Request submitted to onchain boundless service");
-        //         (req_id.0.to_string(), req_id.1)
-        //     }
+        // Start boundless proving session
+        let (req_id, request_expiry) = match self.network {
+            BoundlessNetwork::Offchain => {
+                let req_id = self.client.submit_request_offchain(&request).await?;
+                tracing::info!("Request submitted to offchain boundless service");
+                (req_id.0.to_string(), req_id.1)
+            }
+            BoundlessNetwork::Onchain => {
+                let req_id = self.client.submit_request(&request).await?;
+                tracing::info!("Request submitted to onchain boundless service");
+                (req_id.0.to_string(), req_id.1)
+            }
+        };
+        tracing::info!(
+            "Started boundless proving session, job_id={} request_id={}",
+            job_id,
+            req_id
+        );
+
+        // TODO: Handle db stuff
+        // let db_session = BonsaiSession {
+        //     kind: BonsaiSessionKind::StarkSession(session.uuid.clone()),
+        //     image_id: image_id.into(),
+        //     receipt_type,
         // };
-        // tracing::info!(
-        //     "Started boundless proving session, job_id={} request_id={}",
-        //     job_id,
-        //     req_id
-        // );
+        // self.ledger_db
+        //     .upsert_pending_bonsai_session(job_id, db_session)
+        //     .context("Failed to upsert bonsai stark session")?;
 
-        // // TODO: Handle db stuff
-        // // let db_session = BonsaiSession {
-        // //     kind: BonsaiSessionKind::StarkSession(session.uuid.clone()),
-        // //     image_id: image_id.into(),
-        // //     receipt_type,
-        // // };
-        // // self.ledger_db
-        // //     .upsert_pending_bonsai_session(job_id, db_session)
-        // //     .context("Failed to upsert bonsai stark session")?;
-
-        // let rx = self
-        //     .spawn_handler(job_id, req_id, image_id, receipt_type, request_expiry)
-        //     .await;
+        let rx = self
+            .spawn_handler(job_id, req_id, image_id, receipt_type, request_expiry)
+            .await;
 
         let (tx, rx) = oneshot::channel();
 
