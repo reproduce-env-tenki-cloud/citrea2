@@ -1,6 +1,7 @@
 //! This module implements the [`ZkvmHost`] trait for the RISC0 VM.
 
 mod bonsai;
+mod boundless;
 mod local;
 
 use std::path::Path;
@@ -9,6 +10,7 @@ use std::{env, fs, mem};
 
 use bonsai::BonsaiProver;
 use borsh::BorshDeserialize;
+use boundless::BoundlessProver;
 use local::LocalProver;
 use risc0_zkvm::sha::Digest;
 use risc0_zkvm::AssumptionReceipt;
@@ -104,6 +106,15 @@ impl ZkvmHost for Risc0Host {
                 );
                 bonsai.prove(job_id, elf, input, assumptions, receipt_type)
             }
+            Prover::Boundless(boundless) => {
+                assert!(
+                    with_prove,
+                    "Boundless prover must always be run with prove set to true"
+                );
+                // TODO: Implement boundless proving
+                // boundless.prove(job_id, elf, input, assumptions, receipt_type)
+                unimplemented!("Boundless proving is not implemented yet")
+            }
         }
     }
 
@@ -168,4 +179,6 @@ pub enum Prover {
     Local(LocalProver),
     /// Bonsai prover
     Bonsai(BonsaiProver),
+    /// Boundless prover network
+    Boundless(BoundlessProver),
 }

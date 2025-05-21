@@ -12,6 +12,7 @@ description = "An adapter allowing Citrea to use risc0 proving system"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+alloy-primitives = { workspace = true, optional = true }
 anyhow = { workspace = true, optional = true }
 bincode = { workspace = true }
 bonsai-sdk = { workspace = true, optional = true }
@@ -28,11 +29,16 @@ thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 tracing = { workspace = true }
 uuid = { workspace = true, optional = true }
+boundless-market = { workspace = true, optional = true }
+risc0-build-ethereum = { workspace = true, optional = true }
+risc0-ethereum-contracts = { workspace = true, optional = true }
+url = { version = "2.5.4", optional = true}
 
 [features]
 default = []
 testing = []
 native = [
+  "dep:alloy-primitives",
   "dep:anyhow",
   "dep:bonsai-sdk",
   "dep:sov-db",
@@ -44,4 +50,8 @@ native = [
   "risc0-zkvm/bonsai",
   "risc0-zkvm/client",
   "sov-rollup-interface/native",
+  "dep:boundless-market",
+  "dep:risc0-build-ethereum",
+  "dep:risc0-ethereum-contracts",
+  "dep:url",
 ]
