@@ -112,9 +112,9 @@ impl ZkvmHost for Risc0Host {
                     with_prove,
                     "Boundless prover must always be run with prove set to true"
                 );
-                // TODO: Implement boundless proving
-                // boundless.prove(job_id, elf, input, assumptions, receipt_type)
-                unimplemented!("Boundless proving is not implemented yet")
+                boundless
+                    .prove(job_id, elf, input, assumptions, receipt_type)
+                    .await
             }
         }
     }

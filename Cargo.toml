@@ -126,7 +126,7 @@ risc0-zkp = "2.0.1"
 risc0-circuit-rv32im = "2.0.3"
 risc0-build = "2.1.1"
 rzup = "0.4.1"
-boundless-market = { git = "https://github.com/boundless-xyz/boundless", rev = "40a11f46eafc6a276ec82f4ab78cbf55cb8b650b"}
+boundless-market = { git = "https://github.com/boundless-xyz/boundless", tag = "v0.8.0"}
 risc0-build-ethereum = { version = "2.1" }
 risc0-ethereum-contracts = { version = "2.1" }
 
