@@ -55,6 +55,7 @@ impl Risc0Host {
     }
 }
 
+#[async_trait::async_trait]
 impl ZkvmHost for Risc0Host {
     type Guest = Risc0Guest;
 
@@ -74,7 +75,7 @@ impl ZkvmHost for Risc0Host {
         self.assumptions.push(receipt.into());
     }
 
-    fn run(
+    async fn run(
         &mut self,
         job_id: Uuid,
         elf: Vec<u8>,

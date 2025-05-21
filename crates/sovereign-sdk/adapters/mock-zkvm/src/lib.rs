@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::{Arc, Mutex, RwLock};
 
+use async_trait::async_trait;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use sov_rollup_interface::zk::{Matches, Proof, ProofWithJob, ReceiptType};
@@ -167,6 +168,7 @@ impl sov_rollup_interface::zk::Zkvm for MockZkvm {
     }
 }
 
+#[async_trait]
 impl sov_rollup_interface::zk::ZkvmHost for MockZkvm {
     type Guest = MockZkGuest;
 
@@ -193,7 +195,7 @@ impl sov_rollup_interface::zk::ZkvmHost for MockZkvm {
         }
     }
 
-    fn run(
+    async fn run(
         &mut self,
         _job_id: Uuid,
         _elf: Vec<u8>,

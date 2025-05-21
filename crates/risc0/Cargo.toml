@@ -14,6 +14,7 @@ description = "An adapter allowing Citrea to use risc0 proving system"
 [dependencies]
 alloy-primitives = { workspace = true, optional = true }
 anyhow = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
 bincode = { workspace = true }
 bonsai-sdk = { workspace = true, optional = true }
 borsh = { workspace = true }
@@ -54,4 +55,5 @@ native = [
   "dep:risc0-build-ethereum",
   "dep:risc0-ethereum-contracts",
   "dep:url",
+  "dep:async-trait",
 ]

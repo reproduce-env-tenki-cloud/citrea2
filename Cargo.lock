@@ -3802,6 +3802,7 @@ version = "0.7.1"
 dependencies = [
  "alloy-primitives 0.8.25",
  "anyhow",
+ "async-trait",
  "bincode",
  "bonsai-sdk",
  "borsh",
@@ -11946,6 +11947,7 @@ name = "sov-mock-zkvm"
 version = "0.7.1"
 dependencies = [
  "anyhow",
+ "async-trait",
  "borsh",
  "serde",
  "sov-rollup-interface",

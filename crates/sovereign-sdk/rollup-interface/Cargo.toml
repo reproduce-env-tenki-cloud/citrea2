@@ -52,5 +52,6 @@ native = [
   "thiserror",
   "hex",
   "uuid",
+  "async-trait",
 ]
 testing = []

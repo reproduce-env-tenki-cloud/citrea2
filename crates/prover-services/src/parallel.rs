@@ -122,6 +122,7 @@ where
 
         // Start proof immediately
         let proof_rx = make_proof(vm, job_id, elf, self.proof_mode, receipt_type)
+            .await
             .context("Failed to start proving")?;
         debug!("Started proving job");
 
@@ -207,7 +208,7 @@ where
     }
 }
 
-fn make_proof<Vm>(
+async fn make_proof<Vm>(
     mut vm: Vm,
     job_id: Uuid,
     elf: Vec<u8>,
@@ -235,6 +236,6 @@ where
         }
     };
 
-    let rx = vm.run(job_id, elf, receipt_type, with_prove)?;
+    let rx = vm.run(job_id, elf, receipt_type, with_prove).await?;
     Ok(rx)
 }
