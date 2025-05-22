@@ -195,9 +195,9 @@ impl BoundlessProver {
             )
             .with_offer(
                 Offer::default()
-                    // TODO: Get this from config maybe?
-                    .with_min_price_per_mcycle(parse_ether("0.001")?, mcycles_count)
-                    .with_max_price_per_mcycle(parse_ether("0.05")?, mcycles_count)
+                    // TODO: Get this from config maybe? or dynamically fetch from some 3rd party api
+                    .with_min_price_per_mcycle(parse_ether("0.00001")?, mcycles_count)
+                    .with_max_price_per_mcycle(parse_ether("0.005")?, mcycles_count)
                     .with_timeout(1000)
                     .with_lock_timeout(500)
                     .with_ramp_up_period(100),

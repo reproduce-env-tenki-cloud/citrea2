@@ -1370,6 +1370,7 @@ impl TestCase for BatchProverCreateInputTest {
                     ReceiptType::Groth16,
                     false,
                 )
+                .await
                 .expect("Proof generation failed")
                 .await
                 .expect("Proof channel should not close");
