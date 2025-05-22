@@ -3807,6 +3807,7 @@ dependencies = [
  "bonsai-sdk",
  "borsh",
  "boundless-market",
+ "citrea-common",
  "hex",
  "metrics 0.23.0",
  "risc0-build-ethereum",

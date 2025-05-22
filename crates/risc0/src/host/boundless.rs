@@ -3,13 +3,16 @@ use std::time::Duration;
 
 use alloy_primitives::utils::{format_units, parse_ether};
 use alloy_primitives::U256;
+use anyhow::Context;
 use boundless_market::alloy::primitives::Address;
 use boundless_market::alloy::signers::local::PrivateKeySigner;
 use boundless_market::alloy::sol_types::SolValue;
 use boundless_market::client::{Client, ClientBuilder};
 use boundless_market::contracts::{Input, Offer, Predicate, ProofRequestBuilder, Requirements};
 use boundless_market::input::InputBuilder;
-use boundless_market::storage::StorageProviderConfig;
+use boundless_market::storage::{BuiltinStorageProvider, StorageProviderConfig};
+use citrea_common::utils::read_env;
+use citrea_common::FromEnv;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{
     compute_image_id, default_executor, AssumptionReceipt, Digest, ExecutorEnvBuilder,
@@ -48,88 +51,84 @@ type BoundlessClient = Client<
     boundless_market::storage::BuiltinStorageProvider,
 >;
 
-#[derive(Clone, Debug)]
-pub enum BoundlessNetwork {
-    Offchain,
-    Onchain,
+#[derive(Debug, Clone)]
+pub struct BoundlessConfig {
+    wallet_private_key: String,
+    rpc_url: String,
+    boundless_market_address: String,
+    set_verifier_address: String,
+    order_stream_url: Option<String>,
+}
+
+impl citrea_common::FromEnv for BoundlessConfig {
+    fn from_env() -> anyhow::Result<Self> {
+        let wallet_private_key = read_env("WALLET_PRIVATE_KEY")?;
+        let rpc_url = read_env("RPC_URL")?;
+        let boundless_market_address = read_env("BOUNDLESS_MARKET_ADDRESS")?;
+        let set_verifier_address = read_env("SET_VERIFIER_ADDRESS")?;
+        let order_stream_url = read_env("ORDER_STREAM_URL").ok();
+
+        Ok(Self {
+            wallet_private_key,
+            rpc_url,
+            boundless_market_address,
+            set_verifier_address,
+            order_stream_url,
+        })
+    }
 }
 
 #[derive(Clone)]
 pub struct BoundlessProver {
     pub client: BoundlessClient,
-    pub signer: PrivateKeySigner,
-    pub network: BoundlessNetwork,
     pub ledger_db: LedgerDB,
 }
 
+// TODO: Deposit from a different account possible?
+// TODO: Impl deposit?
 // TODO: Impl recovery
 impl BoundlessProver {
     pub async fn new(ledger_db: LedgerDB) -> Self {
-        // TODO: Better config management
-        // TODO: Copy some logic from boundless/examples/composition/apps/src/main.rs
-        let wallet_private_key = std::env::var("WALLET_PRIVATE_KEY").unwrap();
-        let rpc_url = std::env::var("RPC_URL").unwrap();
-        let boundless_market_address = std::env::var("BOUNDLESS_MARKET_ADDRESS").unwrap();
-        let set_verifier_address = std::env::var("SET_VERIFIER_ADDRESS").unwrap();
-        let order_stream_url = std::env::var("ORDER_STREAM_URL").unwrap();
-        let pinata_jwt = std::env::var("PINATA_JWT").unwrap();
-        let pinata_api_url = std::env::var("PINATA_API_URL").unwrap();
-        let pinata_ipfs_gateway = std::env::var("PINATA_IPFS_GATEWAY").unwrap();
+        let client = Self::boundless_client()
+            .await
+            .expect("Failed to create boundless client");
 
-        let network: BoundlessNetwork = match std::env::var("BOUNDLESS_NETWORK") {
-            Ok(val) if val == "onchain" => BoundlessNetwork::Onchain,
-            _ => BoundlessNetwork::Offchain,
-        };
+        assert!(
+            client.storage_provider.is_some(),
+            "a storage provider is required to upload the zkVM guest ELF"
+        );
+        Self { client, ledger_db }
+    }
 
-        let local_signer = PrivateKeySigner::from_str(&wallet_private_key).unwrap();
+    async fn boundless_client() -> anyhow::Result<BoundlessClient> {
+        let config = BoundlessConfig::from_env().expect("Failed to load boundless config");
 
-        let storage_provider_config = StorageProviderConfig {
-            storage_provider: boundless_market::storage::StorageProviderType::Pinata,
-            s3_access_key: None,
-            s3_secret_key: None,
-            s3_bucket: None,
-            s3_url: None,
-            s3_use_presigned: None,
-            aws_region: None,
-            pinata_jwt: Some(pinata_jwt),
-            pinata_api_url: Some(Url::parse(&pinata_api_url).unwrap()),
-            ipfs_gateway_url: Some(Url::parse(&pinata_ipfs_gateway).unwrap()),
-            file_path: None,
-        };
+        let local_signer = PrivateKeySigner::from_str(&config.wallet_private_key).unwrap();
 
-        let offchain = match network {
-            BoundlessNetwork::Offchain => true,
-            BoundlessNetwork::Onchain => false,
-        };
+        // If in dev mode, uses a temporary file as storage provider
+        // Otherwise first tries to parse pinata env variables
+        // If fails then tries to parse s3 env variables
+        let storage_provider = BuiltinStorageProvider::from_env().await.ok();
 
         // Create a Boundless client from the provided parameters.
         let boundless_client = ClientBuilder::new()
-            .with_rpc_url(Url::parse(&rpc_url).expect("Invalid RPC URL"))
-            .with_boundless_market_address(Address::from_str(&boundless_market_address).unwrap())
-            .with_set_verifier_address(Address::from_str(&set_verifier_address).unwrap())
-            .with_order_stream_url(if offchain {
-                Url::parse(&order_stream_url).ok()
-            } else {
-                None
-            })
-            .with_storage_provider_config(Some(storage_provider_config))
-            .await
-            .unwrap()
+            .with_rpc_url(Url::parse(&config.rpc_url).expect("Invalid RPC URL"))
+            .with_boundless_market_address(
+                Address::from_str(&config.boundless_market_address).unwrap(),
+            )
+            .with_set_verifier_address(Address::from_str(&config.set_verifier_address).unwrap())
+            .with_order_stream_url(
+                config
+                    .order_stream_url
+                    .map(|url| Url::parse(&url).ok())
+                    .flatten(),
+            )
+            .with_storage_provider(storage_provider)
             .with_private_key(local_signer.clone())
             .build()
-            .await
-            .unwrap();
+            .await?;
 
-        assert!(
-            boundless_client.storage_provider.is_some(),
-            "a storage provider is required to upload the zkVM guest ELF"
-        );
-        Self {
-            client: boundless_client,
-            signer: local_signer,
-            network,
-            ledger_db,
-        }
+        Ok(boundless_client)
     }
 
     pub async fn prove(
@@ -207,18 +206,19 @@ impl BoundlessProver {
             .unwrap();
 
         // Start boundless proving session
-        let (req_id, request_expiry) = match self.network {
-            BoundlessNetwork::Offchain => {
-                let req_id = self.client.submit_request_offchain(&request).await?;
+        let (req_id, request_expiry) = match self.client.offchain_client {
+            Some(_) => {
+                let (req_id, exp) = self.client.submit_request_offchain(&request).await?;
                 tracing::info!("Request submitted to offchain boundless service");
-                (req_id.0.to_string(), req_id.1)
+                (req_id.to_string(), exp)
             }
-            BoundlessNetwork::Onchain => {
-                let req_id = self.client.submit_request(&request).await?;
+            None => {
+                let (req_id, exp) = self.client.submit_request(&request).await?;
                 tracing::info!("Request submitted to onchain boundless service");
-                (req_id.0.to_string(), req_id.1)
+                (req_id.to_string(), exp)
             }
         };
+
         tracing::info!(
             "Started boundless proving session, job_id={} request_id={}",
             job_id,
@@ -304,6 +304,7 @@ impl BoundlessProver {
             )
             .await?;
 
+        // TODO: If dev mode is active the receipt type will be fake receipt adjust below accordingly
         let claim = ReceiptClaim::ok(image_id, journal.clone().to_vec());
         let inner = InnerReceipt::Groth16(Groth16Receipt::new(
             seal.clone().0.to_vec()[4..].to_vec(),

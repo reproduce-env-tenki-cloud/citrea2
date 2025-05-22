@@ -18,6 +18,7 @@ async-trait = { workspace = true, optional = true }
 bincode = { workspace = true }
 bonsai-sdk = { workspace = true, optional = true }
 borsh = { workspace = true }
+citrea-common = { path = "../common", optional = true }
 hex = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }
 risc0-zkp = { workspace = true }
@@ -56,4 +57,5 @@ native = [
   "dep:risc0-ethereum-contracts",
   "dep:url",
   "dep:async-trait",
+  "dep:citrea-common",
 ]
