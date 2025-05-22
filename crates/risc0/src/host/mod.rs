@@ -34,9 +34,10 @@ pub struct Risc0Host {
 
 impl Risc0Host {
     /// Create a new Risc0Host to prove the given binary.
-    pub fn new(ledger_db: LedgerDB, network: Network) -> Self {
+    pub async fn new(ledger_db: LedgerDB, network: Network) -> Self {
         let prover = match std::env::var("RISC0_PROVER") {
             Ok(prover) => match prover.as_str() {
+                "boundless" => Prover::Boundless(BoundlessProver::new(ledger_db).await),
                 "bonsai" => Prover::Bonsai(BonsaiProver::new(ledger_db)),
                 "ipc" => Prover::Local(LocalProver::new(network)),
                 _ => panic!("Invalid prover specified: {}", prover),

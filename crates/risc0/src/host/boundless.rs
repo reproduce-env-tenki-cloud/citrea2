@@ -64,7 +64,7 @@ pub struct BoundlessProver {
 
 // TODO: Impl recovery
 impl BoundlessProver {
-    pub async fn new(ledger_db: LedgerDB, network: BoundlessNetwork) -> Self {
+    pub async fn new(ledger_db: LedgerDB) -> Self {
         // TODO: Better config management
         // TODO: Copy some logic from boundless/examples/composition/apps/src/main.rs
         let wallet_private_key = std::env::var("WALLET_PRIVATE_KEY").unwrap();
@@ -75,6 +75,11 @@ impl BoundlessProver {
         let pinata_jwt = std::env::var("PINATA_JWT").unwrap();
         let pinata_api_url = std::env::var("PINATA_API_URL").unwrap();
         let pinata_ipfs_gateway = std::env::var("PINATA_IPFS_GATEWAY").unwrap();
+
+        let network: BoundlessNetwork = match std::env::var("BOUNDLESS_NETWORK") {
+            Ok(val) if val == "onchain" => BoundlessNetwork::Onchain,
+            _ => BoundlessNetwork::Offchain,
+        };
 
         let local_signer = PrivateKeySigner::from_str(&wallet_private_key).unwrap();
 
@@ -143,6 +148,7 @@ impl BoundlessProver {
         tracing::info!("Image URL: {}", image_url);
 
         // move non-Send logic to blocking thread
+        // I had to do this because the executor env builder is not Send
         let (guest_env_bytes, journal, mcycles_count) = tokio::task::spawn_blocking({
             let elf = elf.clone(); // clone since we move into thread
             let input = input.clone();
@@ -233,8 +239,6 @@ impl BoundlessProver {
             .spawn_handler(job_id, req_id, image_id, receipt_type, request_expiry)
             .await;
 
-        let (tx, rx) = oneshot::channel();
-
         Ok(rx)
 
         // Upload assumptions
@@ -287,6 +291,7 @@ impl BoundlessProver {
         job_id: Uuid,
         request_id: String,
         image_id: Digest,
+        // TODO: Bonsai currently only supports Groth16 so put a warning if succinct is selected
         receipt_type: ReceiptType,
         request_expiry: u64,
     ) -> anyhow::Result<Receipt> {
