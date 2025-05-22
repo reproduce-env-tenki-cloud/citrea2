@@ -18,7 +18,7 @@ use risc0_zkvm::{
     compute_image_id, default_executor, AssumptionReceipt, Digest, ExecutorEnvBuilder,
     Groth16Receipt, InnerReceipt, Journal, MaybePruned, Receipt, ReceiptClaim,
 };
-use sov_db::ledger_db::LedgerDB;
+use sov_db::ledger_db::{BonsaiLedgerOps, LedgerDB};
 use sov_rollup_interface::zk::{ProofWithJob, ReceiptType};
 use tokio::sync::oneshot;
 use url::Url;

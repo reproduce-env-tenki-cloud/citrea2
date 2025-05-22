@@ -24,8 +24,8 @@ use super::types::batch_proof::{StoredBatchProof, StoredVerifiedProof};
 use super::types::l2_block::StoredL2Block;
 use super::types::light_client_proof::StoredLightClientProof;
 use super::types::{
-    AccessoryKey, AccessoryStateValue, BonsaiSession, DbHash, JmtValue, L1Height, L2BlockNumber,
-    L2HeightAndIndex, L2HeightRange, L2HeightStatus, SlotNumber, StateKey,
+    AccessoryKey, AccessoryStateValue, BonsaiSession, BoundlessSession, DbHash, JmtValue, L1Height,
+    L2BlockNumber, L2HeightAndIndex, L2HeightRange, L2HeightStatus, SlotNumber, StateKey,
 };
 
 /// A list of all tables used by the StateDB. These tables store rollup state - meaning
@@ -176,6 +176,7 @@ pub const LEDGER_TABLES: &[&str] = &[
     ProverPendingCommitments::table_name(),
     PendingL1SubmissionJobs::table_name(),
     PendingBonsaiSessionByJobId::table_name(),
+    PendingBoundlessSessionByJobId::table_name(),
     L2StatusHeights::table_name(),
     PendingSequencerCommitments::table_name(),
     PendingProofs::table_name(),
@@ -397,6 +398,11 @@ define_table_with_default_codec!(
 define_table_with_default_codec!(
     /// Pending Bonsai proving sessions by job id
     (PendingBonsaiSessionByJobId) Uuid => BonsaiSession
+);
+
+define_table_with_default_codec!(
+    /// Pending Boundless proving sessions by job id
+    (PendingBoundlessSessionByJobId) Uuid => BoundlessSession
 );
 
 define_table_with_default_codec!(
