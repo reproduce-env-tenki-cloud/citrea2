@@ -554,6 +554,7 @@ where
         let proving_jobs = self
             .prover_service
             .start_session_recovery()
+            .await
             .expect("Failed to start proving session recovery");
         let mut proving_jobs = proving_jobs
             .into_iter()

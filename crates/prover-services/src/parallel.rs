@@ -202,9 +202,11 @@ where
         Ok(tx_and_proof)
     }
 
-    pub fn start_session_recovery(&self) -> anyhow::Result<Vec<oneshot::Receiver<ProofWithJob>>> {
+    pub async fn start_session_recovery(
+        &self,
+    ) -> anyhow::Result<Vec<oneshot::Receiver<ProofWithJob>>> {
         let vm = self.vm.clone();
-        vm.start_session_recovery()
+        vm.start_session_recovery().await
     }
 }
 

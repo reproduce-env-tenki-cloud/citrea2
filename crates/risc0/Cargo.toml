@@ -18,9 +18,12 @@ async-trait = { workspace = true, optional = true }
 bincode = { workspace = true }
 bonsai-sdk = { workspace = true, optional = true }
 borsh = { workspace = true }
+boundless-market = { workspace = true, optional = true }
 citrea-common = { path = "../common", optional = true }
 hex = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }
+risc0-build-ethereum = { workspace = true, optional = true }
+risc0-ethereum-contracts = { workspace = true, optional = true }
 risc0-zkp = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = false, features = ["std"] }
 rzup = { workspace = true, optional = true }
@@ -30,11 +33,8 @@ sov-rollup-interface = { path = "../sovereign-sdk/rollup-interface" }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 tracing = { workspace = true }
+url = { version = "2.5.4", optional = true }
 uuid = { workspace = true, optional = true }
-boundless-market = { workspace = true, optional = true }
-risc0-build-ethereum = { workspace = true, optional = true }
-risc0-ethereum-contracts = { workspace = true, optional = true }
-url = { version = "2.5.4", optional = true}
 
 [features]
 default = []

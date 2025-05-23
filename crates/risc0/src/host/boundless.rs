@@ -1,25 +1,23 @@
 use std::str::FromStr;
 use std::time::Duration;
 
-use alloy_primitives::utils::{format_units, parse_ether};
+use alloy_primitives::utils::parse_ether;
 use alloy_primitives::U256;
 use anyhow::Context;
 use boundless_market::alloy::primitives::Address;
 use boundless_market::alloy::signers::local::PrivateKeySigner;
-use boundless_market::alloy::sol_types::SolValue;
 use boundless_market::client::{Client, ClientBuilder};
-use boundless_market::contracts::{Input, Offer, Predicate, ProofRequestBuilder, Requirements};
+use boundless_market::contracts::{Offer, Predicate, ProofRequestBuilder, Requirements};
 use boundless_market::input::InputBuilder;
-use boundless_market::storage::{BuiltinStorageProvider, StorageProviderConfig};
+use boundless_market::storage::BuiltinStorageProvider;
 use citrea_common::utils::read_env;
 use citrea_common::FromEnv;
-use risc0_ethereum_contracts::receipt;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{
     compute_image_id, default_executor, AssumptionReceipt, Digest, ExecutorEnvBuilder,
     Groth16Receipt, InnerReceipt, Journal, MaybePruned, Receipt, ReceiptClaim,
 };
-use sov_db::ledger_db::{BonsaiLedgerOps, BoundlessLedgerOps, LedgerDB};
+use sov_db::ledger_db::{BoundlessLedgerOps, LedgerDB};
 use sov_db::schema::types::BoundlessSession;
 use sov_rollup_interface::zk::{ProofWithJob, ReceiptType};
 use tokio::sync::oneshot;
@@ -121,8 +119,7 @@ impl BoundlessProver {
             .with_order_stream_url(
                 config
                     .order_stream_url
-                    .map(|url| Url::parse(&url).ok())
-                    .flatten(),
+                    .and_then(|url| Url::parse(&url).ok()),
             )
             .with_storage_provider(storage_provider)
             .with_private_key(local_signer.clone())
@@ -243,7 +240,7 @@ impl BoundlessProver {
             .context("Failed to upsert boundless session")?;
 
         let rx = self
-            .spawn_handler(job_id, req_id, image_id, receipt_type, request_expiry)
+            .spawn_handler(job_id, req_id, image_id, request_expiry)
             .await;
 
         Ok(rx)
@@ -256,13 +253,12 @@ impl BoundlessProver {
         job_id: Uuid,
         request_id: String,
         image_id: Digest,
-        receipt_type: ReceiptType,
         request_expiry: u64,
     ) -> oneshot::Receiver<ProofWithJob> {
         let this = self.clone();
         let (tx, rx) = oneshot::channel();
         tokio::spawn(async move {
-            match this.handle_session(job_id, request_id.clone(), image_id, receipt_type, request_expiry).await {
+            match this.handle_session(request_id.clone(), image_id, request_expiry).await {
                 Ok(receipt) => {
                     let serialized_receipt = bincode::serialize(&receipt.inner).expect("Receipt serialization cannot fail");
 
@@ -299,10 +295,8 @@ impl BoundlessProver {
 
     async fn handle_session(
         &self,
-        job_id: Uuid,
         request_id: String,
         image_id: Digest,
-        receipt_type: ReceiptType,
         request_expiry: u64,
     ) -> anyhow::Result<Receipt> {
         let (journal, seal) = self
@@ -328,7 +322,7 @@ impl BoundlessProver {
 
     // Starts the recovery of proving jobs from db by starting a background task, returning list of
     /// receiver channels that return the associated job id and proof result on finish.
-    async fn start_recovery(&self) -> anyhow::Result<Vec<oneshot::Receiver<ProofWithJob>>> {
+    pub async fn start_recovery(&self) -> anyhow::Result<Vec<oneshot::Receiver<ProofWithJob>>> {
         let sessions = self.ledger_db.get_pending_boundless_sessions()?;
         if sessions.is_empty() {
             return Ok(vec![]);
@@ -347,7 +341,6 @@ impl BoundlessProver {
                     job_id,
                     session.request_id,
                     session.image_id.into(),
-                    session.receipt_type,
                     session.request_expiry,
                 )
                 .await;

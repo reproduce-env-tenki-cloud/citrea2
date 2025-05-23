@@ -127,14 +127,10 @@ impl ZkvmHost for Risc0Host {
         Ok(T::try_from_slice(&journal.bytes)?)
     }
 
-    fn start_session_recovery(
+    async fn start_session_recovery(
         &self,
     ) -> Result<Vec<oneshot::Receiver<ProofWithJob>>, anyhow::Error> {
-        let Prover::Bonsai(prover) = &self.prover else {
-            info!("Skipping proving recovery...");
-            return Ok(vec![]);
-        };
-        prover.start_recovery()
+        self.prover.start_prover_session_recovery().await
     }
 }
 
@@ -183,4 +179,20 @@ pub enum Prover {
     Bonsai(BonsaiProver),
     /// Boundless prover network
     Boundless(BoundlessProver),
+}
+
+impl Prover {
+    /// Start recovery for prover if it supports it
+    pub async fn start_prover_session_recovery(
+        &self,
+    ) -> anyhow::Result<Vec<oneshot::Receiver<ProofWithJob>>> {
+        match self {
+            Prover::Local(_) => {
+                info!("Skipping proving recovery...");
+                Ok(vec![])
+            }
+            Prover::Boundless(prover) => prover.start_recovery().await,
+            Prover::Bonsai(prover) => prover.start_recovery(),
+        }
+    }
 }
