@@ -140,4 +140,9 @@ pub struct BoundlessSession {
     pub request_id: BoundlessRequestId,
     /// Image id to verify this session receipt
     pub image_id: [u8; 32],
+    /// Expiry time of the request
+    pub request_expiry: u64,
+    /// Expected receipt type of the session
+    /// Can only be groth16 for now
+    pub receipt_type: ReceiptType,
 }

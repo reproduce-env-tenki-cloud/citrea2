@@ -712,7 +712,7 @@ impl BoundlessLedgerOps for LedgerDB {
     fn upsert_pending_boundless_session(
         &self,
         job_id: Uuid,
-        session: crate::schema::types::BoundlessSession,
+        session: BoundlessSession,
     ) -> anyhow::Result<()> {
         self.db
             .put::<PendingBoundlessSessionByJobId>(&job_id, &session)

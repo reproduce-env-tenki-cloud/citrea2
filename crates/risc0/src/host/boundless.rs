@@ -13,12 +13,14 @@ use boundless_market::input::InputBuilder;
 use boundless_market::storage::{BuiltinStorageProvider, StorageProviderConfig};
 use citrea_common::utils::read_env;
 use citrea_common::FromEnv;
+use risc0_ethereum_contracts::receipt;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{
     compute_image_id, default_executor, AssumptionReceipt, Digest, ExecutorEnvBuilder,
     Groth16Receipt, InnerReceipt, Journal, MaybePruned, Receipt, ReceiptClaim,
 };
-use sov_db::ledger_db::{BonsaiLedgerOps, LedgerDB};
+use sov_db::ledger_db::{BonsaiLedgerOps, BoundlessLedgerOps, LedgerDB};
+use sov_db::schema::types::BoundlessSession;
 use sov_rollup_interface::zk::{ProofWithJob, ReceiptType};
 use tokio::sync::oneshot;
 use url::Url;
@@ -86,7 +88,6 @@ pub struct BoundlessProver {
 
 // TODO: Deposit from a different account possible?
 // TODO: Impl deposit?
-// TODO: Impl recovery
 impl BoundlessProver {
     pub async fn new(ledger_db: LedgerDB) -> Self {
         let client = Self::boundless_client()
@@ -142,7 +143,13 @@ impl BoundlessProver {
         // Upload image id
         let image_id = compute_image_id(&elf).expect("Invalid elf program");
 
-        // TODO: Store this in the ledger db
+        assert!(!risc0_zkvm::is_dev_mode(), "Boundless should not be run with dev mode as provers do not accept fake receipt requests" );
+
+        assert!(
+            matches!(receipt_type, ReceiptType::Groth16),
+            "Currently, only Groth16 receipts are supported for boundless"
+        );
+
         let image_url = self.client.upload_program(&elf).await?;
         tracing::info!("Image URL: {}", image_url);
 
@@ -225,15 +232,15 @@ impl BoundlessProver {
             req_id
         );
 
-        // TODO: Handle db stuff
-        // let db_session = BonsaiSession {
-        //     kind: BonsaiSessionKind::StarkSession(session.uuid.clone()),
-        //     image_id: image_id.into(),
-        //     receipt_type,
-        // };
-        // self.ledger_db
-        //     .upsert_pending_bonsai_session(job_id, db_session)
-        //     .context("Failed to upsert bonsai stark session")?;
+        let db_session = BoundlessSession {
+            request_id: req_id.clone(),
+            request_expiry,
+            image_id: image_id.into(),
+            receipt_type,
+        };
+        self.ledger_db
+            .upsert_pending_boundless_session(job_id, db_session)
+            .context("Failed to upsert boundless session")?;
 
         let rx = self
             .spawn_handler(job_id, req_id, image_id, receipt_type, request_expiry)
@@ -267,13 +274,17 @@ impl BoundlessProver {
                         return;
                     };
 
-                    // TODO: Handle ledger db session handling stuff
-                    // if let Err(e) = this.ledger_db.remove_pending_bonsai_session(job_id) {
-                    //     error!(
-                    //         "Failed to remove pending bonsai session job: {} err={}",
-                    //         job_id, e
-                    //     );
-                    // }
+
+                    if let Err(e) = this.ledger_db.remove_pending_boundless_session(job_id) {
+                        tracing::error!(
+                            "Failed to remove pending boundless session job: {} err={}",
+                            job_id, e
+                        );
+                    }
+                    tracing::info!(
+                        "Boundless proving job finished: {} | Boundless request id: {}",
+                        job_id, request_id
+                    );
 
                 }
                 Err(e)=>tracing::error!(
@@ -291,7 +302,6 @@ impl BoundlessProver {
         job_id: Uuid,
         request_id: String,
         image_id: Digest,
-        // TODO: Bonsai currently only supports Groth16 so put a warning if succinct is selected
         receipt_type: ReceiptType,
         request_expiry: u64,
     ) -> anyhow::Result<Receipt> {
@@ -304,7 +314,6 @@ impl BoundlessProver {
             )
             .await?;
 
-        // TODO: If dev mode is active the receipt type will be fake receipt adjust below accordingly
         let claim = ReceiptClaim::ok(image_id, journal.clone().to_vec());
         let inner = InnerReceipt::Groth16(Groth16Receipt::new(
             seal.clone().0.to_vec()[4..].to_vec(),
@@ -315,5 +324,35 @@ impl BoundlessProver {
         full_snark_receipt.verify(image_id).unwrap();
 
         Ok(full_snark_receipt)
+    }
+
+    // Starts the recovery of proving jobs from db by starting a background task, returning list of
+    /// receiver channels that return the associated job id and proof result on finish.
+    async fn start_recovery(&self) -> anyhow::Result<Vec<oneshot::Receiver<ProofWithJob>>> {
+        let sessions = self.ledger_db.get_pending_boundless_sessions()?;
+        if sessions.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut rxs = vec![];
+        for (job_id, session) in sessions {
+            tracing::info!(
+                "Recovering boundless session, job_id={} session={:?}",
+                job_id,
+                session
+            );
+
+            let rx = self
+                .spawn_handler(
+                    job_id,
+                    session.request_id,
+                    session.image_id.into(),
+                    session.receipt_type,
+                    session.request_expiry,
+                )
+                .await;
+            rxs.push(rx);
+        }
+        Ok(rxs)
     }
 }
