@@ -244,8 +244,6 @@ impl BoundlessProver {
             .await;
 
         Ok(rx)
-
-        // Upload assumptions
     }
 
     async fn spawn_handler(
