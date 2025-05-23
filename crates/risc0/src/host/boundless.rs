@@ -100,7 +100,8 @@ impl BoundlessProver {
     async fn boundless_client() -> anyhow::Result<BoundlessClient> {
         let config = BoundlessConfig::from_env().expect("Failed to load boundless config");
 
-        let local_signer = PrivateKeySigner::from_str(&config.wallet_private_key).unwrap();
+        let local_signer = PrivateKeySigner::from_str(&config.wallet_private_key)
+            .context("Failed to parse wallet private key")?;
 
         // If in dev mode, uses a temporary file as storage provider
         // Otherwise first tries to parse pinata env variables
@@ -305,8 +306,11 @@ impl BoundlessProver {
             .await?;
 
         let claim = ReceiptClaim::ok(image_id, journal.clone().to_vec());
+
+        // The first 4 bytes of the seal are reserved for metadata; the actual data starts at index 4.
+        const SEAL_DATA_OFFSET: usize = 4;
         let inner = InnerReceipt::Groth16(Groth16Receipt::new(
-            seal.clone().0.to_vec()[4..].to_vec(),
+            seal.clone().0.to_vec()[SEAL_DATA_OFFSET..].to_vec(),
             MaybePruned::Value(claim),
             risc0_zkvm::Groth16ReceiptVerifierParameters::default().digest(),
         ));
