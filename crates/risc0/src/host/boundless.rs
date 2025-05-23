@@ -84,8 +84,6 @@ pub struct BoundlessProver {
     pub ledger_db: LedgerDB,
 }
 
-// TODO: Deposit from a different account possible?
-// TODO: Impl deposit?
 impl BoundlessProver {
     pub async fn new(ledger_db: LedgerDB) -> Self {
         let client = Self::boundless_client()
