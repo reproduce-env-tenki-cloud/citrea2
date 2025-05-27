@@ -106,6 +106,10 @@ impl BoundlessProver {
         // If in dev mode, uses a temporary file as storage provider
         // Otherwise first tries to parse pinata env variables
         // If fails then tries to parse s3 env variables
+        // If the environment variable `RISC0_DEV_MODE` is set, a temporary file storage provider is used.
+        // Otherwise, the following environment variables are checked in order:
+        // - `PINATA_JWT`, `PINATA_API_URL`, `IPFS_GATEWAY_URL`: Pinata storage provider;
+        // - `S3_ACCESS`, `S3_SECRET`, `S3_BUCKET`, `S3_URL`, `AWS_REGION`: S3 storage provider.
         let storage_provider = BuiltinStorageProvider::from_env().await.ok();
 
         // Create a Boundless client from the provided parameters.
