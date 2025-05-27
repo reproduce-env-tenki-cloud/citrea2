@@ -123,6 +123,8 @@ pub const BATCH_PROVER_LEDGER_TABLES: &[&str] = &[
     CommitmentIndicesByJobId::table_name(),
     ProverPendingCommitments::table_name(),
     PendingL1SubmissionJobs::table_name(),
+    PendingBonsaiSessionByJobId::table_name(),
+    PendingBoundlessSessionByJobId::table_name(),
     #[cfg(test)]
     TestTableOld::table_name(),
     #[cfg(test)]
@@ -138,6 +140,8 @@ pub const LIGHT_CLIENT_PROVER_LEDGER_TABLES: &[&str] = &[
     ProverLastScannedSlot::table_name(),
     // Don't know if this will be needed
     CommitmentMerkleRoots::table_name(),
+    PendingBonsaiSessionByJobId::table_name(),
+    PendingBoundlessSessionByJobId::table_name(),
     #[cfg(test)]
     TestTableOld::table_name(),
     #[cfg(test)]
