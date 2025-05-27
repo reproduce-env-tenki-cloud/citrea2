@@ -3811,8 +3811,6 @@ dependencies = [
  "citrea-common",
  "hex",
  "metrics 0.23.0",
- "risc0-build-ethereum",
- "risc0-ethereum-contracts",
  "risc0-zkp",
  "risc0-zkvm",
  "rzup",
@@ -10650,20 +10648,6 @@ dependencies = [
  "serde_json",
  "stability",
  "tempfile",
-]
-
-[[package]]
-name = "risc0-build-ethereum"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59ecf901731c9831c8bf9b08e17c74e3e66e94a7e0a3adf0f2628080f7ed46fe"
-dependencies = [
- "anyhow",
- "bytemuck",
- "hex",
- "risc0-build",
- "risc0-zkp",
- "risc0-zkvm",
 ]
 
 [[package]]

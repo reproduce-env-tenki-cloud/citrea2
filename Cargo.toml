@@ -119,10 +119,8 @@ tower = { version = "0.4.13", features = ["full"] }
 
 # Risc0 dependencies
 bonsai-sdk = { version = "1.4" }
-boundless-market = { version = "0.8.0" }
+boundless-market = { version = "0.8.0", default-features = false }
 risc0-binfmt = "2.0.1"
-risc0-build-ethereum = { version = "2.1" }
-risc0-ethereum-contracts = { version = "2.1" }
 risc0-zkvm = { version = "2.0.2", default-features = false }
 risc0-zkvm-platform = "2.0.2"
 risc0-zkp = "2.0.1"

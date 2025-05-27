@@ -18,12 +18,10 @@ async-trait = { workspace = true, optional = true }
 bincode = { workspace = true }
 bonsai-sdk = { workspace = true, optional = true }
 borsh = { workspace = true }
-boundless-market = { workspace = true, optional = true }
+boundless-market = { workspace = true, optional = true, default-features = false }
 citrea-common = { path = "../common", optional = true }
 hex = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }
-risc0-build-ethereum = { workspace = true, optional = true }
-risc0-ethereum-contracts = { workspace = true, optional = true }
 risc0-zkp = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = false, features = ["std"] }
 rzup = { workspace = true, optional = true }
@@ -53,8 +51,6 @@ native = [
   "risc0-zkvm/client",
   "sov-rollup-interface/native",
   "dep:boundless-market",
-  "dep:risc0-build-ethereum",
-  "dep:risc0-ethereum-contracts",
   "dep:url",
   "dep:async-trait",
   "dep:citrea-common",
