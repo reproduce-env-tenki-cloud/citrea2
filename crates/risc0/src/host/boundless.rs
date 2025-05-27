@@ -4,8 +4,13 @@ use std::time::Duration;
 use alloy_primitives::utils::parse_ether;
 use alloy_primitives::U256;
 use anyhow::Context;
+use boundless_market::alloy::network::EthereumWallet;
 use boundless_market::alloy::primitives::Address;
+use boundless_market::alloy::providers::fillers::{FillProvider, JoinFill, WalletFiller};
+use boundless_market::alloy::providers::utils::JoinedRecommendedFillers;
+use boundless_market::alloy::providers::RootProvider;
 use boundless_market::alloy::signers::local::PrivateKeySigner;
+use boundless_market::balance_alerts_layer::BalanceAlertProvider;
 use boundless_market::client::{Client, ClientBuilder};
 use boundless_market::contracts::{Offer, Predicate, ProofRequestBuilder, Requirements};
 use boundless_market::input::InputBuilder;
@@ -25,28 +30,9 @@ use url::Url;
 use uuid::Uuid;
 
 type BoundlessClient = Client<
-    boundless_market::alloy::providers::fillers::FillProvider<
-        boundless_market::alloy::providers::fillers::JoinFill<
-            boundless_market::alloy::providers::fillers::JoinFill<
-                boundless_market::alloy::providers::Identity,
-                boundless_market::alloy::providers::fillers::JoinFill<
-                    boundless_market::alloy::providers::fillers::GasFiller,
-                    boundless_market::alloy::providers::fillers::JoinFill<
-                        boundless_market::alloy::providers::fillers::BlobGasFiller,
-                        boundless_market::alloy::providers::fillers::JoinFill<
-                            boundless_market::alloy::providers::fillers::NonceFiller,
-                            boundless_market::alloy::providers::fillers::ChainIdFiller,
-                        >,
-                    >,
-                >,
-            >,
-            boundless_market::alloy::providers::fillers::WalletFiller<
-                boundless_market::alloy::network::EthereumWallet,
-            >,
-        >,
-        boundless_market::balance_alerts_layer::BalanceAlertProvider<
-            boundless_market::alloy::providers::RootProvider,
-        >,
+    FillProvider<
+        JoinFill<JoinedRecommendedFillers, WalletFiller<EthereumWallet>>,
+        BalanceAlertProvider<RootProvider>,
     >,
     boundless_market::storage::BuiltinStorageProvider,
 >;
