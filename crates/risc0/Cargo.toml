@@ -31,7 +31,7 @@ sov-rollup-interface = { path = "../sovereign-sdk/rollup-interface" }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 tracing = { workspace = true }
-url = { version = "2.5.4", optional = true }
+url = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 
 [features]
