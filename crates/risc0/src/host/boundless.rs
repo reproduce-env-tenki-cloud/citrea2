@@ -62,11 +62,11 @@ pub struct BoundlessConfig {
 
 impl citrea_common::FromEnv for BoundlessConfig {
     fn from_env() -> anyhow::Result<Self> {
-        let wallet_private_key = read_env("WALLET_PRIVATE_KEY")?;
-        let rpc_url = read_env("RPC_URL")?;
+        let wallet_private_key = read_env("BOUNDLESS_WALLET_PRIVATE_KEY")?;
+        let rpc_url = read_env("BOUNDLESS_RPC_URL")?;
         let boundless_market_address = read_env("BOUNDLESS_MARKET_ADDRESS")?;
-        let set_verifier_address = read_env("SET_VERIFIER_ADDRESS")?;
-        let order_stream_url = read_env("ORDER_STREAM_URL").ok();
+        let set_verifier_address = read_env("BOUNDLESS_SET_VERIFIER_ADDRESS")?;
+        let order_stream_url = read_env("BOUNDLESS_ORDER_STREAM_URL").ok();
 
         Ok(Self {
             wallet_private_key,
