@@ -6,7 +6,7 @@ use citrea_common::utils::merge_state_diffs;
 use citrea_common::{BatchProverConfig, ProverGuestRunConfig};
 use citrea_primitives::compression::compress_blob;
 use citrea_primitives::forks::fork_from_block_number;
-use citrea_primitives::MAX_TX_BODY_SIZE;
+use citrea_primitives::{MAX_TX_BODY_SIZE, MAX_WITNESS_CACHE_SIZE};
 use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
@@ -644,8 +644,6 @@ where
     }
 }
 
-const MAX_CUMULATIVE_CACHE_SIZE: usize = 128 * 1024 * 1024;
-
 pub(crate) struct CommitmentStateTransitionData {
     short_header_proofs: VecDeque<Vec<u8>>,
     state_transition_witnesses: VecDeque<Vec<(Witness, Witness)>>,
@@ -813,7 +811,7 @@ fn generate_cumulative_witness<Da: DaService, DB: BatchProverLedgerOps>(
             // If cache grew too large, zkvm will error with OOM, hence, we pass
             // when to prune as hint
             if state_log.estimated_cache_size() + offchain_log.estimated_cache_size()
-                > MAX_CUMULATIVE_CACHE_SIZE
+                > MAX_WITNESS_CACHE_SIZE
             {
                 state_log.prune_half();
                 offchain_log.prune_half();
