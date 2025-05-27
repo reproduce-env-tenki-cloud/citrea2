@@ -9,7 +9,9 @@ use boundless_market::alloy::primitives::Address;
 use boundless_market::alloy::providers::fillers::{FillProvider, JoinFill, WalletFiller};
 use boundless_market::alloy::providers::utils::JoinedRecommendedFillers;
 use boundless_market::alloy::providers::RootProvider;
-use boundless_market::alloy::signers::local::PrivateKeySigner;
+use boundless_market::alloy::signers::k256::ecdsa::SigningKey;
+use boundless_market::alloy::signers::k256::Secp256k1;
+use boundless_market::alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use boundless_market::balance_alerts_layer::BalanceAlertProvider;
 use boundless_market::client::{Client, ClientBuilder};
 use boundless_market::contracts::{Offer, Predicate, ProofRequestBuilder, Requirements};
@@ -39,11 +41,11 @@ type BoundlessClient = Client<
 
 #[derive(Debug, Clone)]
 pub struct BoundlessConfig {
-    wallet_private_key: String,
-    rpc_url: String,
-    boundless_market_address: String,
-    set_verifier_address: String,
-    order_stream_url: Option<String>,
+    wallet_private_key: LocalSigner<SigningKey>,
+    rpc_url: Url,
+    boundless_market_address: Address,
+    set_verifier_address: Address,
+    order_stream_url: Option<Url>,
 }
 
 impl citrea_common::FromEnv for BoundlessConfig {
@@ -55,11 +57,15 @@ impl citrea_common::FromEnv for BoundlessConfig {
         let order_stream_url = read_env("BOUNDLESS_ORDER_STREAM_URL").ok();
 
         Ok(Self {
-            wallet_private_key,
-            rpc_url,
-            boundless_market_address,
-            set_verifier_address,
-            order_stream_url,
+            wallet_private_key: PrivateKeySigner::from_str(&wallet_private_key)
+                .context("Failed to parse wallet private key")?,
+            rpc_url: Url::parse(&rpc_url).expect("Invalid RPC URL"),
+            boundless_market_address: Address::from_str(&boundless_market_address)
+                .expect("Invalid Boundless Market Address"),
+            set_verifier_address: Address::from_str(&set_verifier_address)
+                .expect("Invalid Set Verifier Address"),
+            order_stream_url: order_stream_url
+                .map(|url| Url::parse(&url).expect("Invalid Order Stream URL")),
         })
     }
 }
@@ -86,9 +92,6 @@ impl BoundlessProver {
     async fn boundless_client() -> anyhow::Result<BoundlessClient> {
         let config = BoundlessConfig::from_env().expect("Failed to load boundless config");
 
-        let local_signer = PrivateKeySigner::from_str(&config.wallet_private_key)
-            .context("Failed to parse wallet private key")?;
-
         // If in dev mode, uses a temporary file as storage provider
         // Otherwise first tries to parse pinata env variables
         // If fails then tries to parse s3 env variables
@@ -100,18 +103,12 @@ impl BoundlessProver {
 
         // Create a Boundless client from the provided parameters.
         let boundless_client = ClientBuilder::new()
-            .with_rpc_url(Url::parse(&config.rpc_url).expect("Invalid RPC URL"))
-            .with_boundless_market_address(
-                Address::from_str(&config.boundless_market_address).unwrap(),
-            )
-            .with_set_verifier_address(Address::from_str(&config.set_verifier_address).unwrap())
-            .with_order_stream_url(
-                config
-                    .order_stream_url
-                    .and_then(|url| Url::parse(&url).ok()),
-            )
+            .with_rpc_url(config.rpc_url)
+            .with_boundless_market_address(config.boundless_market_address)
+            .with_set_verifier_address(config.set_verifier_address)
+            .with_order_stream_url(config.order_stream_url)
             .with_storage_provider(storage_provider)
-            .with_private_key(local_signer.clone())
+            .with_private_key(config.wallet_private_key)
             .build()
             .await?;
 
