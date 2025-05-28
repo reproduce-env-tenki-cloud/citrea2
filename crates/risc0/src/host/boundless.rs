@@ -2,15 +2,17 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use alloy_primitives::utils::parse_ether;
-use alloy_primitives::U256;
 use anyhow::Context;
 use boundless_market::alloy::network::EthereumWallet;
+use boundless_market::alloy::primitives::U256;
 use boundless_market::alloy::providers::fillers::{FillProvider, JoinFill, WalletFiller};
 use boundless_market::alloy::providers::utils::JoinedRecommendedFillers;
 use boundless_market::alloy::providers::RootProvider;
 use boundless_market::balance_alerts_layer::BalanceAlertProvider;
-use boundless_market::client::{Client, ClientBuilder};
-use boundless_market::contracts::{Offer, Predicate, ProofRequestBuilder, Requirements};
+use boundless_market::client::{Client, ClientBuilder, ClientError};
+use boundless_market::contracts::{
+    Offer, Predicate, ProofRequest, ProofRequestBuilder, Requirements,
+};
 use boundless_market::input::InputBuilder;
 use citrea_common::FromEnv;
 use risc0_zkvm::sha::Digestible;
@@ -22,6 +24,7 @@ use sov_db::ledger_db::{BoundlessLedgerOps, LedgerDB};
 use sov_db::schema::types::BoundlessSession;
 use sov_rollup_interface::zk::{ProofWithJob, ReceiptType};
 use tokio::sync::oneshot;
+use url::Url;
 use uuid::Uuid;
 
 use crate::config::{get_boundless_builtin_storage_provider, BoundlessConfig};
@@ -97,6 +100,7 @@ impl BoundlessProver {
             "Currently, only Groth16 receipts are supported for boundless"
         );
 
+        // Upload the program(elf) to the boundless storage provider
         let image_url = self.client.upload_program(&elf).await?;
         tracing::info!("Image URL: {}", image_url);
 
@@ -136,29 +140,80 @@ impl BoundlessProver {
             }
         })
         .await??;
+
         // Upload input
         let input_url = self.client.upload_input(&guest_env_bytes.clone()).await?;
         tracing::info!("Uploaded input to {}", input_url);
 
-        let request = ProofRequestBuilder::new()
-            .with_image_url(image_url.to_string())
-            .with_input(input_url.clone())
+        let request = BoundlessProver::build_proof_request(
+            image_id,
+            journal.digest(),
+            image_url,
+            input_url,
+            // TODO: Receive from third party api
+            parse_ether("0.000001")?,
+            parse_ether("0.001")?,
+            mcycles_count,
+            43200,
+        );
+
+        // Start boundless proving session
+        let (req_id, request_expiry) = self
+            .send_request(request, job_id, image_id, receipt_type, mcycles_count)
+            .await?;
+
+        let rx = self
+            .spawn_handler(
+                job_id,
+                receipt_type,
+                req_id,
+                image_id,
+                request_expiry,
+                mcycles_count,
+            )
+            .await;
+
+        Ok(rx)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_proof_request(
+        image_id: Digest,
+        journal_digest: Digest,
+        image_url: Url,
+        input_url: Url,
+        min_price_per_mcycle: U256,
+        max_price_per_mcycle: U256,
+        mcycles_count: u64,
+        lock_timeout: u64,
+    ) -> ProofRequest {
+        ProofRequestBuilder::new()
+            .with_image_url(image_url)
+            .with_input(input_url)
             .with_requirements(
-                Requirements::new(image_id, Predicate::digest_match(journal.clone().digest()))
+                Requirements::new(image_id, Predicate::digest_match(journal_digest))
                     .with_groth16_proof(),
             )
             .with_offer(
                 Offer::default()
-                    // TODO: Get this from config maybe? or dynamically fetch from some 3rd party api
-                    .with_min_price_per_mcycle(parse_ether("0.00001")?, mcycles_count)
-                    .with_max_price_per_mcycle(parse_ether("0.005")?, mcycles_count)
-                    .with_timeout(1000)
-                    .with_lock_timeout(500)
+                    .with_min_price_per_mcycle(min_price_per_mcycle, mcycles_count)
+                    .with_max_price_per_mcycle(max_price_per_mcycle, mcycles_count)
+                    .with_timeout((lock_timeout * 2) as u32) // The offer should be taken in 24 hours
+                    .with_lock_timeout(lock_timeout as u32) // The proof should be generated in 12 hours
                     .with_ramp_up_period(100),
             )
             .build()
-            .unwrap();
+            .expect("Failed to build proof request")
+    }
 
+    async fn send_request(
+        &self,
+        request: ProofRequest,
+        job_id: Uuid,
+        image_id: Digest,
+        receipt_type: ReceiptType,
+        mcycles_count: u64,
+    ) -> anyhow::Result<(String, u64)> {
         // Start boundless proving session
         let (req_id, request_expiry) = match self.client.offchain_client {
             Some(_) => {
@@ -184,61 +239,196 @@ impl BoundlessProver {
             request_expiry,
             image_id: image_id.into(),
             receipt_type,
+            mcycles_count,
         };
         self.ledger_db
             .upsert_pending_boundless_session(job_id, db_session)
             .context("Failed to upsert boundless session")?;
 
-        let rx = self
-            .spawn_handler(job_id, req_id, image_id, request_expiry)
-            .await;
-
-        Ok(rx)
+        Ok((req_id.to_string(), request_expiry))
     }
 
     async fn spawn_handler(
         &self,
         job_id: Uuid,
+        receipt_type: ReceiptType,
         request_id: String,
         image_id: Digest,
         request_expiry: u64,
+        mcycles_count: u64,
     ) -> oneshot::Receiver<ProofWithJob> {
         let this = self.clone();
         let (tx, rx) = oneshot::channel();
         tokio::spawn(async move {
-            match this.handle_session(request_id.clone(), image_id, request_expiry).await {
-                Ok(receipt) => {
-                    let serialized_receipt = bincode::serialize(&receipt.inner).expect("Receipt serialization cannot fail");
+            let mut request_id = request_id.clone();
+            let mut request_expiry = request_expiry;
+            loop {
+                match this
+                    .handle_session(request_id.clone(), image_id, request_expiry)
+                    .await
+                {
+                    Ok(receipt) => {
+                        let serialized_receipt = bincode::serialize(&receipt.inner)
+                            .expect("Receipt serialization cannot fail");
 
-                    let Ok(_) = tx.send(ProofWithJob {
-                        job_id,
-                        proof: serialized_receipt,
-                    })else {
-                        tracing::error!("Boundless proof receiver channel is closed");
-                        return;
-                    };
+                        let Ok(_) = tx.send(ProofWithJob {
+                            job_id,
+                            proof: serialized_receipt,
+                        }) else {
+                            tracing::error!("Boundless proof receiver channel is closed");
+                            return;
+                        };
 
-
-                    if let Err(e) = this.ledger_db.remove_pending_boundless_session(job_id) {
-                        tracing::error!(
-                            "Failed to remove pending boundless session job: {} err={}",
-                            job_id, e
+                        if let Err(e) = this.ledger_db.remove_pending_boundless_session(job_id) {
+                            tracing::error!(
+                                "Failed to remove pending boundless session job: {} err={}",
+                                job_id,
+                                e
+                            );
+                        }
+                        tracing::info!(
+                            "Boundless proving job finished: {} | Boundless request id: {}",
+                            job_id,
+                            request_id
                         );
+                        break;
                     }
-                    tracing::info!(
-                        "Boundless proving job finished: {} | Boundless request id: {}",
-                        job_id, request_id
-                    );
-
-                }
-                Err(e)=>tracing::error!(
+                    Err(e) => {
+                        tracing::error!(
                     "Failed to handle Boundless proving session job: {} | Boundless request id: {} | err={}",
                     job_id, request_id, e
-                ),
+                );
+                        if BoundlessProver::handle_resubmit_on_failed_request(
+                            &this,
+                            job_id,
+                            &mut request_id,
+                            &mut request_expiry,
+                            mcycles_count,
+                            image_id,
+                            receipt_type,
+                        )
+                        .await
+                        .is_ok()
+                        {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                }
             }
         });
 
         rx
+    }
+
+    async fn handle_resubmit_on_failed_request(
+        this: &Self,
+        job_id: Uuid,
+        request_id: &mut String,
+        request_expiry: &mut u64,
+        mcycles_count: u64,
+        image_id: Digest,
+        receipt_type: ReceiptType,
+    ) -> anyhow::Result<()> {
+        // Remove failed job from pending boundless sessions
+        this.ledger_db
+            .remove_pending_boundless_session(job_id)
+            .expect("Failed to remove pending boundless session on error");
+
+        // Slash the prover for failing the job
+        let Ok(_) = this
+            .client
+            .boundless_market
+            .slash(U256::from_str(request_id).unwrap())
+            .await
+        else {
+            return Err(anyhow::anyhow!(
+                "Failed to slash prover for job: {} request_id: {}",
+                job_id,
+                request_id
+            ));
+        };
+
+        // Get data of failed order
+        let Ok(failed_order) = this
+            .client
+            .fetch_order(
+                U256::from_str(request_id).expect("Should convert str to u256"),
+                None,
+                None,
+            )
+            .await
+        else {
+            tracing::error!(
+                "Failed to fetch failed order for job: {} request_id: {}",
+                job_id,
+                request_id
+            );
+            return Ok(());
+        };
+
+        // Define new request with updated parameters
+        let new_min_price_per_mcycle = failed_order
+            .request
+            .offer
+            .minPrice
+            .div_ceil(U256::from(mcycles_count))
+            .wrapping_div(U256::from(15))
+            .div_ceil(U256::from(10));
+
+        let new_max_price_per_mcycle = failed_order
+            .request
+            .offer
+            .maxPrice
+            .div_ceil(U256::from(mcycles_count))
+            .wrapping_mul(U256::from(2));
+
+        let new_lock_timeout = failed_order.request.offer.lockTimeout.wrapping_mul(2);
+
+        let new_request = BoundlessProver::build_proof_request(
+            image_id,
+            failed_order
+                .request
+                .requirements
+                .predicate
+                .data
+                .to_vec()
+                .try_into()
+                .unwrap(),
+            Url::parse(&failed_order.request.imageUrl).expect("Invalid image URL"),
+            Url::parse(
+                core::str::from_utf8(&failed_order.request.input.data).expect("Invalid input URL"),
+            )
+            .expect("Invalid input URL"),
+            new_min_price_per_mcycle,
+            new_max_price_per_mcycle,
+            mcycles_count,
+            new_lock_timeout as u64,
+        );
+        // Update request_id and request_expiry for the next iteration
+        *request_id = new_request.id.to_string();
+        *request_expiry = new_request.expires_at();
+
+        // Resubmit the request with updated parameters
+        let Ok((_req_id, _exp_time)) = this
+            .send_request(new_request, job_id, image_id, receipt_type, mcycles_count)
+            .await
+        else {
+            tracing::error!(
+                "Failed to resubmit boundless proving session retrying, job_id={} request_id={}",
+                job_id,
+                request_id
+            );
+            return Ok(());
+        };
+
+        tracing::info!(
+            "Resubmitted previously failing boundless proving session, job_id={} request_id={}",
+            job_id,
+            request_id
+        );
+        Ok(())
     }
 
     async fn handle_session(
@@ -246,7 +436,7 @@ impl BoundlessProver {
         request_id: String,
         image_id: Digest,
         request_expiry: u64,
-    ) -> anyhow::Result<Receipt> {
+    ) -> Result<Receipt, ClientError> {
         let (journal, seal) = self
             .client
             .wait_for_request_fulfillment(
@@ -290,9 +480,11 @@ impl BoundlessProver {
             let rx = self
                 .spawn_handler(
                     job_id,
+                    session.receipt_type,
                     session.request_id,
                     session.image_id.into(),
                     session.request_expiry,
+                    session.mcycles_count,
                 )
                 .await;
             rxs.push(rx);
