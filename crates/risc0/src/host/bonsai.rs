@@ -30,7 +30,7 @@ impl BonsaiProver {
         assert!(env::var("BONSAI_API_URL").is_ok(), "BONSAI_API_URL missing");
         assert!(env::var("BONSAI_API_KEY").is_ok(), "BONSAI_API_KEY missing");
         assert!(
-            env::var("RISC0_DEV_MODE").is_err(),
+            !risc0_zkvm::is_dev_mode(),
             "RISC0_DEV_MODE should not be set for bonsai"
         );
 
