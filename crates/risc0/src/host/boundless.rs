@@ -5,19 +5,13 @@ use alloy_primitives::utils::parse_ether;
 use alloy_primitives::U256;
 use anyhow::Context;
 use boundless_market::alloy::network::EthereumWallet;
-use boundless_market::alloy::primitives::Address;
 use boundless_market::alloy::providers::fillers::{FillProvider, JoinFill, WalletFiller};
 use boundless_market::alloy::providers::utils::JoinedRecommendedFillers;
 use boundless_market::alloy::providers::RootProvider;
-use boundless_market::alloy::signers::k256::ecdsa::SigningKey;
-use boundless_market::alloy::signers::k256::Secp256k1;
-use boundless_market::alloy::signers::local::{LocalSigner, PrivateKeySigner};
 use boundless_market::balance_alerts_layer::BalanceAlertProvider;
 use boundless_market::client::{Client, ClientBuilder};
 use boundless_market::contracts::{Offer, Predicate, ProofRequestBuilder, Requirements};
 use boundless_market::input::InputBuilder;
-use boundless_market::storage::BuiltinStorageProvider;
-use citrea_common::utils::read_env;
 use citrea_common::FromEnv;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{
@@ -28,8 +22,9 @@ use sov_db::ledger_db::{BoundlessLedgerOps, LedgerDB};
 use sov_db::schema::types::BoundlessSession;
 use sov_rollup_interface::zk::{ProofWithJob, ReceiptType};
 use tokio::sync::oneshot;
-use url::Url;
 use uuid::Uuid;
+
+use crate::config::{get_boundless_builtin_storage_provider, BoundlessConfig};
 
 type BoundlessClient = Client<
     FillProvider<
@@ -38,37 +33,6 @@ type BoundlessClient = Client<
     >,
     boundless_market::storage::BuiltinStorageProvider,
 >;
-
-#[derive(Debug, Clone)]
-pub struct BoundlessConfig {
-    wallet_private_key: LocalSigner<SigningKey>,
-    rpc_url: Url,
-    boundless_market_address: Address,
-    set_verifier_address: Address,
-    order_stream_url: Option<Url>,
-}
-
-impl citrea_common::FromEnv for BoundlessConfig {
-    fn from_env() -> anyhow::Result<Self> {
-        let wallet_private_key = read_env("BOUNDLESS_WALLET_PRIVATE_KEY")?;
-        let rpc_url = read_env("BOUNDLESS_RPC_URL")?;
-        let boundless_market_address = read_env("BOUNDLESS_MARKET_ADDRESS")?;
-        let set_verifier_address = read_env("BOUNDLESS_SET_VERIFIER_ADDRESS")?;
-        let order_stream_url = read_env("BOUNDLESS_ORDER_STREAM_URL").ok();
-
-        Ok(Self {
-            wallet_private_key: PrivateKeySigner::from_str(&wallet_private_key)
-                .context("Failed to parse wallet private key")?,
-            rpc_url: Url::parse(&rpc_url).expect("Invalid RPC URL"),
-            boundless_market_address: Address::from_str(&boundless_market_address)
-                .expect("Invalid Boundless Market Address"),
-            set_verifier_address: Address::from_str(&set_verifier_address)
-                .expect("Invalid Set Verifier Address"),
-            order_stream_url: order_stream_url
-                .map(|url| Url::parse(&url).expect("Invalid Order Stream URL")),
-        })
-    }
-}
 
 #[derive(Clone)]
 pub struct BoundlessProver {
@@ -99,7 +63,7 @@ impl BoundlessProver {
         // Otherwise, the following environment variables are checked in order:
         // - `PINATA_JWT`, `PINATA_API_URL`, `IPFS_GATEWAY_URL`: Pinata storage provider;
         // - `S3_ACCESS`, `S3_SECRET`, `S3_BUCKET`, `S3_URL`, `AWS_REGION`: S3 storage provider.
-        let storage_provider = BuiltinStorageProvider::from_env().await.ok();
+        let storage_provider = get_boundless_builtin_storage_provider().await?;
 
         // Create a Boundless client from the provided parameters.
         let boundless_client = ClientBuilder::new()
@@ -107,7 +71,7 @@ impl BoundlessProver {
             .with_boundless_market_address(config.boundless_market_address)
             .with_set_verifier_address(config.set_verifier_address)
             .with_order_stream_url(config.order_stream_url)
-            .with_storage_provider(storage_provider)
+            .with_storage_provider(Some(storage_provider))
             .with_private_key(config.wallet_private_key)
             .build()
             .await?;
