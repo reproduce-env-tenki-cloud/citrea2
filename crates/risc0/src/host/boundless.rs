@@ -3,17 +3,10 @@ use std::time::Duration;
 
 use alloy_primitives::utils::parse_ether;
 use anyhow::Context;
-use boundless_market::alloy::network::EthereumWallet;
 use boundless_market::alloy::primitives::U256;
-use boundless_market::alloy::providers::fillers::{FillProvider, JoinFill, WalletFiller};
-use boundless_market::alloy::providers::utils::JoinedRecommendedFillers;
-use boundless_market::alloy::providers::RootProvider;
-use boundless_market::balance_alerts_layer::BalanceAlertProvider;
 use boundless_market::client::{Client, ClientBuilder, ClientError};
-use boundless_market::contracts::{
-    Offer, Predicate, ProofRequest, ProofRequestBuilder, Requirements,
-};
-use boundless_market::input::InputBuilder;
+use boundless_market::contracts::{Offer, Predicate, Requirements};
+use boundless_market::request_builder::RequestParams;
 use citrea_common::FromEnv;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{
@@ -29,17 +22,9 @@ use uuid::Uuid;
 
 use crate::config::{get_boundless_builtin_storage_provider, BoundlessConfig};
 
-type BoundlessClient = Client<
-    FillProvider<
-        JoinFill<JoinedRecommendedFillers, WalletFiller<EthereumWallet>>,
-        BalanceAlertProvider<RootProvider>,
-    >,
-    boundless_market::storage::BuiltinStorageProvider,
->;
-
 #[derive(Clone)]
 pub struct BoundlessProver {
-    pub client: BoundlessClient,
+    pub client: Client,
     pub ledger_db: LedgerDB,
 }
 
@@ -56,7 +41,7 @@ impl BoundlessProver {
         Self { client, ledger_db }
     }
 
-    async fn boundless_client() -> anyhow::Result<BoundlessClient> {
+    async fn boundless_client() -> anyhow::Result<Client> {
         let config = BoundlessConfig::from_env().expect("Failed to load boundless config");
 
         // If in dev mode, uses a temporary file as storage provider
@@ -69,17 +54,13 @@ impl BoundlessProver {
         let storage_provider = get_boundless_builtin_storage_provider().await?;
 
         // Create a Boundless client from the provided parameters.
-        let boundless_client = ClientBuilder::new()
+        ClientBuilder::new()
+            .with_deployment(config.deployment)
             .with_rpc_url(config.rpc_url)
-            .with_boundless_market_address(config.boundless_market_address)
-            .with_set_verifier_address(config.set_verifier_address)
-            .with_order_stream_url(config.order_stream_url)
             .with_storage_provider(Some(storage_provider))
             .with_private_key(config.wallet_private_key)
             .build()
-            .await?;
-
-        Ok(boundless_client)
+            .await
     }
 
     pub async fn prove(
@@ -104,14 +85,18 @@ impl BoundlessProver {
         let image_url = self.client.upload_program(&elf).await?;
         tracing::info!("Image URL: {}", image_url);
 
+        // Upload input
+        let input_url = self.client.upload_input(&input).await?;
+        tracing::info!("Uploaded input to {}", input_url);
+
         // move non-Send logic to blocking thread
         // I had to do this because the executor env builder is not Send
-        let (guest_env_bytes, journal, mcycles_count) = tokio::task::spawn_blocking({
+        let (journal, mcycles_count) = tokio::task::spawn_blocking({
             let elf = elf.clone(); // clone since we move into thread
             let input = input.clone();
             let assumptions = assumptions.clone();
 
-            move || -> anyhow::Result<(Vec<u8>, Journal, u64)> {
+            move || -> anyhow::Result<(Journal, u64)> {
                 let mut env = ExecutorEnvBuilder::default();
                 for assumption in assumptions {
                     env.add_assumption(assumption);
@@ -132,20 +117,12 @@ impl BoundlessProver {
                     total_cycles_approx
                 );
 
-                let input_builder = InputBuilder::new().write_slice(&input);
-                let guest_env = input_builder.build_env()?;
-                let bytes = guest_env.encode()?.to_vec();
-
-                Ok((bytes, session_info.journal, mcycles_count))
+                Ok((session_info.journal, mcycles_count))
             }
         })
         .await??;
 
-        // Upload input
-        let input_url = self.client.upload_input(&guest_env_bytes.clone()).await?;
-        tracing::info!("Uploaded input to {}", input_url);
-
-        let request = BoundlessProver::build_proof_request(
+        let request = self.build_proof_request(
             image_id,
             journal.digest(),
             image_url,
@@ -178,6 +155,7 @@ impl BoundlessProver {
 
     #[allow(clippy::too_many_arguments)]
     pub fn build_proof_request(
+        &self,
         image_id: Digest,
         journal_digest: Digest,
         image_url: Url,
@@ -186,10 +164,13 @@ impl BoundlessProver {
         max_price_per_mcycle: U256,
         mcycles_count: u64,
         lock_timeout: u64,
-    ) -> ProofRequest {
-        ProofRequestBuilder::new()
-            .with_image_url(image_url)
-            .with_input(input_url)
+    ) -> RequestParams {
+        self.client
+            .new_request()
+            .with_program_url(image_url)
+            .unwrap()
+            .with_input_url(input_url)
+            .unwrap()
             .with_requirements(
                 Requirements::new(image_id, Predicate::digest_match(journal_digest))
                     .with_groth16_proof(),
@@ -202,13 +183,11 @@ impl BoundlessProver {
                     .with_lock_timeout(lock_timeout as u32) // The proof should be generated in 12 hours
                     .with_ramp_up_period(100),
             )
-            .build()
-            .expect("Failed to build proof request")
     }
 
     async fn send_request(
         &self,
-        request: ProofRequest,
+        request: RequestParams,
         job_id: Uuid,
         image_id: Digest,
         receipt_type: ReceiptType,
@@ -217,12 +196,12 @@ impl BoundlessProver {
         // Start boundless proving session
         let (req_id, request_expiry) = match self.client.offchain_client {
             Some(_) => {
-                let (req_id, exp) = self.client.submit_request_offchain(&request).await?;
+                let (req_id, exp) = self.client.submit_offchain(request).await?;
                 tracing::info!("Request submitted to offchain boundless service");
                 (req_id.to_string(), exp)
             }
             None => {
-                let (req_id, exp) = self.client.submit_request(&request).await?;
+                let (req_id, exp) = self.client.submit_onchain(request).await?;
                 tracing::info!("Request submitted to onchain boundless service");
                 (req_id.to_string(), exp)
             }
@@ -386,7 +365,7 @@ impl BoundlessProver {
 
         let new_lock_timeout = failed_order.request.offer.lockTimeout.wrapping_mul(2);
 
-        let new_request = BoundlessProver::build_proof_request(
+        let new_request = this.build_proof_request(
             image_id,
             failed_order
                 .request
@@ -407,11 +386,9 @@ impl BoundlessProver {
             new_lock_timeout as u64,
         );
         // Update request_id and request_expiry for the next iteration
-        *request_id = new_request.id.to_string();
-        *request_expiry = new_request.expires_at();
 
         // Resubmit the request with updated parameters
-        let Ok((_req_id, _exp_time)) = this
+        let Ok((new_req_id, new_exp_time)) = this
             .send_request(new_request, job_id, image_id, receipt_type, mcycles_count)
             .await
         else {
@@ -422,6 +399,9 @@ impl BoundlessProver {
             );
             return Ok(());
         };
+
+        *request_id = new_req_id;
+        *request_expiry = new_exp_time;
 
         tracing::info!(
             "Resubmitted previously failing boundless proving session, job_id={} request_id={}",

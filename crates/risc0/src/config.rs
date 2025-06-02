@@ -1,10 +1,11 @@
 use std::str::FromStr;
 
 use anyhow::Context;
-use boundless_market::alloy::primitives::Address;
 use boundless_market::alloy::signers::k256::ecdsa::SigningKey;
 use boundless_market::alloy::signers::local::{LocalSigner, PrivateKeySigner};
-use boundless_market::storage::{BuiltinStorageProvider, PinataStorageProvider, S3StorageProvider};
+use boundless_market::deployments::SEPOLIA;
+use boundless_market::storage::{PinataStorageProvider, S3StorageProvider};
+use boundless_market::{Deployment, StandardStorageProvider};
 use citrea_common::utils::read_env;
 use citrea_common::FromEnv;
 use url::Url;
@@ -71,21 +72,18 @@ impl citrea_common::FromEnv for BoundlessPinataStorageConfig {
 }
 
 /// Get the boundless storage provider based on the environment configuration
-pub async fn get_boundless_builtin_storage_provider() -> anyhow::Result<BuiltinStorageProvider> {
+pub async fn get_boundless_builtin_storage_provider() -> anyhow::Result<StandardStorageProvider> {
     let storage_config = if let Ok(config) = BoundlessS3StorageConfig::from_env() {
-        BuiltinStorageProvider::S3(
-            S3StorageProvider::from_parts(
-                config.s3_access_key.clone(),
-                config.s3_secret_key.clone(),
-                config.s3_bucket.clone(),
-                config.s3_url.clone(),
-                config.aws_region.clone(),
-                config.s3_use_presigned,
-            )
-            .await?,
-        )
+        StandardStorageProvider::S3(S3StorageProvider::from_parts(
+            config.s3_access_key.clone(),
+            config.s3_secret_key.clone(),
+            config.s3_bucket.clone(),
+            config.s3_url.clone(),
+            config.aws_region.clone(),
+            config.s3_use_presigned,
+        ))
     } else if let Ok(config) = BoundlessPinataStorageConfig::from_env() {
-        BuiltinStorageProvider::Pinata(
+        StandardStorageProvider::Pinata(
             PinataStorageProvider::from_parts(
                 config.pinata_jwt.clone(),
                 config.pinata_api_url.to_string(),
@@ -106,29 +104,22 @@ pub async fn get_boundless_builtin_storage_provider() -> anyhow::Result<BuiltinS
 pub struct BoundlessConfig {
     pub(crate) wallet_private_key: LocalSigner<SigningKey>,
     pub(crate) rpc_url: Url,
-    pub(crate) boundless_market_address: Address,
-    pub(crate) set_verifier_address: Address,
-    pub(crate) order_stream_url: Option<Url>,
+    pub(crate) deployment: Deployment,
 }
 
 impl citrea_common::FromEnv for BoundlessConfig {
     fn from_env() -> anyhow::Result<Self> {
         let wallet_private_key = read_env("BOUNDLESS_WALLET_PRIVATE_KEY")?;
         let rpc_url = read_env("BOUNDLESS_RPC_URL")?;
-        let boundless_market_address = read_env("BOUNDLESS_MARKET_ADDRESS")?;
-        let set_verifier_address = read_env("BOUNDLESS_SET_VERIFIER_ADDRESS")?;
-        let order_stream_url = read_env("BOUNDLESS_ORDER_STREAM_URL").ok();
+
+        // TODO: Switch to Deployment::builder after boundless 1.0 release to switch between base mainnet and sepolia
+        let deployment = SEPOLIA;
 
         Ok(Self {
             wallet_private_key: PrivateKeySigner::from_str(&wallet_private_key)
                 .context("Failed to parse wallet private key")?,
             rpc_url: Url::parse(&rpc_url).expect("Invalid RPC URL"),
-            boundless_market_address: Address::from_str(&boundless_market_address)
-                .expect("Invalid Boundless Market Address"),
-            set_verifier_address: Address::from_str(&set_verifier_address)
-                .expect("Invalid Set Verifier Address"),
-            order_stream_url: order_stream_url
-                .map(|url| Url::parse(&url).expect("Invalid Order Stream URL")),
+            deployment,
         })
     }
 }
