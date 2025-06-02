@@ -7,6 +7,7 @@ use boundless_market::alloy::primitives::U256;
 use boundless_market::client::{Client, ClientBuilder, ClientError};
 use boundless_market::contracts::{Offer, Predicate, Requirements};
 use boundless_market::request_builder::RequestParams;
+use boundless_market::GuestEnv;
 use citrea_common::FromEnv;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{
@@ -85,8 +86,12 @@ impl BoundlessProver {
         let image_url = self.client.upload_program(&elf).await?;
         tracing::info!("Image URL: {}", image_url);
 
+        let guest_env = GuestEnv::from_stdin(input.clone())
+            .encode()
+            .context("Failed to encode input for boundless proving")?;
+
         // Upload input
-        let input_url = self.client.upload_input(&input).await?;
+        let input_url = self.client.upload_input(&guest_env).await?;
         tracing::info!("Uploaded input to {}", input_url);
 
         // move non-Send logic to blocking thread
@@ -181,7 +186,8 @@ impl BoundlessProver {
                     .with_max_price_per_mcycle(max_price_per_mcycle, mcycles_count)
                     .with_timeout((lock_timeout * 2) as u32) // The offer should be taken in 24 hours
                     .with_lock_timeout(lock_timeout as u32) // The proof should be generated in 12 hours
-                    .with_ramp_up_period(100),
+                    .with_ramp_up_period(100)
+                    .with_bidding_start(now_timestamp() + 10),
             )
     }
 
@@ -471,4 +477,11 @@ impl BoundlessProver {
         }
         Ok(rxs)
     }
+}
+
+fn now_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }
