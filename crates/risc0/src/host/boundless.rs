@@ -186,8 +186,11 @@ impl BoundlessProver {
                     .with_max_price_per_mcycle(max_price_per_mcycle, mcycles_count)
                     .with_timeout((lock_timeout * 2) as u32) // The offer should be taken in 24 hours
                     .with_lock_timeout(lock_timeout as u32) // The proof should be generated in 12 hours
-                    .with_ramp_up_period(100)
-                    .with_bidding_start(now_timestamp() + 10),
+                    .with_ramp_up_period(300)
+                    .with_bidding_start(now_timestamp() + 10)
+                    // https://github.com/boundless-xyz/boundless/blob/628af072d8ed67a7503e112c8dc09e0d4665f711/documentation/site/pages/developers/tutorials/request.mdx?plain=1#L305
+                    // https://github.com/boundless-xyz/boundless/blob/628af072d8ed67a7503e112c8dc09e0d4665f711/documentation/site/pages/developers/tutorials/request.mdx?plain=1#L347C16-L347C35
+                    .with_lock_stake(U256::from(5000000000000000000u64)),
             )
     }
 
