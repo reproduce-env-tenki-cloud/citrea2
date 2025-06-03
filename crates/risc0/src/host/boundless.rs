@@ -203,6 +203,12 @@ impl BoundlessProver {
         mcycles_count: u64,
     ) -> anyhow::Result<(String, u64)> {
         // Start boundless proving session
+        tracing::info!(
+            "Submitting boundless proving session request, job_id={} image_id={} with offer: {:?}",
+            job_id,
+            image_id,
+            request.offer
+        );
         let (req_id, request_expiry) = match self.client.offchain_client {
             Some(_) => {
                 let (req_id, exp) = self.client.submit_offchain(request).await?;
@@ -286,7 +292,7 @@ impl BoundlessProver {
                     "Failed to handle Boundless proving session job: {} | Boundless request id: {} | err={}",
                     job_id, request_id, e
                 );
-                        if BoundlessProver::handle_resubmit_on_failed_request(
+                        match BoundlessProver::handle_resubmit_on_failed_request(
                             &this,
                             job_id,
                             &mut request_id,
@@ -296,11 +302,25 @@ impl BoundlessProver {
                             receipt_type,
                         )
                         .await
-                        .is_ok()
                         {
-                            continue;
-                        } else {
-                            break;
+                            Ok(_) => {
+                                tracing::info!(
+                                    "Resubmitted boundless proving session job: {} | Boundless request id: {}",
+                                    job_id,
+                                    request_id
+                                );
+
+                                continue;
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to resubmit boundless proving session job: {} | Boundless request id: {} | err={}",
+                                    job_id,
+                                    request_id,
+                                    e
+                                );
+                                break;
+                            }
                         }
                     }
                 }
@@ -325,18 +345,29 @@ impl BoundlessProver {
             .expect("Failed to remove pending boundless session on error");
 
         // Slash the prover for failing the job
-        let Ok(_) = this
+        match this
             .client
             .boundless_market
             .slash(U256::from_str(request_id).unwrap())
             .await
-        else {
-            return Err(anyhow::anyhow!(
-                "Failed to slash prover for job: {} request_id: {}",
-                job_id,
-                request_id
-            ));
-        };
+        {
+            Ok(res) => {
+                tracing::info!(
+                    "Successfully Slashed boundless prover for job: {} request_id: {} result: {:?}",
+                    job_id,
+                    request_id,
+                    res
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to slash boundless prover for job: {} request_id: {}, err: {:?}",
+                    job_id,
+                    request_id,
+                    e
+                );
+            }
+        }
 
         // Get data of failed order
         let Ok(failed_order) = this
@@ -356,13 +387,14 @@ impl BoundlessProver {
             return Ok(());
         };
 
+        // TODO: Set a max limit for min and max price per mcycle when integrating the pricing api
         // Define new request with updated parameters
         let new_min_price_per_mcycle = failed_order
             .request
             .offer
             .minPrice
             .div_ceil(U256::from(mcycles_count))
-            .wrapping_div(U256::from(15))
+            .wrapping_mul(U256::from(15))
             .div_ceil(U256::from(10));
 
         let new_max_price_per_mcycle = failed_order
@@ -413,9 +445,12 @@ impl BoundlessProver {
         *request_expiry = new_exp_time;
 
         tracing::info!(
-            "Resubmitted previously failing boundless proving session, job_id={} request_id={}",
+            "Resubmitted previously failing boundless proving session, job_id={} request_id={}, new min_price_per_mcycle={:?}, new max_price_per_mcycle={:?}, new lock_timeout={}",
             job_id,
-            request_id
+            request_id,
+            new_min_price_per_mcycle,
+            new_max_price_per_mcycle,
+            new_lock_timeout
         );
         Ok(())
     }
