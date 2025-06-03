@@ -344,30 +344,7 @@ impl BoundlessProver {
             .remove_pending_boundless_session(job_id)
             .expect("Failed to remove pending boundless session on error");
 
-        // Slash the prover for failing the job
-        match this
-            .client
-            .boundless_market
-            .slash(U256::from_str(request_id).unwrap())
-            .await
-        {
-            Ok(res) => {
-                tracing::info!(
-                    "Successfully Slashed boundless prover for job: {} request_id: {} result: {:?}",
-                    job_id,
-                    request_id,
-                    res
-                );
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Failed to slash boundless prover for job: {} request_id: {}, err: {:?}",
-                    job_id,
-                    request_id,
-                    e
-                );
-            }
-        }
+        // TODO: Handle slashing offchain
 
         // Get data of failed order
         let Ok(failed_order) = this
