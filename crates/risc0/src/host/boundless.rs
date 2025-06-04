@@ -8,6 +8,7 @@ use boundless_market::client::{Client, ClientBuilder, ClientError};
 use boundless_market::contracts::{Offer, Predicate, Requirements};
 use boundless_market::request_builder::RequestParams;
 use boundless_market::GuestEnv;
+use citrea_common::utils::now_timestamp;
 use citrea_common::FromEnv;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{
@@ -500,11 +501,4 @@ impl BoundlessProver {
         }
         Ok(rxs)
     }
-}
-
-fn now_timestamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
 }

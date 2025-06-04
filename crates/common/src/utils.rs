@@ -154,3 +154,10 @@ pub async fn decode_sov_tx_and_update_short_header_proofs<Da: DaService, DB: Sha
 pub fn read_env(key: &str) -> anyhow::Result<String> {
     env::var(key).map_err(|_| anyhow::anyhow!("Env {} missing or invalid UTF-8", key))
 }
+
+pub fn now_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
