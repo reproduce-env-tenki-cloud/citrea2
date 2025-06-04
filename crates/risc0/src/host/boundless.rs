@@ -133,7 +133,7 @@ impl BoundlessProver {
             journal.digest(),
             image_url,
             input_url,
-            // TODO: Receive from third party api
+            // TODO: https://github.com/chainwayxyz/citrea/issues/2397
             parse_ether("0.000001")?,
             parse_ether("0.001")?,
             mcycles_count,
@@ -352,7 +352,7 @@ impl BoundlessProver {
             .remove_pending_boundless_session(job_id)
             .expect("Failed to remove pending boundless session on error");
 
-        // TODO: Handle slashing offchain
+        // TODO: https://github.com/chainwayxyz/citrea/issues/2418
 
         // Get data of failed order
         let Ok(failed_order) = this
@@ -372,7 +372,7 @@ impl BoundlessProver {
             return Ok(());
         };
 
-        // TODO: Set a max limit for min and max price per mcycle when integrating the pricing api
+        // TODO: https://github.com/chainwayxyz/citrea/issues/2417
         // Define new request with updated parameters
         let new_min_price_per_mcycle = failed_order
             .request
