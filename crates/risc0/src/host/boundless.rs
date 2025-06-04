@@ -21,7 +21,7 @@ use tokio::sync::oneshot;
 use url::Url;
 use uuid::Uuid;
 
-use crate::config::{get_boundless_builtin_storage_provider, BoundlessConfig};
+use super::config::{get_boundless_builtin_storage_provider, BoundlessConfig};
 
 #[derive(Clone)]
 pub struct BoundlessProver {

@@ -2,6 +2,7 @@
 
 mod bonsai;
 mod boundless;
+mod config;
 mod local;
 
 use std::path::Path;

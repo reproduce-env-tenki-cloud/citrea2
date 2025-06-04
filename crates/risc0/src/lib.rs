@@ -8,9 +8,6 @@ pub use risc0_zkvm::sha::Digest;
 use risc0_zkvm::{InnerReceipt, PrunedValueError, Receipt};
 use thiserror::Error;
 
-#[cfg(feature = "native")]
-/// Configuration for the RISC0 host
-pub mod config;
 pub mod guest;
 #[cfg(feature = "native")]
 pub mod host;
