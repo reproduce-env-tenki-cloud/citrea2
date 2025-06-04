@@ -33,6 +33,10 @@ pub struct BoundlessProver {
 
 impl BoundlessProver {
     pub async fn new(ledger_db: LedgerDB) -> Self {
+        assert!(
+            std::env::var("RISC0_PROVER").is_ok_and(|prover| prover == "boundless"),
+            "RISC0_PROVER must be explicitly set to boundless"
+        );
         let client = Self::boundless_client()
             .await
             .expect("Failed to create boundless client");
