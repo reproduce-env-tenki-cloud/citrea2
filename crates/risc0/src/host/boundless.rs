@@ -18,6 +18,7 @@ use sov_db::ledger_db::{BoundlessLedgerOps, LedgerDB};
 use sov_db::schema::types::BoundlessSession;
 use sov_rollup_interface::zk::{ProofWithJob, ReceiptType};
 use tokio::sync::oneshot;
+use tracing::Instrument;
 use url::Url;
 use uuid::Uuid;
 
@@ -325,7 +326,14 @@ impl BoundlessProver {
                     }
                 }
             }
-        });
+        }).instrument(
+            tracing::info_span!(
+                "BoundlessProver::spawn_handler",
+                job_id = %job_id,
+                request_id = %request_id,
+                image_id = %image_id,
+            ),
+        );
 
         rx
     }
