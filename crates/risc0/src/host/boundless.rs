@@ -254,7 +254,8 @@ impl BoundlessProver {
     ) -> oneshot::Receiver<ProofWithJob> {
         let this = self.clone();
         let (tx, rx) = oneshot::channel();
-        tokio::spawn(async move {
+        let request_id_span = request_id.clone();
+        let _ = tokio::spawn(async move {
             let mut request_id = request_id.clone();
             let mut request_expiry = request_expiry;
             loop {
@@ -293,8 +294,7 @@ impl BoundlessProver {
                     "Failed to handle Boundless proving session job: {} | Boundless request id: {} | err={}",
                     job_id, request_id, e
                 );
-                        match BoundlessProver::handle_resubmit_on_failed_request(
-                            &this,
+                        match this.handle_resubmit_on_failed_request(
                             job_id,
                             &mut request_id,
                             &mut request_expiry,
@@ -330,7 +330,7 @@ impl BoundlessProver {
             tracing::info_span!(
                 "BoundlessProver::spawn_handler",
                 job_id = %job_id,
-                request_id = %request_id,
+                request_id = %request_id_span,
                 image_id = %image_id,
             ),
         );
@@ -339,7 +339,7 @@ impl BoundlessProver {
     }
 
     async fn handle_resubmit_on_failed_request(
-        this: &Self,
+        &self,
         job_id: Uuid,
         request_id: &mut String,
         request_expiry: &mut u64,
@@ -348,14 +348,14 @@ impl BoundlessProver {
         receipt_type: ReceiptType,
     ) -> anyhow::Result<()> {
         // Remove failed job from pending boundless sessions
-        this.ledger_db
+        self.ledger_db
             .remove_pending_boundless_session(job_id)
             .expect("Failed to remove pending boundless session on error");
 
         // TODO: https://github.com/chainwayxyz/citrea/issues/2418
 
         // Get data of failed order
-        let Ok(failed_order) = this
+        let Ok(failed_order) = self
             .client
             .fetch_order(
                 U256::from_str(request_id).expect("Should convert str to u256"),
@@ -391,7 +391,7 @@ impl BoundlessProver {
 
         let new_lock_timeout = failed_order.request.offer.lockTimeout.wrapping_mul(2);
 
-        let new_request = this.build_proof_request(
+        let new_request = self.build_proof_request(
             image_id,
             failed_order
                 .request
@@ -414,7 +414,7 @@ impl BoundlessProver {
         // Update request_id and request_expiry for the next iteration
 
         // Resubmit the request with updated parameters
-        let Ok((new_req_id, new_exp_time)) = this
+        let Ok((new_req_id, new_exp_time)) = self
             .send_request(new_request, job_id, image_id, receipt_type, mcycles_count)
             .await
         else {
