@@ -260,7 +260,7 @@ impl BoundlessProver {
         let this = self.clone();
         let (tx, rx) = oneshot::channel();
         let request_id_span = request_id.clone();
-        let _ = tokio::spawn(async move {
+        tokio::spawn(async move {
             let mut request_id = request_id.clone();
             let mut request_expiry = request_expiry;
             loop {
