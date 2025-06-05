@@ -128,10 +128,10 @@ impl ZkvmHost for Risc0Host {
         Ok(T::try_from_slice(&journal.bytes)?)
     }
 
-    async fn start_session_recovery(
+    fn start_session_recovery(
         &self,
     ) -> Result<Vec<oneshot::Receiver<ProofWithJob>>, anyhow::Error> {
-        self.prover.start_prover_session_recovery().await
+        self.prover.start_prover_session_recovery()
     }
 }
 
@@ -184,7 +184,7 @@ pub enum Prover {
 
 impl Prover {
     /// Start recovery for prover if it supports it
-    pub async fn start_prover_session_recovery(
+    pub fn start_prover_session_recovery(
         &self,
     ) -> anyhow::Result<Vec<oneshot::Receiver<ProofWithJob>>> {
         match self {
@@ -192,7 +192,7 @@ impl Prover {
                 info!("Skipping proving recovery...");
                 Ok(vec![])
             }
-            Prover::Boundless(prover) => prover.start_recovery().await,
+            Prover::Boundless(prover) => prover.start_recovery(),
             Prover::Bonsai(prover) => prover.start_recovery(),
         }
     }

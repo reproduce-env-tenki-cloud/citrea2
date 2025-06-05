@@ -150,16 +150,14 @@ impl BoundlessProver {
             .send_request(request, job_id, image_id, receipt_type, mcycles_count)
             .await?;
 
-        let rx = self
-            .spawn_handler(
-                job_id,
-                receipt_type,
-                req_id,
-                image_id,
-                request_expiry,
-                mcycles_count,
-            )
-            .await;
+        let rx = self.spawn_handler(
+            job_id,
+            receipt_type,
+            req_id,
+            image_id,
+            request_expiry,
+            mcycles_count,
+        );
 
         Ok(rx)
     }
@@ -248,7 +246,7 @@ impl BoundlessProver {
         Ok((req_id.to_string(), request_expiry))
     }
 
-    async fn spawn_handler(
+    fn spawn_handler(
         &self,
         job_id: Uuid,
         receipt_type: ReceiptType,
@@ -260,7 +258,7 @@ impl BoundlessProver {
         let this = self.clone();
         let (tx, rx) = oneshot::channel();
         let request_id_span = request_id.clone();
-        tokio::spawn(async move {
+        let _ = tokio::spawn(async move {
             let mut request_id = request_id.clone();
             let mut request_expiry = request_expiry;
             loop {
@@ -477,7 +475,7 @@ impl BoundlessProver {
 
     // Starts the recovery of proving jobs from db by starting a background task, returning list of
     /// receiver channels that return the associated job id and proof result on finish.
-    pub async fn start_recovery(&self) -> anyhow::Result<Vec<oneshot::Receiver<ProofWithJob>>> {
+    pub fn start_recovery(&self) -> anyhow::Result<Vec<oneshot::Receiver<ProofWithJob>>> {
         let sessions = self.ledger_db.get_pending_boundless_sessions()?;
         if sessions.is_empty() {
             return Ok(vec![]);
@@ -491,16 +489,14 @@ impl BoundlessProver {
                 session
             );
 
-            let rx = self
-                .spawn_handler(
-                    job_id,
-                    session.receipt_type,
-                    session.request_id,
-                    session.image_id.into(),
-                    session.request_expiry,
-                    session.mcycles_count,
-                )
-                .await;
+            let rx = self.spawn_handler(
+                job_id,
+                session.receipt_type,
+                session.request_id,
+                session.image_id.into(),
+                session.request_expiry,
+                session.mcycles_count,
+            );
             rxs.push(rx);
         }
         Ok(rxs)

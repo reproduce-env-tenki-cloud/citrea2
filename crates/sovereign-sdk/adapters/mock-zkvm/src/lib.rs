@@ -217,7 +217,7 @@ impl sov_rollup_interface::zk::ZkvmHost for MockZkvm {
         T::try_from_slice(&data.hint).map_err(Into::into)
     }
 
-    async fn start_session_recovery(
+    fn start_session_recovery(
         &self,
     ) -> Result<Vec<oneshot::Receiver<ProofWithJob>>, anyhow::Error> {
         unimplemented!()
