@@ -261,7 +261,7 @@ impl BoundlessProver {
         let this = self.clone();
         let (tx, rx) = oneshot::channel();
         let request_id_span = request_id.clone();
-        let _ = tokio::spawn(async move {
+        tokio::spawn(async move {
             let mut request_id = request_id.clone();
             let mut request_expiry = request_expiry;
             loop {
@@ -332,14 +332,14 @@ impl BoundlessProver {
                     }
                 }
             }
-        }).instrument(
+        }.instrument(
             tracing::info_span!(
                 "BoundlessProver::spawn_handler",
                 job_id = %job_id,
                 request_id = %request_id_span,
                 image_id = %image_id,
             ),
-        );
+        ));
 
         rx
     }
