@@ -139,9 +139,12 @@ impl BoundlessProver {
             image_url,
             input_url,
             // TODO: https://github.com/chainwayxyz/citrea/issues/2397
+            // These magic values are just placeholders which will be replaced with values that will be
+            // fetched from a third party pricing api we are working on
             parse_ether("0.000001")?,
             parse_ether("0.001")?,
             mcycles_count,
+            // This value will be fetched from the api as well
             43200,
         );
 
