@@ -120,7 +120,7 @@ url = { version = "2.5.4" }
 
 # Risc0 dependencies
 bonsai-sdk = { version = "1.4" }
-boundless-market = { version = "0.9.0", default-features = false }
+boundless-market = { version = "0.10.0", default-features = false }
 risc0-binfmt = "2.0.1"
 risc0-zkvm = { version = "2.1.0", default-features = false }
 risc0-zkvm-platform = "2.0.2"
