@@ -6812,6 +6812,7 @@ dependencies = [
  "borsh",
  "futures",
  "rand 0.8.5",
+ "reth-tasks",
  "sov-mock-da",
  "sov-mock-zkvm",
  "sov-rollup-interface",

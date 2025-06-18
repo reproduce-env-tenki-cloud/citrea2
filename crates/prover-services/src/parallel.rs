@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use rand::Rng;
+use reth_tasks::shutdown::GracefulShutdown;
 use sov_rollup_interface::da::DaTxRequest;
 use sov_rollup_interface::services::da::DaService;
 use sov_rollup_interface::zk::{Proof, ProofWithJob, ReceiptType, ZkvmHost};
@@ -92,9 +93,16 @@ where
     ///
     /// * `data` - the proof data to be used for generating a proof
     /// * `receipt_type` - the expected receipt type of the proof
-    pub async fn prove(&self, data: ProofData, receipt_type: ReceiptType) -> anyhow::Result<Proof> {
+    pub async fn prove(
+        &self,
+        shutdown_signal: GracefulShutdown,
+        data: ProofData,
+        receipt_type: ReceiptType,
+    ) -> anyhow::Result<Proof> {
         let job_id = Uuid::nil();
-        let rx = self.start_proving(data, receipt_type, job_id).await?;
+        let rx = self
+            .start_proving(shutdown_signal, data, receipt_type, job_id)
+            .await?;
         Ok(rx.await.expect("Proof channel should not close"))
     }
 
@@ -114,6 +122,7 @@ where
     #[instrument(name = "ParallelProverService", skip_all)]
     pub async fn start_proving(
         &self,
+        shutdown_signal: GracefulShutdown,
         data: ProofData,
         receipt_type: ReceiptType,
         job_id: Uuid,
@@ -133,17 +142,26 @@ where
             vm.add_assumption(assumption);
         }
 
-        // start proof immediately in the background
-        let proof_rx = make_proof(vm, job_id, elf, self.proof_mode, receipt_type)
-            .context("Failed to start proving")?;
+        // Start proof immediately in the background
+        let proof_rx = make_proof(
+            shutdown_signal,
+            vm,
+            job_id,
+            elf,
+            self.proof_mode,
+            receipt_type,
+        )
+        .context("Failed to start proving")?;
         debug!("Started proving job");
 
         let ongoing_proof_count = self.ongoing_proof_count.clone();
         let notifier = self.proof_done_notifier.clone();
         let (tx, rx) = oneshot::channel();
-        // the reason we pipe the proof_rx to a new channel is because we need to
+        // The reason we pipe the proof_rx to a new channel is because we need to
         // keep track of the number of ongoing proofs and notify the caller when the proof is done
         tokio::spawn(async move {
+            // We don't need to listen shutdown signal here as there is nothing
+            // that can be corrupted or that will block shutdown on abrupt closure.
             let proof = proof_rx.await;
 
             *ongoing_proof_count.lock().await -= 1;
@@ -154,7 +172,7 @@ where
                         .expect("Proof channel should not close");
                 }
                 Err(e) => {
-                    // even if we can't send the proof to the caller, we still send notification for
+                    // Even if we can't send the proof to the caller, we still send notification for
                     // rest of the awaiters to continue, hence, no return
                     error!("Vm proving channel closed abruptly: {}", e);
                 }
@@ -232,6 +250,7 @@ where
 
 /// Runs the zkVM proving session. Decides on whether to produce a real proof or a fake proof based on the proof mode.
 fn make_proof<Vm>(
+    shutdown_signal: GracefulShutdown,
     mut vm: Vm,
     job_id: Uuid,
     elf: Vec<u8>,

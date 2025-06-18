@@ -132,7 +132,7 @@ where
                 _ = &mut l1_sync_worker => {},
                 _ = interval.tick() => {
                     let _l1_guard = backup_manager.start_l1_processing().await;
-                    if let Err(e) = self.process_queued_l1_blocks().await {
+                    if let Err(e) = self.process_queued_l1_blocks(&shutdown_signal).await {
                         error!("Could not process queued L1 blocks and generate proof: {:?}", e);
                     }
                 },
@@ -140,19 +140,26 @@ where
         }
     }
 
-    async fn process_queued_l1_blocks(&mut self) -> Result<(), anyhow::Error> {
+    async fn process_queued_l1_blocks(
+        &mut self,
+        shutdown_signal: &GracefulShutdown,
+    ) -> Result<(), anyhow::Error> {
         loop {
             let Some(l1_block) = self.queued_l1_blocks.lock().await.front().cloned() else {
                 break;
             };
-            self.process_l1_block(l1_block).await?;
+            self.process_l1_block(shutdown_signal, l1_block).await?;
             self.queued_l1_blocks.lock().await.pop_front();
         }
 
         Ok(())
     }
 
-    async fn process_l1_block(&mut self, l1_block: Da::FilteredBlock) -> anyhow::Result<()> {
+    async fn process_l1_block(
+        &mut self,
+        shutdown_signal: &GracefulShutdown,
+        l1_block: Da::FilteredBlock,
+    ) -> anyhow::Result<()> {
         let l1_hash = l1_block.header().hash().into();
         let l1_height = l1_block.header().height();
 
@@ -221,7 +228,14 @@ where
             witness: result.witness,
         };
 
-        let proof = self.prove(light_client_elf, circuit_input, vec![]).await?;
+        let proof = self
+            .prove(
+                shutdown_signal.clone(),
+                light_client_elf,
+                circuit_input,
+                vec![],
+            )
+            .await?;
 
         let circuit_output = Vm::extract_output::<LightClientCircuitOutput>(&proof)
             .expect("Should deserialize valid proof");
@@ -255,6 +269,7 @@ where
 
     async fn prove(
         &self,
+        shutdown_signal: GracefulShutdown,
         light_client_elf: Vec<u8>,
         circuit_input: LightClientCircuitInput<<Da as DaService>::Spec>,
         assumptions: Vec<Vec<u8>>,
@@ -264,6 +279,8 @@ where
             assumptions,
             elf: light_client_elf,
         };
-        self.prover_service.prove(data, ReceiptType::Groth16).await
+        self.prover_service
+            .prove(shutdown_signal, data, ReceiptType::Groth16)
+            .await
     }
 }

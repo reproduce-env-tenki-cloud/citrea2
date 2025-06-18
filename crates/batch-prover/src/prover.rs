@@ -633,7 +633,7 @@ where
             elf,
         };
         self.prover_service
-            .start_proving(proof_data, ReceiptType::Groth16, job_id)
+            .start_proving(shutdown_signal, proof_data, ReceiptType::Groth16, job_id)
             .await
     }
 
