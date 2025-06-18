@@ -606,7 +606,7 @@ where
     #[instrument(skip_all, fields(job_id = job_id.to_string()))]
     async fn start_proving(
         &self,
-        mut shutdown_signal: GracefulShutdown,
+        shutdown_signal: GracefulShutdown,
         input: BatchProofCircuitInputV3,
         job_id: Uuid,
     ) -> anyhow::Result<oneshot::Receiver<Proof>> {
