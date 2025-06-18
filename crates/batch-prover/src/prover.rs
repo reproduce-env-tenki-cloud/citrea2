@@ -170,7 +170,7 @@ where
                     l1_signal.expect("L1 signal sender channel closed abruptly");
 
                     debug!("Got L1 signal to try proving");
-                    if let Err(e) = self.try_proving(PartitionMode::Normal, true).await {
+                    if let Err(e) = self.try_proving(&shutdown_signal, PartitionMode::Normal, true).await {
                         error!("Failed to start proving: {}", e);
                     }
                 },
@@ -194,7 +194,7 @@ where
                     }
 
                     debug!("Got L2 signal to try proving");
-                    if let Err(e) = self.try_proving(PartitionMode::Normal, true).await {
+                    if let Err(e) = self.try_proving(&shutdown_signal, PartitionMode::Normal, true).await {
                         error!("Failed to start proving: {}", e);
                     }
                 }
@@ -208,7 +208,7 @@ where
                         }
                         ProverRequest::Prove(mode, result_tx) => {
                             debug!("Got rpc request to try proving");
-                            match self.try_proving(mode, false).await {
+                            match self.try_proving(&shutdown_signal, mode, false).await {
                                 Ok(job_ids) => {
                                     let _ = result_tx.send(job_ids);
                                 }
@@ -263,6 +263,7 @@ where
     /// A vector of job IDs for the started proving jobs, or an empty vector if no jobs were started.
     async fn try_proving(
         &mut self,
+        shutdown_signal: &GracefulShutdown,
         mode: PartitionMode,
         with_sampling: bool,
     ) -> anyhow::Result<Vec<Uuid>> {
@@ -297,7 +298,9 @@ where
                 .context("Failed to create circuit input")?;
 
             // start the proving job in the background
-            let rx = self.start_proving(input, id).await?;
+            let rx = self
+                .start_proving(shutdown_signal.clone(), input, id)
+                .await?;
             proving_jobs.push((id, rx));
 
             let commitment_indices = partition
@@ -318,7 +321,7 @@ where
         let job_ids = proving_jobs.iter().map(|job| job.0).collect();
 
         // start watching the proving jobs to finish in the background
-        self.watch_proving_jobs(proving_jobs);
+        self.watch_proving_jobs(shutdown_signal.clone(), proving_jobs);
 
         Ok(job_ids)
     }
@@ -594,6 +597,7 @@ where
     /// serialize the input, and then call the prover service to start the proving job.
     ///
     /// # Arguments
+    /// * `shutdown_signal` - Shutdown signal to gracefully stop proving tokio task
     /// * `input` - The input for the batch proof circuit
     /// * `job_id` - The unique identifier for the proving job
     ///
@@ -602,6 +606,7 @@ where
     #[instrument(skip_all, fields(job_id = job_id.to_string()))]
     async fn start_proving(
         &self,
+        mut shutdown_signal: GracefulShutdown,
         input: BatchProofCircuitInputV3,
         job_id: Uuid,
     ) -> anyhow::Result<oneshot::Receiver<Proof>> {
@@ -644,10 +649,15 @@ where
     /// and removes job from pending da submission.
     ///
     /// # Arguments
+    /// * `shutdown_signal` - Shutdown signal to gracefully stop tokio task
     /// * `proving_jobs` - A vector of tuples containing the job ID and the signal receiver for each proving job.
     /// * Each job ID is a unique identifier for the proving job, and the signal receiver is used to get the proof once the job is completed.
     #[instrument(skip_all)]
-    fn watch_proving_jobs(&self, proving_jobs: Vec<(Uuid, oneshot::Receiver<Proof>)>) {
+    fn watch_proving_jobs(
+        &self,
+        mut shutdown_signal: GracefulShutdown,
+        proving_jobs: Vec<(Uuid, oneshot::Receiver<Proof>)>,
+    ) {
         assert!(!proving_jobs.is_empty(), "received empty jobs list");
 
         let ledger_db = self.ledger_db.clone();
