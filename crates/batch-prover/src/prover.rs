@@ -674,27 +674,40 @@ where
 
         // start watching the proving jobs to finish in the background
         tokio::spawn(async move {
-            while let Some((job_id, proof)) = proving_jobs.next().await {
-                info!("Proving job finished {}", job_id);
+            loop {
+                select! {
+                    biased;
+                    _ = &mut shutdown_signal => {
+                        return;
+                    }
+                    job_id_and_proof = proving_jobs.next() => {
+                        let Some((job_id, proof)) = job_id_and_proof else {
+                            // All jobs are finished
+                            return;
+                        };
 
-                let output = extract_proof_output::<Vm>(&job_id, &proof, &code_commitments_by_spec);
+                        info!("Proving job finished {}", job_id);
 
-                // stores proof and marks job as waiting for da
-                ledger_db
-                    .put_proof_by_job_id(job_id, proof.clone(), output.into())
-                    .expect("Should put proof to db");
+                        let output = extract_proof_output::<Vm>(&job_id, &proof, &code_commitments_by_spec);
 
-                let tx_id = prover_service
-                    .submit_proof(proof, job_id)
-                    .await
-                    .expect("Failed to submit proof");
+                        // stores proof and marks job as waiting for da
+                        ledger_db
+                            .put_proof_by_job_id(job_id, proof.clone(), output.into())
+                            .expect("Should put proof to db");
 
-                info!("Job {} proof sent to DA", job_id);
+                        let tx_id = prover_service
+                            .submit_proof(proof, job_id)
+                            .await
+                            .expect("Failed to submit proof");
 
-                // stores tx id and removes job from pending da submission
-                ledger_db
-                    .finalize_proving_job(job_id, tx_id.into())
-                    .expect("Should update proving job tx id");
+                        info!("Job {} proof sent to DA", job_id);
+
+                        // stores tx id and removes job from pending da submission
+                        ledger_db
+                            .finalize_proving_job(job_id, tx_id.into())
+                            .expect("Should update proving job tx id");
+                    }
+                }
             }
         });
     }
