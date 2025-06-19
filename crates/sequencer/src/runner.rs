@@ -35,7 +35,6 @@ use sov_accounts::Response::{AccountEmpty, AccountExists};
 use sov_db::ledger_db::SequencerLedgerOps;
 use sov_db::schema::types::L2BlockNumber;
 use sov_keys::default_signature::k256_private_key::K256PrivateKey;
-use sov_keys::default_signature::K256PublicKey;
 use sov_modules_api::hooks::HookL2BlockInfo;
 use sov_modules_api::{
     EncodeCall, L2Block, L2BlockModuleCallError, PrivateKey, SlotData, Spec, StateDiff,
@@ -142,7 +141,6 @@ where
         mut transactions: Box<
             dyn BestTransactions<Item = Arc<ValidPoolTransaction<EthPooledTransaction>>>,
         >,
-        pub_key: &K256PublicKey,
         prestate: ProverStorage,
         l2_block_info: HookL2BlockInfo,
         deposit_data: &[Vec<u8>],
@@ -157,9 +155,10 @@ where
 
             let mut nonce = self.get_nonce(&mut working_set_to_discard)?;
 
-            if let Err(err) =
-                self.stf
-                    .begin_l2_block(pub_key, &mut working_set_to_discard, &l2_block_info)
+            // Apply L2 block hook before processing transactions
+            if let Err(err) = self
+                .stf
+                .begin_l2_block(&mut working_set_to_discard, &l2_block_info)
             {
                 warn!(
                     "DryRun: Failed to apply l2 block hook: {:?} \n reverting batch workspace",
@@ -404,7 +403,6 @@ where
         let (txs_to_run, l1_fee_failed_txs) = self
             .dry_run_transactions(
                 evm_txs,
-                &pub_key,
                 prestate.clone(),
                 l2_block_info.clone(),
                 &deposit_data,
@@ -421,10 +419,7 @@ where
 
         let mut working_set = WorkingSet::new(prestate.clone());
 
-        if let Err(err) = self
-            .stf
-            .begin_l2_block(&pub_key, &mut working_set, &l2_block_info)
-        {
+        if let Err(err) = self.stf.begin_l2_block(&mut working_set, &l2_block_info) {
             warn!(
                 "Failed to apply l2 block hook: {:?} \n reverting batch workspace",
                 err
