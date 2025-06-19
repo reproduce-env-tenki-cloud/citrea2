@@ -290,6 +290,9 @@ where
                             L2BlockModuleCallError::EvmSystemTransactionNotSuccessful => {
                                 panic!("System tx failed")
                             }
+                            L2BlockModuleCallError::ShortHeaderProofAllocationError(e) => {
+                                panic!("Short header proof error: {:?}", e);
+                            }
                         },
                     }
                 };
