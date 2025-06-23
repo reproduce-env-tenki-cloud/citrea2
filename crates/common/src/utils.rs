@@ -155,7 +155,7 @@ pub fn read_env(key: &str) -> anyhow::Result<String> {
     env::var(key).map_err(|_| anyhow::anyhow!("Env {} missing or invalid UTF-8", key))
 }
 
-pub fn now_timestamp() -> u64 {
+pub fn current_timestamp_as_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .unwrap()

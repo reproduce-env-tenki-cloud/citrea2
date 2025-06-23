@@ -8,7 +8,7 @@ use boundless_market::client::{Client, ClientBuilder, ClientError};
 use boundless_market::contracts::{Offer, Predicate, Requirements};
 use boundless_market::request_builder::RequestParams;
 use boundless_market::GuestEnv;
-use citrea_common::utils::now_timestamp;
+use citrea_common::utils::current_timestamp_as_secs;
 use citrea_common::FromEnv;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{
@@ -194,7 +194,7 @@ impl BoundlessProver {
                     .with_timeout((lock_timeout * 2) as u32) // The offer should be taken in 24 hours
                     .with_lock_timeout(lock_timeout as u32) // The proof should be generated in 12 hours
                     .with_ramp_up_period(300)
-                    .with_bidding_start(now_timestamp() + 10)
+                    .with_bidding_start(current_timestamp_as_secs() + 10)
                     // https://github.com/boundless-xyz/boundless/blob/628af072d8ed67a7503e112c8dc09e0d4665f711/documentation/site/pages/developers/tutorials/request.mdx?plain=1#L305
                     // https://github.com/boundless-xyz/boundless/blob/628af072d8ed67a7503e112c8dc09e0d4665f711/documentation/site/pages/developers/tutorials/request.mdx?plain=1#L347C16-L347C35
                     .with_lock_stake(U256::from(5000000000000000000u64)),
