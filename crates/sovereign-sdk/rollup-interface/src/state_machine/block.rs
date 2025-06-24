@@ -39,6 +39,11 @@ impl L2Header {
         }
     }
 
+    /// Returns the merkle root of the state tree after applying this block's transactions.
+    pub fn state_root(&self) -> [u8; 32] {
+        self.state_root
+    }
+
     /// Compute l2 block header digest
     pub fn compute_digest<D: Digest>(&self) -> Output<D> {
         let mut hasher = D::new();

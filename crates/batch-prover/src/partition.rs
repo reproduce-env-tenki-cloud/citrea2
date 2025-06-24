@@ -16,23 +16,24 @@ pub enum PartitionMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PartitionReason {
     OneByOne,
-    IndexGap,
     SpecChange,
     StateDiff,
     Finish,
 }
 
 /// Helper struct to track the current state and ensure the integrity of the partition
-pub struct PartitionState<'a, DB: BatchProverLedgerOps> {
+pub struct PartitionState<'a> {
     commitments: &'a [SequencerCommitment],
     partitions: Vec<Partition<'a>>,
     partition_start_height: u64,
     partition_start_idx: usize,
-    ledger_db: DB,
 }
 
-impl<'a, DB: BatchProverLedgerOps> PartitionState<'a, DB> {
-    pub fn new(commitments: &'a [SequencerCommitment], ledger_db: DB) -> anyhow::Result<Self> {
+impl<'a> PartitionState<'a> {
+    pub fn new(
+        commitments: &'a [SequencerCommitment],
+        ledger_db: impl BatchProverLedgerOps,
+    ) -> anyhow::Result<Self> {
         let start_l2_height = if commitments[0].index == 1 {
             // If this is the first commitment ever, start from 1
             get_tangerine_activation_height_non_zero()
@@ -50,7 +51,6 @@ impl<'a, DB: BatchProverLedgerOps> PartitionState<'a, DB> {
             partitions: vec![],
             partition_start_height: start_l2_height,
             partition_start_idx: 0,
-            ledger_db,
         })
     }
 
@@ -90,19 +90,7 @@ impl<'a, DB: BatchProverLedgerOps> PartitionState<'a, DB> {
             return Ok(());
         }
 
-        self.partition_start_height = match reason {
-            PartitionReason::IndexGap => {
-                // in case of index gap, we need to query the next partition start height
-                let first_commitment_of_next_partition =
-                    &self.commitments[self.partition_start_idx];
-                self.ledger_db
-                    .get_commitment_by_index(first_commitment_of_next_partition.index - 1)?
-                    .expect("Previous commitment must exist")
-                    .l2_end_block_number
-                    + 1
-            }
-            _ => last_commitment.l2_end_block_number + 1,
-        };
+        self.partition_start_height = last_commitment.l2_end_block_number + 1;
 
         Ok(())
     }
