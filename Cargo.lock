@@ -3631,7 +3631,7 @@ dependencies = [
 [[package]]
 name = "citrea-e2e"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=7777859#7777859c3b25fab49fa5765453fa8b8264b95ce7"
+source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=c83ef04#c83ef040f3c0c5bd91f397269bfeec021bd98cba"
 dependencies = [
  "alloy-primitives 0.8.25",
  "anyhow",
@@ -3701,6 +3701,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "short-header-proof-provider",
+ "sov-db",
  "sov-keys",
  "sov-modules-api",
  "sov-prover-storage-manager",
@@ -3906,6 +3907,7 @@ dependencies = [
  "serde_json",
  "short-header-proof-provider",
  "sov-accounts",
+ "sov-db",
  "sov-keys",
  "sov-mock-da",
  "sov-mock-zkvm",
@@ -3924,6 +3926,7 @@ name = "citrea-storage-ops"
 version = "0.7.2"
 dependencies = [
  "anyhow",
+ "derive_more 1.0.0",
  "futures",
  "hex",
  "jmt",
@@ -6940,6 +6943,7 @@ dependencies = [
  "jsonrpsee",
  "lazy_static",
  "serde",
+ "sov-db",
  "sov-keys",
  "sov-mock-da",
  "sov-modules-api",
@@ -11686,6 +11690,7 @@ dependencies = [
  "borsh",
  "futures",
  "once_cell",
+ "parking_lot",
  "sov-db",
  "sov-mock-da",
  "sov-modules-api",
@@ -11830,6 +11835,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sov-db",
  "sov-keys",
  "sov-modules-api",
  "sov-prover-storage-manager",
@@ -12039,6 +12045,7 @@ dependencies = [
  "jsonrpsee",
  "rs_merkle",
  "serde",
+ "sov-db",
  "sov-keys",
  "sov-modules-api",
  "sov-rollup-interface",

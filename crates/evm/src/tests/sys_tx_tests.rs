@@ -8,7 +8,9 @@ use alloy_rpc_types::{TransactionInput, TransactionRequest};
 use jsonrpsee::core::RpcResult;
 use reth_primitives::Log;
 use revm::primitives::{Bytes, KECCAK_EMPTY, U256};
-use short_header_proof_provider::{ShortHeaderProofProvider, SHORT_HEADER_PROOF_PROVIDER};
+use short_header_proof_provider::{
+    ShortHeaderProofProvider, ShortHeaderProofProviderError, SHORT_HEADER_PROOF_PROVIDER,
+};
 use sov_modules_api::default_context::DefaultContext;
 use sov_modules_api::hooks::HookL2BlockInfo;
 use sov_modules_api::utils::generate_address;
@@ -230,7 +232,7 @@ fn test_sys_bitcoin_light_client() {
                 receipt: reth_primitives::Receipt {
                     tx_type: reth_primitives::TxType::Eip1559,
                     success: true,
-                    cumulative_gas_used: 326500,
+                    cumulative_gas_used: 326605,
                     logs: vec![
                         Log {
                             address: BridgeWrapper::address(),
@@ -256,7 +258,7 @@ fn test_sys_bitcoin_light_client() {
 
                     ]
                 }.into(),
-                gas_used: 192464,
+                gas_used: 192569,
                 log_index_start: 1,
                 l1_diff_size: 160,
             }
@@ -1332,7 +1334,10 @@ fn test_set_block_info_shp_not_found() {
             todo!()
         }
 
-        fn take_queried_hashes(&self, _l2_range: std::ops::RangeInclusive<u64>) -> Vec<[u8; 32]> {
+        fn take_queried_hashes(
+            &self,
+            _l2_range: std::ops::RangeInclusive<u64>,
+        ) -> Result<Vec<[u8; 32]>, ShortHeaderProofProviderError> {
             todo!()
         }
 
@@ -1441,7 +1446,10 @@ fn test_set_block_info_shp_verification_failed() {
             todo!()
         }
 
-        fn take_queried_hashes(&self, _l2_range: std::ops::RangeInclusive<u64>) -> Vec<[u8; 32]> {
+        fn take_queried_hashes(
+            &self,
+            _l2_range: std::ops::RangeInclusive<u64>,
+        ) -> Result<Vec<[u8; 32]>, ShortHeaderProofProviderError> {
             todo!()
         }
 
