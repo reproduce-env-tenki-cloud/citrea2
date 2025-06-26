@@ -318,6 +318,7 @@ where
         &mut self,
         guest: &impl ZkvmGuest,
         sequencer_public_key: &[u8],
+        initial_prev_l2_block_hash: Option<[u8; 32]>,
         initial_state_root: &StorageRootHash,
         pre_state: C::Storage,
         previous_sequencer_commitment: Option<SequencerCommitment>,
@@ -344,8 +345,10 @@ where
         // Verify these soft confirmations.
         let mut current_state_root = *initial_state_root;
 
-        // we are going to initialize with 000.000 or the last hash from the previous commitment
-
+        // prev_l2_block_hash is extracted from the previous_sequencer_commitment, but previous_sequencer_commitment
+        // is always None for the first proof of each network. Hence, we hardcode the initial_prev_l2_block_hash as
+        // constant into the guest binary. But for the TestNetworkWithForks we can't know the initial_prev_l2_block_hash
+        // because it changes on every test run, hence, in that case, prev_l2_block_hash becomes None.
         let mut prev_l2_block_hash: Option<[u8; 32]> = match &previous_sequencer_commitment {
             Some(commitment) => {
                 let prev_hash_proof = prev_hash_proof
@@ -387,15 +390,7 @@ where
             }
             None => {
                 assert!(prev_hash_proof.is_none());
-                // If the chain starts at genesis with a Tangerine-or-later fork,
-                // the previous block hash is known to be [0; 32] by convention (e.g. Mainnet).
-                // Otherwise, if the starting fork is before Tangerine, we don't assume a value for the prev hash,
-                // so we skip checking it (e.g. Testnet).
-                if forks[0].spec_id >= SpecId::Tangerine && forks[0].activation_height == 0 {
-                    Some([0; 32])
-                } else {
-                    None
-                }
+                initial_prev_l2_block_hash
             }
         };
 
@@ -501,12 +496,10 @@ where
                     "L2 block height is not equal to the expected height"
                 );
 
-                // There is no previous l2 block hash. For mainnet this is going to be the case for the 1st block.
-                // But for testnet it will be the Tangerine fork start, hence, we will have to have trust in the first proof.
-                if let Some(prev_l2_block_hash) = prev_l2_block_hash {
+                if let Some(prev_hash) = prev_l2_block_hash {
                     assert_eq!(
                         l2_block.prev_hash(),
-                        prev_l2_block_hash,
+                        prev_hash,
                         "L2 block previous hash must match the hash of the block before"
                     );
                 }
