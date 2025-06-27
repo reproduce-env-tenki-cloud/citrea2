@@ -14,7 +14,7 @@ use reth_rpc::eth::EthTxBuilder;
 use reth_rpc_eth_types::error::EthApiError;
 use reth_rpc_types_compat::TransactionCompat;
 use reth_transaction_pool::{EthPooledTransaction, PoolTransaction};
-use sov_db::ledger_db::SequencerLedgerOps;
+use sov_db::ledger_db::{LedgerDB, SequencerLedgerOps};
 use sov_modules_api::{Spec, WorkingSet};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error};
@@ -24,27 +24,25 @@ use crate::mempool::CitreaMempool;
 use crate::metrics::SEQUENCER_METRICS;
 use crate::utils::recover_raw_transaction;
 
-pub struct RpcContext<DB: SequencerLedgerOps> {
+pub struct RpcContext {
+    /// The transaction mempool
     pub mempool: Arc<CitreaMempool>,
     pub deposit_mempool: Arc<Mutex<DepositDataMempool>>,
     pub l2_force_block_tx: UnboundedSender<()>,
     pub storage: <DefaultContext as Spec>::Storage,
-    pub ledger: DB,
+    pub ledger: LedgerDB,
     pub test_mode: bool,
 }
 
 /// Creates a shared RpcContext with all required data.
-pub fn create_rpc_context<DB>(
+pub fn create_rpc_context(
     mempool: Arc<CitreaMempool>,
     deposit_mempool: Arc<Mutex<DepositDataMempool>>,
     l2_force_block_tx: UnboundedSender<()>,
     storage: <DefaultContext as Spec>::Storage,
-    ledger_db: DB,
+    ledger_db: LedgerDB,
     test_mode: bool,
-) -> RpcContext<DB>
-where
-    DB: SequencerLedgerOps + Send + Clone + 'static,
-{
+) -> RpcContext {
     RpcContext {
         mempool,
         deposit_mempool,
@@ -56,8 +54,8 @@ where
 }
 
 /// Updates the given RpcModule with Sequencer methods.
-pub fn register_rpc_methods<DB: SequencerLedgerOps + Send + Sync + 'static>(
-    rpc_context: RpcContext<DB>,
+pub fn register_rpc_methods(
+    rpc_context: RpcContext,
     mut rpc_methods: jsonrpsee::RpcModule<()>,
 ) -> Result<jsonrpsee::RpcModule<()>, jsonrpsee::core::RegisterMethodError> {
     let rpc = create_rpc_module(rpc_context);
@@ -86,12 +84,12 @@ pub trait SequencerRpc {
     async fn publish_test_block(&self) -> RpcResult<()>;
 }
 
-pub struct SequencerRpcServerImpl<DB: SequencerLedgerOps + Send + Sync + 'static> {
-    context: Arc<RpcContext<DB>>,
+pub struct SequencerRpcServerImpl {
+    context: Arc<RpcContext>,
 }
 
-impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServerImpl<DB> {
-    pub fn new(context: RpcContext<DB>) -> Self {
+impl SequencerRpcServerImpl {
+    pub fn new(context: RpcContext) -> Self {
         Self {
             context: Arc::new(context),
         }
@@ -99,9 +97,7 @@ impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServerImpl<DB> 
 }
 
 #[async_trait::async_trait]
-impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServer
-    for SequencerRpcServerImpl<DB>
-{
+impl SequencerRpcServer for SequencerRpcServerImpl {
     async fn eth_send_raw_transaction(&self, data: Bytes) -> RpcResult<B256> {
         debug!("Sequencer: eth_sendRawTransaction");
 
@@ -177,7 +173,14 @@ impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServer
             .lock()
             .make_deposit_tx_from_data(deposit.clone().into());
 
-        let tx_res = evm.get_call(dep_tx, None, None, None, &mut working_set);
+        let tx_res = evm.get_call(
+            dep_tx,
+            None,
+            None,
+            None,
+            &mut working_set,
+            &self.context.ledger,
+        );
 
         match tx_res {
             Ok(hex_res) => {
@@ -211,9 +214,7 @@ impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServer
     }
 }
 
-pub fn create_rpc_module<DB: SequencerLedgerOps + Send + Sync + 'static>(
-    rpc_context: RpcContext<DB>,
-) -> jsonrpsee::RpcModule<SequencerRpcServerImpl<DB>> {
+pub fn create_rpc_module(rpc_context: RpcContext) -> jsonrpsee::RpcModule<SequencerRpcServerImpl> {
     let server = SequencerRpcServerImpl::new(rpc_context);
 
     SequencerRpcServer::into_rpc(server)

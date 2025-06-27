@@ -32,7 +32,7 @@ use reth_transaction_pool::{
 };
 use sov_accounts::Accounts;
 use sov_accounts::Response::{AccountEmpty, AccountExists};
-use sov_db::ledger_db::SequencerLedgerOps;
+use sov_db::ledger_db::{LedgerDB, SequencerLedgerOps, SharedLedgerOps};
 use sov_db::schema::types::L2BlockNumber;
 use sov_keys::default_signature::k256_private_key::K256PrivateKey;
 use sov_modules_api::hooks::HookL2BlockInfo;
@@ -67,17 +67,16 @@ use crate::utils::recover_raw_transaction;
 
 pub const MAX_MISSED_DA_BLOCKS_PER_L2_BLOCK: u64 = 10;
 
-pub struct CitreaSequencer<Da, DB>
+pub struct CitreaSequencer<Da>
 where
     Da: DaService,
-    DB: SequencerLedgerOps + Send + Clone + 'static,
 {
     da_service: Arc<Da>,
     mempool: Arc<CitreaMempool>,
     pub(crate) sov_tx_signer_priv_key: K256PrivateKey,
     l2_force_block_rx: UnboundedReceiver<()>,
     db_provider: DbProvider,
-    pub(crate) ledger_db: DB,
+    pub(crate) ledger_db: LedgerDB,
     pub(crate) config: SequencerConfig,
     pub(crate) stf: StfBlueprint<DefaultContext, Da::Spec, CitreaRuntime<DefaultContext, Da::Spec>>,
     pub(crate) deposit_mempool: Arc<Mutex<DepositDataMempool>>,
@@ -90,10 +89,9 @@ where
     backup_manager: Arc<BackupManager>,
 }
 
-impl<Da, DB> CitreaSequencer<Da, DB>
+impl<Da> CitreaSequencer<Da>
 where
     Da: DaService,
-    DB: SequencerLedgerOps + Send + Sync + Clone + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -103,7 +101,7 @@ where
         stf: StfBlueprint<DefaultContext, Da::Spec, CitreaRuntime<DefaultContext, Da::Spec>>,
         storage_manager: ProverStorageManager,
         public_keys: RollupPublicKeys,
-        ledger_db: DB,
+        ledger_db: LedgerDB,
         db_provider: DbProvider,
         mempool: Arc<CitreaMempool>,
         deposit_mempool: Arc<Mutex<DepositDataMempool>>,
