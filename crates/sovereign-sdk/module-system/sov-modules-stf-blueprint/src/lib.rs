@@ -2,7 +2,7 @@
 #![doc = include_str!("../README.md")]
 
 use borsh::BorshDeserialize;
-use citrea_primitives::EMPTY_TX_ROOT;
+use citrea_primitives::merkle::verify_tx_merkle_root;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::{MerkleProof, MerkleTree};
 #[cfg(feature = "native")]
@@ -13,7 +13,7 @@ use sov_modules_api::fork::Fork;
 use sov_modules_api::hooks::{
     ApplyL2BlockHooks, FinalizeHook, HookL2BlockInfo, SlotHooks, TxHooks,
 };
-use sov_modules_api::{native_debug, Context, DaSpec, DispatchCall, Genesis, Spec, WorkingSet};
+use sov_modules_api::{native_debug, Context, DaSpec, DispatchCall, Genesis, WorkingSet};
 use sov_rollup_interface::block::{L2Block, SignedL2Header};
 use sov_rollup_interface::da::SequencerCommitment;
 use sov_rollup_interface::fork::ForkManager;
@@ -131,14 +131,17 @@ where
         &self,
         l2_block: &L2Block,
         sequencer_public_key: &K256PublicKey,
+        current_spec: SpecId,
     ) -> Result<(), StateTransitionError> {
         let l2_header = &l2_block.header;
 
-        verify_tx_merkle_root::<C>(l2_block)
-            .map_err(|_| StateTransitionError::L2BlockError(L2BlockError::InvalidTxMerkleRoot))?;
+        if !verify_tx_merkle_root(&l2_block.txs, l2_block.tx_merkle_root(), current_spec) {
+            return Err(StateTransitionError::L2BlockError(
+                L2BlockError::InvalidTxMerkleRoot,
+            ));
+        }
 
-        let expected_hash =
-            Into::<[u8; 32]>::into(l2_header.inner.compute_digest::<<C as Spec>::Hasher>());
+        let expected_hash = l2_header.inner.compute_digest();
 
         if l2_block.hash() != expected_hash {
             return Err(StateTransitionError::L2BlockError(
@@ -294,7 +297,7 @@ where
 
         native_debug!("Applying l2 block in STF Blueprint");
 
-        self.verify_l2_block(l2_block, sequencer_public_key)?;
+        self.verify_l2_block(l2_block, sequencer_public_key, current_spec)?;
 
         self.begin_l2_block(&mut working_set, &l2_block_info)?;
 
@@ -371,10 +374,7 @@ where
                     - prev_hash_proof.prev_sequencer_commitment_start)
                     as usize;
                 let count = index + 1;
-                let last_header_hash = prev_hash_proof
-                    .last_header
-                    .compute_digest::<<C as Spec>::Hasher>()
-                    .into();
+                let last_header_hash = prev_hash_proof.last_header.compute_digest();
 
                 assert!(
                     merkle_proof.verify(
@@ -585,30 +585,5 @@ fn verify_signature(
 
     signature.verify(sequencer_public_key, &header.hash)?;
 
-    Ok(())
-}
-
-fn verify_tx_merkle_root<C: Context + Spec>(
-    l2_block: &L2Block,
-) -> Result<(), StateTransitionError> {
-    let tx_hashes: Vec<[u8; 32]> = l2_block
-        .txs
-        .iter()
-        .map(|tx| tx.compute_digest::<<C as Spec>::Hasher>().into())
-        .collect();
-
-    let tx_merkle_root = if tx_hashes.is_empty() {
-        EMPTY_TX_ROOT
-    } else {
-        MerkleTree::<Sha256>::from_leaves(&tx_hashes)
-            .root()
-            .expect("Couldn't compute merkle root")
-    };
-
-    if tx_merkle_root != l2_block.tx_merkle_root() {
-        return Err(StateTransitionError::L2BlockError(
-            L2BlockError::InvalidTxMerkleRoot,
-        ));
-    }
     Ok(())
 }
