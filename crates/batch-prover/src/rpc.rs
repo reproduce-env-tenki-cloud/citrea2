@@ -1,3 +1,8 @@
+//! RPC interface for the Batch Prover service
+//!
+//! This module defines the RPC methods for interacting with the Batch Prover service,
+//! including submitting proving requests, querying job statuses, and creating circuit inputs.
+
 #![allow(clippy::type_complexity)]
 
 use std::collections::HashMap;
@@ -10,13 +15,12 @@ use std::{env, fs};
 use alloy_primitives::{U32, U64};
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
+use citrea_common::rpc::utils::internal_rpc_error;
 use citrea_primitives::forks::fork_from_block_number;
 use citrea_stf::runtime::DefaultContext;
 use citrea_stf::verifier::get_last_l1_hash_on_contract;
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
-use jsonrpsee::types::error::{INTERNAL_ERROR_CODE, INTERNAL_ERROR_MSG};
-use jsonrpsee::types::ErrorObjectOwned;
 use risc0_zkvm::{FakeReceipt, InnerReceipt, MaybePruned, ReceiptClaim};
 use serde::{Deserialize, Serialize};
 use sov_db::ledger_db::BatchProverLedgerOps;
@@ -38,35 +42,65 @@ use uuid::Uuid;
 use crate::partition::PartitionMode;
 use crate::prover::ProverRequest;
 
+/// Response type for the circuit input creation request.
+/// Contains the commitment range, L1 block height, and the encoded serialized batch proof input.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProverInputResponse {
+    /// The range of commitment indices for which the circuit input is created
     pub commitment_range: (U32, U32),
+    /// The L1 block height at which the commitments were found
     pub l1_block_height: U64,
+    /// The encoded serialized batch proof input in base64 format
     pub encoded_serialized_batch_proof_input: String,
 }
 
+/// Response type for the proving job status.
+/// Contains the job ID and its current status.
 #[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProvingJobResponse {
+    /// The unique identifier for the proving job
     pub job_id: Uuid,
+    /// The current status of the job
     pub status: JobStatus,
 }
 
+/// Context for the RPC methods.
 pub struct RpcContext<Da, DB, Vm>
 where
     Da: DaService,
     DB: BatchProverLedgerOps + Clone,
     Vm: Zkvm + 'static,
 {
+    /// The ledger database used for storing and retrieving commitments and proofs
     pub ledger_db: DB,
+    /// Channel to send requests to the prover
     pub request_tx: mpsc::Sender<ProverRequest>,
+    /// Data availability service instance used for submitting proofs
     pub da_service: Arc<Da>,
+    /// Storage manager for prover-related storage operations
     pub storage_manager: ProverStorageManager,
+    /// Code commitments for different specs, used to verify the proofs
     pub code_commitments: HashMap<SpecId, Vm::CodeCommitment>,
 }
 
 /// Creates a shared RpcContext with all required data.
+///
+/// # Arguments
+/// * `ledger_db` - The database instance for ledger operations.
+/// * `request_tx` - The channel sender for prover requests.
+/// * `da_service` - The data availability service instance.
+/// * `storage_manager` - The storage manager for prover-related storage operations.
+/// * `code_commitments` - A map of spec IDs to their respective code commitments.
+///
+/// # Type Parameters
+/// * `Da` - The data availability service type.
+/// * `DB` - The database type implementing `BatchProverLedgerOps`.
+/// * `Vm` - The virtual machine type implementing `Zkvm`.
+///
+/// # Returns
+/// A new `RpcContext` instance containing the provided data.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn create_rpc_context<Da, DB, Vm>(
     ledger_db: DB,
@@ -89,7 +123,14 @@ where
     }
 }
 
-/// Updates the given RpcModule with Prover methods.
+/// Registers batch prover RPC methods with an existing RPC module
+///
+/// # Arguments
+/// * `rpc_methods` - Existing RPC module to extend
+/// * `rpc_context` - Context containing shared data for RPC methods
+///
+/// # Returns
+/// The updated RPC module or a registration error
 pub fn register_rpc_methods<Da, DB, Vm>(
     rpc_context: RpcContext<Da, DB, Vm>,
     mut rpc_methods: jsonrpsee::RpcModule<()>,
@@ -104,18 +145,40 @@ where
     Ok(rpc_methods)
 }
 
+/// Interface definition for batch prover RPC methods
+///
+/// This trait defines the available RPC methods that can be called
+/// to query information about proof status and proving requests.
 #[rpc(client, server, namespace = "batchProver")]
 pub trait BatchProverRpc {
     /// Manually set commitments. It overrides the commitment already if exists, so use with caution.
+    ///
+    /// # Arguments
+    /// * `commitments` - A vector of sequencer commitments to be set.
     #[method(name = "setCommitments")]
     async fn set_commitments(&self, commitments: Vec<SequencerCommitmentRpcParam>)
         -> RpcResult<()>;
 
     /// Manually signal proving. This rpc triggers a proving signal with the difference that sampling will be ignored.
+    ///
+    /// # Arguments
+    /// * `mode` - The partition mode to use for proving.
     #[method(name = "prove")]
     async fn prove(&self, mode: PartitionMode) -> RpcResult<Vec<Uuid>>;
 
     /// Simulate proving by collecting output from the execution in native, and submit the fake proof to DA.
+    ///
+    /// # Arguments
+    /// * `index_start` - The starting index of the commitment range to submit a fake proof for.
+    /// * `index_end` - The ending index of the commitment range to submit a fake proof for.
+    /// Important caveats regarding the arguments:
+    /// - `index_start` must be greater than 1, as the first commitment index requires special handling.
+    /// - `index_end` must be greater than or equal to `index_start`.
+    /// - The range is inclusive, meaning both `index_start` and `index_end` are included in the proof.
+    /// - The previous index to `index_start` must exist in the ledger database if `index_start` is greater than 1.
+    ///
+    /// # Returns
+    /// A `BatchProofResponse` containing the L1 transaction ID, proof, and proof output.
     #[method(name = "submitFakeProof")]
     async fn submit_fake_proof(
         &self,
@@ -128,6 +191,14 @@ pub trait BatchProverRpc {
     async fn pause_proving(&self) -> RpcResult<()>;
 
     /// Create circuit input for the given commitment index range start..=end
+    ///
+    /// # Arguments
+    /// * `index_start` - The starting index of the commitment range. (Inclusive)
+    /// * `index_end` - The ending index of the commitment range. (Inclusive)
+    /// * `mode` - The partition mode to use for creating the circuit input.
+    ///
+    /// # Returns
+    /// A vector of base64 encoded serialized circuit inputs.
     #[method(name = "createCircuitInput")]
     async fn create_circuit_input(
         &self,
@@ -138,28 +209,54 @@ pub trait BatchProverRpc {
 
     /// Get job details by job id. If proof is null, it means job is still being proven,
     /// if proof exists but l1_tx_id is 0, it means job is being submitted to L1.
+    ///
+    /// # Arguments
+    /// * `job_id` - The unique identifier of the proving job to retrieve.
+    ///
+    /// # Returns
+    /// An optional `JobRpcResponse` containing the job details, including commitments and proof.
     #[method(name = "getProvingJob")]
     async fn get_proving_job(&self, job_id: Uuid) -> RpcResult<Option<JobRpcResponse>>;
 
     /// Gets last `count` number of job ids. Returns ids in descending order, so latest job is the first index.
+    ///
+    /// # Arguments
+    /// * `count` - The number of latest proving jobs to retrieve.
+    ///
+    /// # Returns
+    /// A vector of `ProvingJobResponse` containing job IDs and their statuses.
     #[method(name = "getProvingJobs")]
     async fn get_proving_jobs(&self, count: usize) -> RpcResult<Vec<ProvingJobResponse>>;
 
     /// Gets proving job details of the commitment index.
+    ///
+    /// # Arguments
+    /// * `index` - The commitment index to retrieve the proving job for.
+    ///
+    /// # Returns
+    /// An optional `JobRpcResponse` containing the job details if it exists.
     #[method(name = "getProvingJobOfCommitment")]
     async fn get_proving_job_of_commitment(&self, index: u32) -> RpcResult<Option<JobRpcResponse>>;
 
     /// Gets commitment indices seen in the L1 block
+    ///
+    /// # Arguments
+    /// * `l1_height` - The L1 block height to query commitment indices for.
+    ///
+    /// # Returns
+    /// An optional vector of commitment indices associated with the given L1 height.
     #[method(name = "getCommitmentIndicesByL1")]
     async fn get_commitment_indices_by_l1(&self, l1_height: u64) -> RpcResult<Option<Vec<u32>>>;
 }
 
+/// Server implementation of the Batch Prover RPC interface
 pub struct BatchProverRpcServerImpl<Da, DB, Vm>
 where
     Da: DaService,
     DB: BatchProverLedgerOps + Clone + Send + Sync + 'static,
     Vm: Zkvm + 'static,
 {
+    /// Shared RPC context containing the ledger database and other services
     context: Arc<RpcContext<Da, DB, Vm>>,
 }
 
@@ -169,6 +266,10 @@ where
     DB: BatchProverLedgerOps + Clone + Send + Sync + 'static,
     Vm: Zkvm + 'static,
 {
+    /// Creates a new instance of the Batch Prover RPC server
+    ///
+    /// # Arguments
+    /// * `context` - Shared context containing the ledger database and other services
     pub fn new(context: RpcContext<Da, DB, Vm>) -> Self {
         Self {
             context: Arc::new(context),
@@ -206,16 +307,16 @@ where
             self.context
                 .ledger_db
                 .put_commitment_by_index(&commitment)
-                .map_err(|e| internal_rpc_error(e.to_string()))?;
+                .map_err(internal_rpc_error)?;
             // This might cause some duplicate commitment indices appear in l1 -> index table which is ok
             self.context
                 .ledger_db
                 .put_commitment_index_by_l1(SlotNumber(l1_height), commitment.index)
-                .map_err(|e| internal_rpc_error(e.to_string()))?;
+                .map_err(internal_rpc_error)?;
             self.context
                 .ledger_db
                 .put_prover_pending_commitment(commitment.index)
-                .map_err(|e| internal_rpc_error(e.to_string()))?;
+                .map_err(internal_rpc_error)?;
         }
 
         Ok(())
@@ -267,12 +368,12 @@ where
 
         let previous_commitment = ledger_db
             .get_commitment_by_index(index_start - 1)
-            .map_err(|e| internal_rpc_error(e.to_string()))?
+            .map_err(internal_rpc_error)?
             .ok_or_else(|| internal_rpc_error("Missing previous commitment index"))?;
 
         let commitments = ledger_db
             .get_commitment_by_range(index_start..=index_end)
-            .map_err(|e| internal_rpc_error(e.to_string()))?;
+            .map_err(internal_rpc_error)?;
         if commitments.len() as u32 != index_end - index_start + 1 {
             return Err(internal_rpc_error(
                 "Missing some commitment indices from the range",
@@ -282,12 +383,12 @@ where
         let last_commitment = commitments.last().expect("Already ensured");
         let last_l2_block = ledger_db
             .get_l2_block_by_number(&L2BlockNumber(last_commitment.l2_end_block_number))
-            .map_err(|e| internal_rpc_error(e.to_string()))?
+            .map_err(internal_rpc_error)?
             .ok_or_else(|| internal_rpc_error("Not synced up to latest L2 block yet"))?;
 
         let initial_state_root = ledger_db
             .get_l2_state_root(previous_commitment.l2_end_block_number)
-            .map_err(|e| internal_rpc_error(e.to_string()))?
+            .map_err(internal_rpc_error)?
             .expect("Initial L2 state root must exist");
 
         let mut start_l2_height = previous_commitment.l2_end_block_number + 1;
@@ -302,7 +403,7 @@ where
             for l2_height in start_l2_height..=end_l2_height {
                 let state_diff = ledger_db
                     .get_l2_state_diff(L2BlockNumber(l2_height))
-                    .map_err(|e| internal_rpc_error(e.to_string()))?
+                    .map_err(internal_rpc_error)?
                     .expect("L2 state diff must exist");
                 cumulative_state_diff.extend(state_diff);
             }
@@ -311,7 +412,7 @@ where
 
             let end_state_root = ledger_db
                 .get_l2_state_root(end_l2_height)
-                .map_err(|e| internal_rpc_error(e.to_string()))?
+                .map_err(internal_rpc_error)?
                 .expect("L2 state root must exist");
             state_roots.push(end_state_root);
 
@@ -363,7 +464,7 @@ where
             .da_service
             .send_transaction(DaTxRequest::ZKProof(proof.clone()))
             .await
-            .map_err(|e| internal_rpc_error(e.to_string()))?;
+            .map_err(internal_rpc_error)?;
 
         Ok(BatchProofResponse {
             l1_tx_id: Some(tx_id.into()),
@@ -390,7 +491,7 @@ where
             .context
             .ledger_db
             .get_commitment_by_range(index_start..=index_end)
-            .map_err(|e| internal_rpc_error(e.to_string()))?;
+            .map_err(internal_rpc_error)?;
 
         let (result_tx, result_rx) = oneshot::channel();
 
@@ -432,7 +533,7 @@ where
 
         let Some(commitment_indices) = ledger_db
             .get_commitment_indices_by_job_id(job_id)
-            .map_err(|e| internal_rpc_error(e.to_string()))?
+            .map_err(internal_rpc_error)?
         else {
             return Ok(None);
         };
@@ -441,7 +542,7 @@ where
         for index in commitment_indices {
             let commitment = ledger_db
                 .get_commitment_by_index(index)
-                .map_err(|e| internal_rpc_error(e.to_string()))?
+                .map_err(internal_rpc_error)?
                 .expect("Commitment must exist");
             commitments.push(SequencerCommitmentResponse {
                 merkle_root: commitment.merkle_root,
@@ -452,7 +553,7 @@ where
 
         let stored_proof = ledger_db
             .get_proof_by_job_id(job_id)
-            .map_err(|e| internal_rpc_error(e.to_string()))?;
+            .map_err(internal_rpc_error)?;
 
         Ok(Some(JobRpcResponse {
             id: job_id,
@@ -466,7 +567,7 @@ where
             .context
             .ledger_db
             .get_latest_jobs(count)
-            .map_err(|e| internal_rpc_error(e.to_string()))?;
+            .map_err(internal_rpc_error)?;
         let jobs = jobs
             .into_iter()
             .map(|(id, status)| ProvingJobResponse { job_id: id, status })
@@ -479,7 +580,7 @@ where
             .context
             .ledger_db
             .get_job_id_by_commitment_index(index)
-            .map_err(|e| internal_rpc_error(e.to_string()))?;
+            .map_err(internal_rpc_error)?;
         match job_id {
             Some(job_id) => self.get_proving_job(job_id).await,
             None => Ok(None),
@@ -490,10 +591,19 @@ where
         self.context
             .ledger_db
             .get_prover_commitment_indices_by_l1(SlotNumber(l1_height))
-            .map_err(|e| internal_rpc_error(e.to_string()))
+            .map_err(internal_rpc_error)
     }
 }
 
+/// Creates an RPC module with fullnode methods
+///
+/// # Arguments
+/// * `rpc_context` - Context containing shared data for RPC methods
+///
+/// # Type Parameters
+/// * `DB` - Database type implementing NodeLedgerOps
+/// * `Da` - Data availability service type implementing DaService
+/// * `Vm` - Virtual machine type implementing Zkvm
 pub fn create_rpc_module<Da, DB, Vm>(
     rpc_context: RpcContext<Da, DB, Vm>,
 ) -> jsonrpsee::RpcModule<BatchProverRpcServerImpl<Da, DB, Vm>>
@@ -505,8 +615,4 @@ where
     let server = BatchProverRpcServerImpl::new(rpc_context);
 
     BatchProverRpcServer::into_rpc(server)
-}
-
-fn internal_rpc_error(msg: impl AsRef<str>) -> ErrorObjectOwned {
-    ErrorObjectOwned::owned(INTERNAL_ERROR_CODE, INTERNAL_ERROR_MSG, Some(msg.as_ref()))
 }
