@@ -14,7 +14,7 @@ use reth_rpc::eth::EthTxBuilder;
 use reth_rpc_eth_types::error::EthApiError;
 use reth_rpc_types_compat::TransactionCompat;
 use reth_transaction_pool::{EthPooledTransaction, PoolTransaction};
-use sov_db::ledger_db::SequencerLedgerOps;
+use sov_db::ledger_db::{LedgerDB, SequencerLedgerOps};
 use sov_modules_api::{Spec, WorkingSet};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error};
@@ -22,20 +22,21 @@ use tracing::{debug, error};
 use crate::deposit_data_mempool::DepositDataMempool;
 use crate::mempool::CitreaMempool;
 use crate::metrics::SEQUENCER_METRICS;
+use crate::types::SequencerRpcMessage;
 use crate::utils::recover_raw_transaction;
 
 /// RPC context containing all the shared data needed for RPC method implementations
-pub struct RpcContext<DB: SequencerLedgerOps> {
+pub struct RpcContext {
     /// The transaction mempool
     pub mempool: Arc<CitreaMempool>,
     /// The deposit transaction mempool
     pub deposit_mempool: Arc<Mutex<DepositDataMempool>>,
-    /// Channel for forcing block production (used in test mode)
-    pub l2_force_block_tx: UnboundedSender<()>,
+    /// Channel for sending messages to the sequencer
+    pub rpc_message_tx: UnboundedSender<SequencerRpcMessage>,
     /// Storage for the sequencer state
     pub storage: <DefaultContext as Spec>::Storage,
     /// Ledger database access
-    pub ledger: DB,
+    pub ledger: LedgerDB,
     /// Whether the sequencer is running in test mode
     pub test_mode: bool,
 }
@@ -49,21 +50,18 @@ pub struct RpcContext<DB: SequencerLedgerOps> {
 /// * `storage` - Storage for the sequencer state
 /// * `ledger_db` - Ledger database access
 /// * `test_mode` - Whether the sequencer is running in test mode
-pub fn create_rpc_context<DB>(
+pub fn create_rpc_context(
     mempool: Arc<CitreaMempool>,
     deposit_mempool: Arc<Mutex<DepositDataMempool>>,
-    l2_force_block_tx: UnboundedSender<()>,
+    rpc_message_tx: UnboundedSender<SequencerRpcMessage>,
     storage: <DefaultContext as Spec>::Storage,
-    ledger_db: DB,
+    ledger_db: LedgerDB,
     test_mode: bool,
-) -> RpcContext<DB>
-where
-    DB: SequencerLedgerOps + Send + Clone + 'static,
-{
+) -> RpcContext {
     RpcContext {
         mempool,
         deposit_mempool,
-        l2_force_block_tx,
+        rpc_message_tx,
         storage,
         ledger: ledger_db,
         test_mode,
@@ -78,8 +76,8 @@ where
 ///
 /// # Returns
 /// The updated RPC module or a registration error
-pub fn register_rpc_methods<DB: SequencerLedgerOps + Send + Sync + 'static>(
-    rpc_context: RpcContext<DB>,
+pub fn register_rpc_methods(
+    rpc_context: RpcContext,
     mut rpc_methods: jsonrpsee::RpcModule<()>,
 ) -> Result<jsonrpsee::RpcModule<()>, jsonrpsee::core::RegisterMethodError> {
     let rpc = create_rpc_module(rpc_context);
@@ -152,22 +150,30 @@ pub trait SequencerRpc {
     /// This method is only available when the sequencer is running in test mode.
     #[method(name = "citrea_testPublishBlock")]
     async fn publish_test_block(&self) -> RpcResult<()>;
+
+    /// Halt sequencer commitments
+    #[method(name = "citrea_haltCommitments")]
+    async fn halt_commitments(&self) -> RpcResult<()>;
+
+    /// Resume sequencer commitments
+    #[method(name = "citrea_resumeCommitments")]
+    async fn resume_commitments(&self) -> RpcResult<()>;
 }
 
 /// Sequencer RPC server implementation
 ///
 /// Handles all RPC method calls by delegating to the appropriate services
-pub struct SequencerRpcServerImpl<DB: SequencerLedgerOps + Send + Sync + 'static> {
+pub struct SequencerRpcServerImpl {
     /// The shared RPC context containing all required data
-    context: Arc<RpcContext<DB>>,
+    context: Arc<RpcContext>,
 }
 
-impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServerImpl<DB> {
+impl SequencerRpcServerImpl {
     /// Creates a new instance of the sequencer RPC server.
     ///
     /// # Arguments
     /// * `context` - The shared RPC context containing all required data
-    pub fn new(context: RpcContext<DB>) -> Self {
+    pub fn new(context: RpcContext) -> Self {
         Self {
             context: Arc::new(context),
         }
@@ -175,9 +181,7 @@ impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServerImpl<DB> 
 }
 
 #[async_trait::async_trait]
-impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServer
-    for SequencerRpcServerImpl<DB>
-{
+impl SequencerRpcServer for SequencerRpcServerImpl {
     /// eth_sendRawTransaction RPC call implementation
     async fn eth_send_raw_transaction(&self, data: Bytes) -> RpcResult<B256> {
         debug!("Sequencer: eth_sendRawTransaction");
@@ -268,7 +272,14 @@ impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServer
             .lock()
             .make_deposit_tx_from_data(deposit.clone().into());
 
-        let tx_res = evm.get_call(dep_tx, None, None, None, &mut working_set);
+        let tx_res = evm.get_call(
+            dep_tx,
+            None,
+            None,
+            None,
+            &mut working_set,
+            &self.context.ledger,
+        );
 
         match tx_res {
             Ok(hex_res) => {
@@ -295,9 +306,32 @@ impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServer
         }
 
         debug!("Sequencer: citrea_testPublishBlock");
-        self.context.l2_force_block_tx.send(()).map_err(|e| {
-            internal_rpc_error(format!("Could not send L2 force block transaction: {e}"))
-        })
+        self.context
+            .rpc_message_tx
+            .send(SequencerRpcMessage::ProduceTestBlock)
+            .map_err(|e| {
+                internal_rpc_error(format!("Could not send L2 force block transaction: {e}"))
+            })
+    }
+
+    /// Halt sequencer commitments
+    async fn halt_commitments(&self) -> RpcResult<()> {
+        debug!("Sequencer: citrea_haltCommitments");
+        self.context
+            .rpc_message_tx
+            .send(SequencerRpcMessage::HaltCommitments)
+            .map_err(|e| internal_rpc_error(format!("Could not send halt commitments signal: {e}")))
+    }
+
+    /// Resume sequencer commitments
+    async fn resume_commitments(&self) -> RpcResult<()> {
+        debug!("Sequencer: citrea_resumeCommitments");
+        self.context
+            .rpc_message_tx
+            .send(SequencerRpcMessage::ResumeCommitments)
+            .map_err(|e| {
+                internal_rpc_error(format!("Could not send resume commitments signal: {e}"))
+            })
     }
 }
 
@@ -308,9 +342,7 @@ impl<DB: SequencerLedgerOps + Send + Sync + 'static> SequencerRpcServer
 ///
 /// # Returns
 /// The configured RPC module
-pub fn create_rpc_module<DB: SequencerLedgerOps + Send + Sync + 'static>(
-    rpc_context: RpcContext<DB>,
-) -> jsonrpsee::RpcModule<SequencerRpcServerImpl<DB>> {
+pub fn create_rpc_module(rpc_context: RpcContext) -> jsonrpsee::RpcModule<SequencerRpcServerImpl> {
     let server = SequencerRpcServerImpl::new(rpc_context);
 
     SequencerRpcServer::into_rpc(server)

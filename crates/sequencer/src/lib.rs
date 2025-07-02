@@ -48,7 +48,7 @@ use parking_lot::Mutex;
 use reth_tasks::TaskExecutor;
 pub use rpc::SequencerRpcClient;
 pub use runner::{CitreaSequencer, MAX_MISSED_DA_BLOCKS_PER_L2_BLOCK};
-use sov_db::ledger_db::SequencerLedgerOps;
+use sov_db::ledger_db::LedgerDB;
 use sov_modules_stf_blueprint::StfBlueprint;
 use sov_prover_storage_manager::ProverStorageManager;
 use sov_rollup_interface::fork::ForkManager;
@@ -75,6 +75,8 @@ mod metrics;
 pub mod rpc;
 /// Module implementing the main sequencer running logic
 mod runner;
+/// Module for declaring types used by the sequencer
+mod types;
 /// Module containing utility functions and helpers
 mod utils;
 
@@ -97,7 +99,7 @@ mod utils;
 /// # Returns
 /// A tuple containing the initialized sequencer and RPC module
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
-pub fn build_services<Da, DB>(
+pub fn build_services<Da>(
     sequencer_config: SequencerConfig,
     init_params: InitParams,
     native_stf: StfBlueprint<
@@ -107,22 +109,21 @@ pub fn build_services<Da, DB>(
     >,
     public_keys: RollupPublicKeys,
     da_service: Arc<Da>,
-    ledger_db: DB,
+    ledger_db: LedgerDB,
     storage_manager: ProverStorageManager,
     l2_block_tx: broadcast::Sender<u64>,
     fork_manager: ForkManager<'static>,
     rpc_module: RpcModule<()>,
     backup_manager: Arc<BackupManager>,
     task_executor: TaskExecutor,
-) -> Result<(CitreaSequencer<Da, DB>, RpcModule<()>)>
+) -> Result<(CitreaSequencer<Da>, RpcModule<()>)>
 where
     Da: DaService,
-    DB: SequencerLedgerOps + Send + Sync + Clone + 'static,
 {
-    let (l2_force_block_tx, l2_force_block_rx) = unbounded_channel();
+    let (rpc_message_tx, rpc_message_rx) = unbounded_channel();
     // used as client of reth's mempool
     let db_provider_storage = storage_manager.create_final_view_storage();
-    let db_provider = DbProvider::new(db_provider_storage);
+    let db_provider = DbProvider::new(db_provider_storage, ledger_db.clone());
     let mempool = Arc::new(CitreaMempool::new(
         db_provider.clone(),
         sequencer_config.mempool_conf.clone(),
@@ -134,12 +135,12 @@ where
     let rpc_context = rpc::create_rpc_context(
         mempool.clone(),
         deposit_mempool.clone(),
-        l2_force_block_tx,
+        rpc_message_tx,
         rpc_storage,
         ledger_db.clone(),
         sequencer_config.test_mode,
     );
-    let rpc_module = rpc::register_rpc_methods::<DB>(rpc_context, rpc_module)?;
+    let rpc_module = rpc::register_rpc_methods(rpc_context, rpc_module)?;
 
     let seq = CitreaSequencer::new(
         da_service,
@@ -155,7 +156,7 @@ where
         fork_manager,
         l2_block_tx,
         backup_manager,
-        l2_force_block_rx,
+        rpc_message_rx,
     )
     .unwrap();
 

@@ -9,7 +9,6 @@ use anyhow::{anyhow, bail};
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
 use citrea_common::backup::BackupManager;
-use citrea_common::utils::{compute_tx_hashes, compute_tx_merkle_root};
 use citrea_common::{InitParams, RollupPublicKeys, SequencerConfig};
 use citrea_evm::system_events::{create_system_transactions, SystemEvent};
 use citrea_evm::{
@@ -19,6 +18,7 @@ use citrea_evm::{
 };
 use citrea_primitives::basefee::calculate_next_block_base_fee;
 use citrea_primitives::forks::fork_from_block_number;
+use citrea_primitives::merkle::{compute_tx_hashes, compute_tx_merkle_root};
 use citrea_primitives::types::L2BlockHash;
 use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use parking_lot::Mutex;
@@ -32,12 +32,12 @@ use reth_transaction_pool::{
 };
 use sov_accounts::Accounts;
 use sov_accounts::Response::{AccountEmpty, AccountExists};
-use sov_db::ledger_db::SequencerLedgerOps;
+use sov_db::ledger_db::{LedgerDB, SequencerLedgerOps, SharedLedgerOps};
 use sov_db::schema::types::L2BlockNumber;
 use sov_keys::default_signature::k256_private_key::K256PrivateKey;
 use sov_modules_api::hooks::HookL2BlockInfo;
 use sov_modules_api::{
-    EncodeCall, L2Block, L2BlockModuleCallError, PrivateKey, SlotData, Spec, StateDiff,
+    EncodeCall, L2Block, L2BlockModuleCallError, PrivateKey, SlotData, Spec, SpecId, StateDiff,
     StateValueAccessor, WorkingSet,
 };
 use sov_modules_stf_blueprint::StfBlueprint;
@@ -63,6 +63,7 @@ use crate::db_provider::DbProvider;
 use crate::deposit_data_mempool::DepositDataMempool;
 use crate::mempool::CitreaMempool;
 use crate::metrics::SEQUENCER_METRICS;
+use crate::types::SequencerRpcMessage;
 use crate::utils::recover_raw_transaction;
 
 /// Maximum number of DA blocks that can be missed per L2 block
@@ -76,10 +77,9 @@ pub const MAX_MISSED_DA_BLOCKS_PER_L2_BLOCK: u64 = 10;
 /// - Processing system transactions
 /// - Handling DA layer synchronization
 /// - Managing state transitions
-pub struct CitreaSequencer<Da, DB>
+pub struct CitreaSequencer<Da>
 where
     Da: DaService,
-    DB: SequencerLedgerOps + Send + Clone + 'static,
 {
     /// Data availability service instance
     da_service: Arc<Da>,
@@ -87,12 +87,12 @@ where
     mempool: Arc<CitreaMempool>,
     /// Private key for signing transactions
     pub(crate) sov_tx_signer_priv_key: K256PrivateKey,
-    /// Channel for receiving force block production signals
-    l2_force_block_rx: UnboundedReceiver<()>,
+    /// Channel for receiving messages from RPC.
+    rpc_message_rx: UnboundedReceiver<SequencerRpcMessage>,
     /// Database provider for blockchain data access
     db_provider: DbProvider,
     /// Database for ledger operations
-    pub(crate) ledger_db: DB,
+    pub(crate) ledger_db: LedgerDB,
     /// Sequencer configuration
     pub(crate) config: SequencerConfig,
     /// State transition function blueprint
@@ -115,10 +115,9 @@ where
     backup_manager: Arc<BackupManager>,
 }
 
-impl<Da, DB> CitreaSequencer<Da, DB>
+impl<Da> CitreaSequencer<Da>
 where
     Da: DaService,
-    DB: SequencerLedgerOps + Send + Sync + Clone + 'static,
 {
     /// Creates a new CitreaSequencer instance
     ///
@@ -136,7 +135,7 @@ where
     /// * `fork_manager` - Manager for handling chain forks
     /// * `l2_block_tx` - Channel for L2 block notifications
     /// * `backup_manager` - Manager for backup operations
-    /// * `l2_force_block_rx` - Channel for force block production signals
+    /// * `rpc_message_rx` - Channel for receiving messages from RPC
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         da_service: Arc<Da>,
@@ -145,14 +144,14 @@ where
         stf: StfBlueprint<DefaultContext, Da::Spec, CitreaRuntime<DefaultContext, Da::Spec>>,
         storage_manager: ProverStorageManager,
         public_keys: RollupPublicKeys,
-        ledger_db: DB,
+        ledger_db: LedgerDB,
         db_provider: DbProvider,
         mempool: Arc<CitreaMempool>,
         deposit_mempool: Arc<Mutex<DepositDataMempool>>,
         fork_manager: ForkManager<'static>,
         l2_block_tx: broadcast::Sender<u64>,
         backup_manager: Arc<BackupManager>,
-        l2_force_block_rx: UnboundedReceiver<()>,
+        rpc_message_rx: UnboundedReceiver<SequencerRpcMessage>,
     ) -> anyhow::Result<Self> {
         let sov_tx_signer_priv_key =
             K256PrivateKey::try_from(hex::decode(&config.private_key)?.as_slice())?;
@@ -161,7 +160,7 @@ where
             da_service,
             mempool,
             sov_tx_signer_priv_key,
-            l2_force_block_rx,
+            rpc_message_rx,
             db_provider,
             ledger_db,
             config,
@@ -250,7 +249,7 @@ where
                     citrea_evm::Evm<DefaultContext>,
                 >>::encode_call(call_txs);
 
-                let signed_tx = self.sign_tx(raw_message, nonce)?;
+                let signed_tx = self.sign_tx(l2_block_info.current_spec, raw_message, nonce)?;
                 nonce += 1;
 
                 let txs = vec![signed_tx];
@@ -518,7 +517,7 @@ where
                 citrea_evm::Evm<DefaultContext>,
             >>::encode_call(call_txs);
 
-            let signed_tx = self.sign_tx(raw_message, nonce)?;
+            let signed_tx = self.sign_tx(active_fork_spec, raw_message, nonce)?;
 
             blobs.push(signed_tx.to_blob()?);
             txs.push(signed_tx);
@@ -536,8 +535,8 @@ where
             .finalize_l2_block(active_fork_spec, working_set, prestate);
 
         // Calculate tx hashes for merkle root
-        let tx_hashes = compute_tx_hashes::<DefaultContext>(&txs, active_fork_spec);
-        let tx_merkle_root = compute_tx_merkle_root(&tx_hashes)?;
+        let tx_hashes = compute_tx_hashes(&txs, active_fork_spec);
+        let tx_merkle_root = compute_tx_merkle_root(&tx_hashes, active_fork_spec);
 
         // create the l2 block header
         let header = L2Header::new(
@@ -709,12 +708,16 @@ where
         // Setup required workers to update our knowledge of the DA layer every X seconds (configurable).
         let (da_height_update_tx, mut da_height_update_rx) = mpsc::channel(1);
 
+        // Create channel for communicating halt signals to the commitment service
+        let (halt_commitment_tx, halt_commitment_rx) = mpsc::unbounded_channel();
+
         // Initialize commitment service for DA layer publication
         let commitment_service = CommitmentService::new(
             self.ledger_db.clone(),
             self.da_service.clone(),
             self.sequencer_da_pub_key.clone(),
             self.config.max_l2_blocks_per_commitment,
+            halt_commitment_rx,
         );
 
         // Spawn commitment service task
@@ -762,29 +765,55 @@ where
                     }
                     SEQUENCER_METRICS.current_l1_block.set(last_finalized_l1_height as f64);
                 },
-                // If sequencer is in test mode, it will build a block every time it receives a message
-                // The RPC from which the sender can be called is only registered for test mode. This means
-                // that even though we check the receiver here, it'll never be "ready" to be consumed unless in test mode.
-                _ = self.l2_force_block_rx.recv(), if self.config.test_mode => {
-                    if missed_da_blocks_count > 0 {
-                        if let Err(e) = self.process_missed_da_blocks(missed_da_blocks_count, &mut last_used_l1_height, l1_fee_rate).await {
-                            error!("Sequencer error: {}", e);
-                            // Cancel child tasks
-                            drop(shutdown_signal);
-                            // we never want to continue if we have missed blocks
-                            return Err(e);
-                        }
-                        missed_da_blocks_count = 0;
-                    }
-                    let _l2_lock = backup_manager.start_l2_processing().await;
-                    match self.produce_l2_block(vec![last_finalized_block.clone()], l1_fee_rate, &mut last_used_l1_height).await {
-                        Ok(l2_height) => {
-
-                            // Only errors when there are no receivers
-                            let _ = self.l2_block_tx.send(l2_height);
+                // Handle RPC messages (both test mode and halt signals)
+                rpc_message = self.rpc_message_rx.recv() => {
+                    match rpc_message {
+                        Some(SequencerRpcMessage::ProduceTestBlock) => {
+                            if !self.config.test_mode {
+                                // Test block request received but not in test mode
+                                warn!("Received test block request but sequencer is not in test mode");
+                                continue;
+                            }
+                            if missed_da_blocks_count > 0 {
+                                if let Err(e) = self.process_missed_da_blocks(missed_da_blocks_count, &mut last_used_l1_height, l1_fee_rate).await {
+                                    error!("Sequencer error: {}", e);
+                                    // Cancel child tasks
+                                    drop(shutdown_signal);
+                                    // we never want to continue if we have missed blocks
+                                    return Err(e);
+                                }
+                                missed_da_blocks_count = 0;
+                            }
+                            let _l2_lock = backup_manager.start_l2_processing().await;
+                            match self.produce_l2_block(vec![last_finalized_block.clone()], l1_fee_rate, &mut last_used_l1_height).await {
+                                Ok(l2_height) => {
+                                    // Only errors when there are no receivers
+                                    let _ = self.l2_block_tx.send(l2_height);
+                                },
+                                Err(e) => {
+                                    error!("Sequencer error: {}", e);
+                                }
+                            }
                         },
-                        Err(e) => {
-                            error!("Sequencer error: {}", e);
+                        Some(SequencerRpcMessage::HaltCommitments) => {
+                            // Forward halt signal to commitment service
+                            if let Err(e) = halt_commitment_tx.send(true) {
+                                error!("Failed to send halt signal to commitment service: {}", e);
+                            } else {
+                                info!("Sequencer: Halted commitments via RPC");
+                            }
+                        },
+                        Some(SequencerRpcMessage::ResumeCommitments) => {
+                            // Forward resume signal to commitment service
+                            if let Err(e) = halt_commitment_tx.send(false) {
+                                error!("Failed to send resume signal to commitment service: {}", e);
+                            } else {
+                                info!("Sequencer: Resumed commitments via RPC");
+                            }
+                        },
+                        None => {
+                            // Channel closed
+                            warn!("RPC message channel closed");
                         }
                     }
                 },
@@ -821,7 +850,7 @@ where
                 _ = &mut shutdown_signal => {
                     info!("Shutting down sequencer");
                     da_height_update_rx.close();
-                    self.l2_force_block_rx.close();
+                    self.rpc_message_rx.close();
                     return Ok(());
                 }
             }
@@ -872,11 +901,17 @@ where
     ///
     /// # Returns
     /// A signed transaction
-    pub(crate) fn sign_tx(&self, raw_message: Vec<u8>, nonce: u64) -> anyhow::Result<Transaction> {
+    pub(crate) fn sign_tx(
+        &self,
+        spec: SpecId,
+        raw_message: Vec<u8>,
+        nonce: u64,
+    ) -> anyhow::Result<Transaction> {
         // TODO: figure out what to do with sov-tx fields
         // chain id gas tip and gas limit
 
-        let tx = Transaction::new_signed_tx(&self.sov_tx_signer_priv_key, raw_message, 0, nonce);
+        let tx =
+            Transaction::new_signed_tx(spec, &self.sov_tx_signer_priv_key, raw_message, 0, nonce);
         Ok(tx)
     }
 
@@ -888,8 +923,7 @@ where
     /// # Returns
     /// A signed L2 block header
     fn sign_l2_block_header(&mut self, header: L2Header) -> anyhow::Result<SignedL2Header> {
-        let digest = header.compute_digest::<<DefaultContext as sov_modules_api::Spec>::Hasher>();
-        let hash = Into::<[u8; 32]>::into(digest);
+        let hash = header.compute_digest();
 
         let signature = self.sov_tx_signer_priv_key.sign(&hash);
         let signature = borsh::to_vec(&signature)?;
@@ -1185,7 +1219,7 @@ where
             >>::encode_call(call_txs);
 
             // Sign and increment nonce
-            let signed_tx = self.sign_tx(raw_message, *nonce)?;
+            let signed_tx = self.sign_tx(l2_block_info.current_spec, raw_message, *nonce)?;
             *nonce += 1;
 
             let txs = vec![signed_tx];
