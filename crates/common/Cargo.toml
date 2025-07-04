@@ -35,6 +35,7 @@ toml = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
 
 # Sov SDK deps
 sov-db = { path = "../sovereign-sdk/full-node/db/sov-db" }
@@ -54,6 +55,7 @@ citrea-evm = { path = "../evm" }
 citrea-primitives = { path = "../primitives/" }
 citrea-stf = { path = "../citrea-stf", features = ["native"] }
 citrea-storage-ops = { path = "../storage-ops" }
+prover-services = { path = "../prover-services" }
 
 [dev-dependencies]
 sov-mock-da = { path = "../sovereign-sdk/adapters/mock-da", features = ["native"] }

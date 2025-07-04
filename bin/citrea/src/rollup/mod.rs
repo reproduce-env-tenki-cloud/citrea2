@@ -21,6 +21,7 @@ use citrea_storage_ops::pruning::PrunerService;
 use citrea_storage_ops::rollback::Rollback;
 use citrea_storage_ops::types::StorageNodeType;
 use jsonrpsee::RpcModule;
+use prover_services;
 use reth_tasks::{TaskExecutor, TaskManager};
 use sov_db::ledger_db::migrations::{LedgerDBMigrator, Migrations};
 use sov_db::ledger_db::{LedgerDB, SharedLedgerOps};
@@ -379,6 +380,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         CitreaLightClientProver,
         LightClientProverL1BlockHandler<Self::Vm, Self::DaService, LedgerDB>,
         RpcModule<()>,
+        Arc<prover_services::ParallelProverService<Self::DaService, Self::Vm>>,
     )>
     where
         Network: InitialValueProvider<Self::DaSpec>,

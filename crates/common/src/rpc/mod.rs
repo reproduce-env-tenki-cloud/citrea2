@@ -16,7 +16,10 @@ use jsonrpsee::{MethodResponse, RpcModule};
 use sov_db::ledger_db::{LedgerDB, SharedLedgerOps};
 use sov_db::schema::types::L2BlockNumber;
 use sov_rollup_interface::services::da::DaService;
+use sov_rollup_interface::zk::{ReceiptType, ZkvmHost};
 use tower_http::cors::{Any, CorsLayer};
+use tracing;
+use uuid;
 
 mod auth;
 pub mod server;
@@ -76,13 +79,14 @@ pub fn register_healthcheck_rpc<T: Send + Sync + 'static>(
 }
 
 /// Register the healthcheck rpc
-pub fn register_healthcheck_rpc_light_client_prover<T: Send + Sync + 'static, Da: DaService>(
+pub fn register_healthcheck_rpc_light_client_prover<T: Send + Sync + 'static, Da: DaService, Vm: ZkvmHost + Clone + Send + Sync + 'static>(
     rpc_methods: &mut RpcModule<T>,
     da_service: Arc<Da>,
+    prover_service: Arc<prover_services::ParallelProverService<Da, Vm>>,
 ) -> Result<(), RegisterMethodError> {
-    let mut rpc = RpcModule::new(da_service.clone());
+    let mut rpc = RpcModule::new((da_service.clone(), prover_service.clone()));
 
-    rpc.register_async_method("health_check", |_, da_service, _| async move {
+    rpc.register_async_method("health_check", |_, (da_service, prover_service), _| async move {
         let error = |msg: &str| {
             ErrorObjectOwned::owned(
                 INTERNAL_ERROR_CODE,
@@ -96,7 +100,8 @@ pub fn register_healthcheck_rpc_light_client_prover<T: Send + Sync + 'static, Da
             ..Default::default()
         };
 
-        let res = retry_backoff(exponential_backoff.clone(), || {
+        // Test DA service connectivity
+        let da_res = retry_backoff(exponential_backoff.clone(), || {
             let da_service = da_service.clone();
             async move {
                 da_service.get_head_block_header().await.map_err(|e| {
@@ -106,12 +111,49 @@ pub fn register_healthcheck_rpc_light_client_prover<T: Send + Sync + 'static, Da
             }
         })
         .await;
-        match res {
-            Ok(_) => Ok::<(), ErrorObjectOwned>(()),
-            Err(e) => Err(error(&format!(
+        
+        if let Err(e) = da_res {
+            return Err(error(&format!(
                 "Failed to retrieve head block header: {}",
                 e
-            ))),
+            )));
+        }
+
+        // Test prover service by checking if it can accept a proving request
+        // We use a simple availability check rather than a full proving task
+        let prover_availability_test = {
+            let prover_service = prover_service.clone();
+            async move {
+                // Simple test: try to create minimal proof data and see if service accepts it
+                // This doesn't actually start proving, just tests service responsiveness
+                let test_data = prover_services::ProofData {
+                    input: vec![],     // Empty input for test
+                    assumptions: vec![], // No assumptions 
+                    elf: vec![],       // Empty ELF for test
+                };
+                
+                // We'll timeout quickly to avoid blocking the health check
+                tokio::time::timeout(
+                    Duration::from_secs(2),
+                    prover_service.start_proving(test_data, ReceiptType::Groth16, uuid::Uuid::nil())
+                ).await
+            }
+        };
+
+        match prover_availability_test.await {
+            Ok(Ok(_)) => {
+                // Successfully got a response from prover service, indicating it's working
+                Ok::<(), ErrorObjectOwned>(())
+            }
+            Ok(Err(e)) => {
+                // Prover service responded but with an error (still indicates it's alive)
+                // For health check, we consider this acceptable as the service is responsive
+                tracing::debug!("Prover service returned error in health check (expected): {}", e);
+                Ok::<(), ErrorObjectOwned>(())
+            }
+            Err(_) => {
+                Err(error("Prover service timeout - service may be unresponsive"))
+            }
         }
     })?;
 

@@ -2403,6 +2403,7 @@ dependencies = [
  "jsonrpsee",
  "lru 0.13.0",
  "metrics 0.23.0",
+ "prover-services",
  "reth-primitives",
  "reth-tasks",
  "rocksdb",
@@ -2424,6 +2425,7 @@ dependencies = [
  "tower 0.4.13",
  "tower-http",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -61,6 +61,7 @@ pub fn build_services<Vm, Da, DB>(
     CitreaLightClientProver,
     L1BlockHandler<Vm, Da, DB>,
     RpcModule<()>,
+    Arc<ParallelProverService<Da, Vm>>,
 )>
 where
     Da: DaService,
@@ -86,5 +87,5 @@ where
 
     let prover = CitreaLightClientProver::new(runner_config)?;
 
-    Ok((prover, l1_block_handler, rpc_module))
+    Ok((prover, l1_block_handler, rpc_module, prover_service))
 }
