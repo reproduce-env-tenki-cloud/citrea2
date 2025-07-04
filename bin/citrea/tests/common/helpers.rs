@@ -210,10 +210,7 @@ pub async fn start_rollup(
         )
         .expect("RPC module setup should work");
 
-    if light_client_prover_config.is_some() {
-        register_healthcheck_rpc_light_client_prover(&mut rpc_module, da_service.clone())
-            .expect("Failed to register healthcheck RPC for light client prover");
-    } else {
+    if !light_client_prover_config.is_some() {
         // Register Ethereum RPC methods if this is not the Light Client Prover
         citrea::register_ethereum(
             da_service.clone(),
@@ -329,13 +326,13 @@ pub async fn start_rollup(
             None => StartVariant::FromBlock(light_client_prover_config.initial_da_height),
         };
 
-        let (mut rollup, l1_block_handler, rpc_module) =
+        let (mut rollup, l1_block_handler, mut rpc_module, prover_service) =
             CitreaRollupBlueprint::create_light_client_prover(
                 &mock_demo_rollup,
                 network.expect("should be some"),
                 light_client_prover_config,
                 rollup_config.clone(),
-                da_service,
+                da_service.clone(),
                 ledger_db,
                 storage_manager,
                 rpc_module,
@@ -344,6 +341,10 @@ pub async fn start_rollup(
             .instrument(span.clone())
             .await
             .unwrap();
+
+        // Register the enhanced health check for light client prover
+        register_healthcheck_rpc_light_client_prover(&mut rpc_module, da_service.clone(), prover_service)
+            .expect("Failed to register healthcheck RPC for light client prover");
 
         start_rpc_server(
             rollup_config.rpc.clone(),
