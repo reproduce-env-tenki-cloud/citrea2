@@ -59,4 +59,6 @@ prover-services = { path = "../prover-services" }
 
 [dev-dependencies]
 sov-mock-da = { path = "../sovereign-sdk/adapters/mock-da", features = ["native"] }
+sov-mock-zkvm = { path = "../sovereign-sdk/adapters/mock-zkvm" }
 tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

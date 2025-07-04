@@ -2413,6 +2413,7 @@ dependencies = [
  "sov-keys",
  "sov-ledger-rpc",
  "sov-mock-da",
+ "sov-mock-zkvm",
  "sov-modules-api",
  "sov-modules-stf-blueprint",
  "sov-prover-storage-manager",
