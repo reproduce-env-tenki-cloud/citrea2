@@ -27,7 +27,7 @@ use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use jsonrpsee::ws_client::{PingConfig, WsClient, WsClientBuilder};
 use sov_db::schema::types::L2HeightAndIndex;
-use sov_ledger_rpc::{HexHash, LedgerRpcClient};
+use sov_ledger_rpc::{HexHash, HexU64, LedgerRpcClient};
 use sov_rollup_interface::rpc::block::L2BlockResponse;
 use sov_rollup_interface::rpc::{
     JobRpcResponse, LastVerifiedBatchProofResponse, SequencerCommitmentResponse,
@@ -572,7 +572,7 @@ impl TestClient {
 
     pub(crate) async fn ledger_get_l2_block_by_number(&self, num: u64) -> Option<L2BlockResponse> {
         self.http_client
-            .get_l2_block_by_number(U64::from(num))
+            .get_l2_block_by_number(HexU64(U64::from(num)))
             .await
             .unwrap()
     }
@@ -582,6 +582,7 @@ impl TestClient {
             .get_last_scanned_l1_height()
             .await
             .unwrap()
+            .0
             .to()
     }
 
@@ -590,7 +591,7 @@ impl TestClient {
         height: u64,
     ) -> anyhow::Result<Option<Vec<SequencerCommitmentResponse>>> {
         self.http_client
-            .get_sequencer_commitments_on_slot_by_number(U64::from(height))
+            .get_sequencer_commitments_on_slot_by_number(HexU64(U64::from(height)))
             .await
             .map_err(|e| e.into())
     }
@@ -600,7 +601,7 @@ impl TestClient {
         height: u64,
     ) -> Option<Vec<VerifiedBatchProofResponse>> {
         self.http_client
-            .get_verified_batch_proofs_by_slot_height(U64::from(height))
+            .get_verified_batch_proofs_by_slot_height(HexU64(U64::from(height)))
             .await
             .unwrap()
     }
@@ -639,7 +640,7 @@ impl TestClient {
         self.http_client
             .get_head_l2_block_height()
             .await
-            .map(|v| v.to())
+            .map(|v| v.0.to())
             .map_err(|e| e.into())
     }
 
