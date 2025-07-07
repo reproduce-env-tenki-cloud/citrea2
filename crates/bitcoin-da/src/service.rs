@@ -953,6 +953,7 @@ impl DaService for BitcoinService {
 
             if let Ok(parsed) = parse_relevant_transaction(tx) {
                 let tx_id = tx.compute_txid();
+                let wtxid = tx.compute_wtxid();
                 match parsed {
                     ParsedTransaction::Complete(complete) => {
                         if complete.public_key() == prover_da_pub_key
@@ -986,9 +987,24 @@ impl DaService for BitcoinService {
                             aggregate_idxs.push((i, tx_id, aggregate));
                         }
                     }
-                    ParsedTransaction::Chunk(_chunk) => {
-                        // This is stored so we can see which chunk has what index
-                        // This will help determine which comes first if in the same block aggregate or chunk
+                    ParsedTransaction::Chunk(chunk) => {
+                        // Store chunk data in ledger db by wtxid
+                        let Ok(data) = DataOnDa::try_from_slice(&chunk.body) else {
+                            warn!("{tx_id}: Failed to parse chunk data");
+                            continue;
+                        };
+                        let DataOnDa::Chunk(chunk_data) = data else {
+                            warn!("{tx_id}: Chunk: unexpected kind");
+                            continue;
+                        };
+                        if let Err(e) = self
+                            .ledger_db
+                            .store_chunk(wtxid.to_byte_array(), chunk_data)
+                        {
+                            warn!("{tx_id}: Failed to store chunk: {e}");
+                            continue;
+                        }
+                        // Store chunk index for ordering verification
                         chunks.insert(tx_id, i);
                     }
                     ParsedTransaction::BatchProverMethodId(_) => {
@@ -1009,7 +1025,7 @@ impl DaService for BitcoinService {
                 warn!("{tx_id}: Failed to parse aggregate");
                 continue;
             };
-            let DataOnDa::Aggregate(chunk_ids, _wtx_ids) = data else {
+            let DataOnDa::Aggregate(chunk_ids, wtx_ids) = data else {
                 error!("{tx_id}: Aggregate: unexpected kind");
                 continue;
             };
@@ -1017,80 +1033,41 @@ impl DaService for BitcoinService {
                 error!("{tx_id}: Empty aggregate tx list");
                 continue;
             }
-            for chunk_id in chunk_ids {
-                let chunk_id = Txid::from_byte_array(chunk_id);
-                let exponential_backoff = ExponentialBackoff::default();
-                let tx_raw = {
-                    let res = retry_backoff(exponential_backoff.clone(), || async move {
-                        self.client
-                            .get_raw_transaction_info(&chunk_id, None)
-                            .await
-                            .map_err(|e| match e {
-                                BitcoinError::Io(_) => backoff::Error::transient(e),
-                                _ => backoff::Error::permanent(e),
-                            })
-                    })
-                    .await;
-                    match res {
-                        Ok(r) => r,
-                        Err(e) => {
-                            error!("{}:{}: Failed to request chunk: {e}", tx_id, chunk_id);
-                            continue 'aggregate;
-                        }
-                    }
-                };
+            if chunk_ids.len() != wtx_ids.len() {
+                error!("{tx_id}: Chunk IDs and WTXID lengths mismatch");
+                continue;
+            }
+            for (chunk_id, wtxid) in chunk_ids.iter().zip(wtx_ids.iter()) {
+                let chunk_id = Txid::from_byte_array(*chunk_id);
+                let wtxid = Wtxid::from_byte_array(*wtxid);
 
+                // Verify chunk order
                 if let Err(e) = self
-                    .verify_chunk_order(
-                        block.header.height,
-                        &tx_id,
-                        &chunk_id,
-                        i,
-                        tx_raw.blockhash,
-                        &chunks,
-                    )
+                    .verify_chunk_order(block.header.height, &tx_id, &chunk_id, i, None, &chunks)
                     .await
                 {
                     warn!("{}:{}: Failed to process chunk: {e}", tx_id, chunk_id);
                     continue 'aggregate;
                 };
 
-                let chunk_transaction = match tx_raw.transaction() {
-                    Ok(tx) => tx,
+                // Get chunk data from ledger db
+                let chunk_data = match self.ledger_db.get_chunk(wtxid.to_byte_array()) {
+                    Ok(Some(data)) => data,
+                    Ok(None) => {
+                        error!("{}:{}: Chunk data not found for wtxid", tx_id, wtxid);
+                        continue 'aggregate;
+                    }
                     Err(e) => {
-                        error!(
-                            "{}:{}: Failed to get chunk transaction, decode error: {e}",
-                            tx_id, chunk_id
-                        );
+                        error!("{}:{}: Failed to get chunk data: {e}", tx_id, wtxid);
                         continue 'aggregate;
                     }
                 };
-                let parsed = match parse_relevant_transaction(&chunk_transaction) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        error!("{}:{}: Failed parse chunk: {e}", tx_id, chunk_id);
-                        continue 'aggregate;
-                    }
-                };
-                match parsed {
-                    ParsedTransaction::Chunk(part) => {
-                        let Ok(data) = DataOnDa::try_from_slice(&part.body) else {
-                            warn!("{tx_id}: Failed to parse chunk");
-                            continue 'aggregate;
-                        };
-                        let DataOnDa::Chunk(chunk) = data else {
-                            warn!("{tx_id}: Chunk: unexpected kind",);
-                            continue 'aggregate;
-                        };
-                        body.extend(chunk);
-                    }
-                    ParsedTransaction::Complete(_)
-                    | ParsedTransaction::Aggregate(_)
-                    | ParsedTransaction::BatchProverMethodId(_)
-                    | ParsedTransaction::SequencerCommitment(_) => {
-                        error!("{}:{}: Expected chunk, got other tx kind", tx_id, chunk_id);
-                        continue 'aggregate;
-                    }
+
+                body.extend(chunk_data);
+
+                // Delete chunk after successful processing
+                if let Err(e) = self.ledger_db.delete_chunk(wtxid.to_byte_array()) {
+                    warn!("{}:{}: Failed to delete chunk: {e}", tx_id, wtxid);
                 }
             }
             let Ok(zk_proof) = decompress_blob(&body) else {
