@@ -11,7 +11,7 @@ use sov_rollup_interface::rpc::{
     VerifiedBatchProofResponse,
 };
 
-use crate::{HexHash, HexStateRoot, LedgerRpcServer};
+use crate::{HexHash, HexStateRoot, HexU64, LedgerRpcServer};
 
 const LEDGER_RPC_ERROR: &str = "LEDGER_RPC_ERROR";
 
@@ -48,9 +48,9 @@ impl<T> LedgerRpcServer for LedgerRpcServerImpl<T>
 where
     T: LedgerRpcProvider + Send + Sync + 'static,
 {
-    fn get_l2_block_by_number(&self, number: U64) -> RpcResult<Option<L2BlockResponse>> {
+    fn get_l2_block_by_number(&self, number: HexU64) -> RpcResult<Option<L2BlockResponse>> {
         self.ledger
-            .get_l2_block_by_number(number.to())
+            .get_l2_block_by_number(number.0.to())
             .map_err(to_ledger_rpc_error)
     }
 
@@ -60,8 +60,8 @@ where
             .map_err(to_ledger_rpc_error)
     }
 
-    fn get_l2_block_range(&self, start: U64, end: U64) -> RpcResult<Vec<Option<L2BlockResponse>>> {
-        if (end - start).to::<u32>() > self.config.max_l2_blocks_per_request {
+    fn get_l2_block_range(&self, start: HexU64, end: HexU64) -> RpcResult<Vec<Option<L2BlockResponse>>> {
+        if (end.0 - start.0).to::<u32>() > self.config.max_l2_blocks_per_request {
             return Err(to_ledger_rpc_error(format!(
                 "requested batch range too large. Max: {}",
                 self.config.max_l2_blocks_per_request
@@ -69,7 +69,7 @@ where
         }
 
         self.ledger
-            .get_l2_blocks_range(start.to(), end.to())
+            .get_l2_blocks_range(start.0.to(), end.0.to())
             .map_err(to_ledger_rpc_error)
     }
 
@@ -80,19 +80,19 @@ where
             .map_err(to_ledger_rpc_error)
     }
 
-    fn get_last_scanned_l1_height(&self) -> RpcResult<U64> {
+    fn get_last_scanned_l1_height(&self) -> RpcResult<HexU64> {
         self.ledger
             .get_last_scanned_l1_height()
-            .map(U64::from)
+            .map(|h| HexU64(U64::from(h)))
             .map_err(to_ledger_rpc_error)
     }
 
     fn get_sequencer_commitments_on_slot_by_number(
         &self,
-        height: U64,
+        height: HexU64,
     ) -> RpcResult<Option<Vec<SequencerCommitmentResponse>>> {
         self.ledger
-            .get_sequencer_commitments_on_slot_by_number(height.to())
+            .get_sequencer_commitments_on_slot_by_number(height.0.to())
             .map_err(to_ledger_rpc_error)
     }
 
@@ -115,10 +115,10 @@ where
 
     fn get_verified_batch_proofs_by_slot_height(
         &self,
-        height: U64,
+        height: HexU64,
     ) -> RpcResult<Option<Vec<VerifiedBatchProofResponse>>> {
         self.ledger
-            .get_verified_proof_data_by_l1_height(height.to())
+            .get_verified_proof_data_by_l1_height(height.0.to())
             .map_err(to_ledger_rpc_error)
     }
 
@@ -132,10 +132,10 @@ where
         self.ledger.get_head_l2_block().map_err(to_ledger_rpc_error)
     }
 
-    fn get_head_l2_block_height(&self) -> RpcResult<U64> {
+    fn get_head_l2_block_height(&self) -> RpcResult<HexU64> {
         self.ledger
             .get_head_l2_block_height()
-            .map(U64::from)
+            .map(|h| HexU64(U64::from(h)))
             .map_err(to_ledger_rpc_error)
     }
 

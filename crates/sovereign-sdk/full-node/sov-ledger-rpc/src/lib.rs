@@ -20,9 +20,19 @@ pub struct HexHash(#[serde(with = "sov_rollup_interface::rpc::utils::rpc_hex")] 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HexStateRoot(#[serde(with = "faster_hex")] pub Vec<u8>);
 
-impl From<[u8; 32]> for HexHash {
-    fn from(v: [u8; 32]) -> Self {
+/// U64 value [`serde`]-encoded as a hex string prefixed with `0x`.
+#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HexU64(#[serde(with = "sov_rollup_interface::rpc::utils::u64_hex")] pub U64);
+
+impl From<U64> for HexU64 {
+    fn from(v: U64) -> Self {
         Self(v)
+    }
+}
+
+impl From<HexU64> for U64 {
+    fn from(v: HexU64) -> Self {
+        v.0
     }
 }
 
@@ -50,7 +60,7 @@ pub trait LedgerRpc {
     /// Gets a single l2 block by number.
     #[method(name = "getL2BlockByNumber")]
     #[blocking]
-    fn get_l2_block_by_number(&self, number: U64) -> RpcResult<Option<L2BlockResponse>>;
+    fn get_l2_block_by_number(&self, number: HexU64) -> RpcResult<Option<L2BlockResponse>>;
 
     /// Gets a single l2 block by hash.
     #[method(name = "getL2BlockByHash")]
@@ -60,7 +70,7 @@ pub trait LedgerRpc {
     /// Gets all l2 blocks with numbers `range.start` to `range.end`.
     #[method(name = "getL2BlockRange")]
     #[blocking]
-    fn get_l2_block_range(&self, start: U64, end: U64) -> RpcResult<Vec<Option<L2BlockResponse>>>;
+    fn get_l2_block_range(&self, start: HexU64, end: HexU64) -> RpcResult<Vec<Option<L2BlockResponse>>>;
 
     /// Gets the L2 genesis state root.
     #[method(name = "getL2GenesisStateRoot")]
@@ -72,7 +82,7 @@ pub trait LedgerRpc {
     #[blocking]
     fn get_sequencer_commitments_on_slot_by_number(
         &self,
-        height: U64,
+        height: HexU64,
     ) -> RpcResult<Option<Vec<SequencerCommitmentResponse>>>;
 
     /// Gets the commitment by index.
@@ -99,14 +109,14 @@ pub trait LedgerRpc {
     /// Gets the height pf most recent committed l2 block.
     #[method(name = "getHeadL2BlockHeight")]
     #[blocking]
-    fn get_head_l2_block_height(&self) -> RpcResult<U64>;
+    fn get_head_l2_block_height(&self) -> RpcResult<HexU64>;
 
     /// Gets verified proofs by slot height
     #[method(name = "getVerifiedBatchProofsBySlotHeight")]
     #[blocking]
     fn get_verified_batch_proofs_by_slot_height(
         &self,
-        height: U64,
+        height: HexU64,
     ) -> RpcResult<Option<Vec<VerifiedBatchProofResponse>>>;
 
     /// Gets last verified proog
@@ -117,5 +127,5 @@ pub trait LedgerRpc {
     /// Get last scanned l1 height
     #[method(name = "getLastScannedL1Height")]
     #[blocking]
-    fn get_last_scanned_l1_height(&self) -> RpcResult<U64>;
+    fn get_last_scanned_l1_height(&self) -> RpcResult<HexU64>;
 }

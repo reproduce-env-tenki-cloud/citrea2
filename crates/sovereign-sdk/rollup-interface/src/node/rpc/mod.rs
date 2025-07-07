@@ -53,6 +53,7 @@ pub struct SequencerCommitmentResponse {
     /// Hex encoded index - absolute order
     pub index: U32,
     /// Hex encoded End L2 block's number
+    #[serde(with = "utils::u64_hex")]
     pub l2_end_block_number: U64,
 }
 
@@ -65,6 +66,7 @@ pub struct LatestDaStateRpcResponse {
     #[serde(with = "hex::serde")] // without 0x prefix
     pub block_hash: [u8; 32],
     /// Height of the blockchain
+    #[serde(with = "utils::u64_hex")]
     pub block_height: U64,
     /// Total work done in the DA blockchain
     #[serde(with = "utils::rpc_hex")]
@@ -82,6 +84,7 @@ pub struct LatestDaStateRpcResponse {
 /// Activation height and method id
 pub struct BatchProofMethodIdRpcResponse {
     /// Activation height
+    #[serde(with = "utils::u64_hex")]
     pub height: U64,
     #[serde(with = "utils::rpc_hex")]
     /// Method id
@@ -99,6 +102,7 @@ pub struct BatchProofInfoRpcResponse {
     #[serde(with = "utils::rpc_hex")]
     pub final_state_root: [u8; 32],
     /// The last processed l2 height in the batch proof
+    #[serde(with = "utils::u64_hex")]
     pub last_l2_height: U64,
 }
 
@@ -114,6 +118,7 @@ pub struct MMRGuestRpcResponse {
     /// Subroots of the MMR
     pub subroots: Vec<Root>,
     /// Size of the MMR
+    #[serde(with = "utils::u64_hex")]
     pub size: U64,
 }
 
@@ -153,6 +158,7 @@ pub struct LightClientProofOutputRpcResponse {
     /// Latest DA state after proof
     pub latest_da_state: LatestDaStateRpcResponse,
     /// Last l2 height the light client proof verifies
+    #[serde(with = "utils::u64_hex")]
     pub last_l2_height: U64,
     /// The last sequencer commitment index of the last fully stitched and verified batch proof
     pub last_sequencer_commitment_index: U32,
@@ -228,6 +234,7 @@ pub struct LastVerifiedBatchProofResponse {
     /// Proof data
     pub proof: VerifiedBatchProofResponse,
     /// L1 height of the proof
+    #[serde(with = "utils::u64_hex")]
     pub l1_height: U64,
 }
 
@@ -254,6 +261,7 @@ pub struct BatchProofOutputRpcResponse {
     )]
     pub state_diff: CumulativeStateDiff,
     /// The last processed l2 height in the processed sequencer commitments.
+    #[serde(with = "utils::u64_hex")]
     pub last_l2_height: U64,
     /// The range of sequencer commitments in the DA slot that were processed.
     /// The range is inclusive.
@@ -568,6 +576,50 @@ pub mod utils {
             }
         }
     }
+
+    /// Serde module for serializing U64 as hex string with 0x prefix
+    pub mod u64_hex {
+        use alloy_primitives::U64;
+        use serde::{Deserializer, Serializer};
+        use std::fmt;
+
+        /// Serialize U64 as hex string with 0x prefix
+        pub fn serialize<S>(val: &U64, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            let hex_string = format!("0x{:x}", val.to::<u64>());
+            serializer.serialize_str(&hex_string)
+        }
+
+        /// Deserialize U64 from hex string (with or without 0x prefix)
+        pub fn deserialize<'de, D>(deserializer: D) -> Result<U64, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            struct U64HexVisitor;
+
+            impl<'de> serde::de::Visitor<'de> for U64HexVisitor {
+                type Value = U64;
+
+                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                    formatter.write_str("a hex string representing a U64")
+                }
+
+                fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    let hex_str = value.trim_start_matches("0x");
+                    let parsed = u64::from_str_radix(hex_str, 16)
+                        .map_err(|_| serde::de::Error::custom(format!("Invalid hex string: {}", value)))?;
+                    Ok(U64::from(parsed))
+                }
+            }
+
+            deserializer.deserialize_str(U64HexVisitor)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -600,5 +652,85 @@ mod rpc_hex_tests {
 
         let deserialized: TestStruct = serde_json::from_str(r#"{"data": "01020304"}"#).unwrap();
         assert_eq!(deserialized, test_data)
+    }
+}
+
+#[cfg(test)]
+mod u64_hex_tests {
+    use alloy_primitives::U64;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize, PartialEq, Debug)]
+    struct TestU64Struct {
+        #[serde(with = "super::utils::u64_hex")]
+        value: U64,
+    }
+
+    #[test]
+    fn test_u64_hex_serialization() {
+        let test_data = TestU64Struct {
+            value: U64::from(12345),
+        };
+
+        let serialized = serde_json::to_string(&test_data).unwrap();
+        assert!(serialized.contains("0x3039"));
+        
+        let deserialized: TestU64Struct = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, test_data);
+    }
+
+    #[test]
+    fn test_u64_hex_accepts_hex_without_0x_prefix() {
+        let test_data = TestU64Struct {
+            value: U64::from(12345),
+        };
+
+        let deserialized: TestU64Struct = serde_json::from_str(r#"{"value": "3039"}"#).unwrap();
+        assert_eq!(deserialized, test_data);
+    }
+
+    #[test]
+    fn test_u64_hex_accepts_hex_with_0x_prefix() {
+        let test_data = TestU64Struct {
+            value: U64::from(12345),
+        };
+
+        let deserialized: TestU64Struct = serde_json::from_str(r#"{"value": "0x3039"}"#).unwrap();
+        assert_eq!(deserialized, test_data);
+    }
+
+    #[test]
+    fn test_last_verified_batch_proof_response_serialization() {
+        use super::{LastVerifiedBatchProofResponse, VerifiedBatchProofResponse, BatchProofOutputRpcResponse, SerializableHash};
+        
+        let response = LastVerifiedBatchProofResponse {
+            proof: VerifiedBatchProofResponse {
+                proof: vec![1, 2, 3, 4],
+                proof_output: BatchProofOutputRpcResponse {
+                    state_roots: vec![SerializableHash(vec![0xab, 0xcd])],
+                    final_l2_block_hash: vec![0x12, 0x34],
+                    state_diff: Default::default(),
+                    last_l2_height: U64::from(0x789abc),
+                    sequencer_commitment_index_range: (U64::from(1).try_into().unwrap(), U64::from(2).try_into().unwrap()),
+                    sequencer_commitment_hashes: vec![],
+                    last_l1_hash_on_bitcoin_light_client_contract: vec![0x56, 0x78],
+                    previous_commitment_index: None,
+                    previous_commitment_hash: None,
+                },
+            },
+            l1_height: U64::from(12345),
+        };
+        
+        let serialized = serde_json::to_string_pretty(&response).unwrap();
+        println!("Serialized response:\n{}", serialized);
+        
+        // Check that l1_height and last_l2_height are serialized as hex
+        assert!(serialized.contains("\"l1Height\": \"0x3039\""));
+        assert!(serialized.contains("\"lastL2Height\": \"0x789abc\""));
+        
+        // Test deserialization
+        let deserialized: LastVerifiedBatchProofResponse = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.l1_height, response.l1_height);
+        assert_eq!(deserialized.proof.proof_output.last_l2_height, response.proof.proof_output.last_l2_height);
     }
 }
