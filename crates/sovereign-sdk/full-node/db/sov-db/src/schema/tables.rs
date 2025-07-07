@@ -99,6 +99,7 @@ pub const FULL_NODE_LEDGER_TABLES: &[&str] = &[
     L2StatusHeights::table_name(),
     PendingSequencerCommitments::table_name(),
     PendingProofs::table_name(),
+    ChunksByWtxid::table_name(),
     #[cfg(test)]
     TestTableOld::table_name(),
     #[cfg(test)]
@@ -533,6 +534,11 @@ define_table_with_seek_key_codec!(
 define_table_with_seek_key_codec!(
     /// Test table new
     (TestTableNew) u64 => (u64, u64)
+);
+
+define_table_with_default_codec!(
+    /// Stores chunk data by wtxid
+    (ChunksByWtxid) Wtxid => Vec<u8>
 );
 
 impl KeyEncoder<JmtNodes> for NodeKey {
