@@ -73,6 +73,7 @@ pub const SEQUENCER_LEDGER_TABLES: &[&str] = &[
     L2StatusHeights::table_name(),
     PendingSequencerCommitments::table_name(),
     PendingProofs::table_name(),
+    ChunksByWtxid::table_name(),
     // ########
     #[cfg(test)]
     TestTableOld::table_name(),
