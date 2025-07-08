@@ -78,6 +78,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         rollup_config: &FullNodeConfig<Self::DaConfig>,
         require_da_wallet: bool,
         network: Network,
+        ledger_db: LedgerDB,
     ) -> Result<Dependencies<Self>> {
         let task_manager = TaskManager::current();
         let da_service = self
@@ -86,6 +87,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
                 require_da_wallet,
                 task_manager.executor(),
                 network,
+                ledger_db,
             )
             .await?;
         let (l2_block_tx, l2_block_rx) = broadcast::channel(10);

@@ -162,6 +162,7 @@ pub async fn spawn_bitcoin_da_service(
         BitcoinService::from_config(
             &da_config,
             chain_params,
+            None,
             client,
             network,
             network_constants,

@@ -28,6 +28,7 @@ use lru::LruCache;
 use metrics::histogram;
 use reth_tasks::shutdown::GracefulShutdown;
 use serde::{Deserialize, Serialize};
+use sov_db::ledger_db::{LedgerDB, NodeLedgerOps};
 use sov_rollup_interface::da::{DaSpec, DaTxRequest, DataOnDa, SequencerCommitment};
 use sov_rollup_interface::services::da::{DaService, TxRequestWithNotifier};
 use sov_rollup_interface::zk::Proof;
@@ -113,6 +114,7 @@ impl citrea_common::FromEnv for BitcoinServiceConfig {
 pub struct BitcoinService {
     client: Arc<Client>,
     pub(crate) network: bitcoin::Network,
+    ledger_db: Option<LedgerDB>,
     network_constants: NetworkConstants,
     pub(crate) da_private_key: Option<SecretKey>,
     pub(crate) reveal_tx_prefix: Vec<u8>,
@@ -128,6 +130,7 @@ impl BitcoinService {
     pub fn new(
         client: Arc<Client>,
         network: bitcoin::Network,
+        ledger_db: Option<LedgerDB>,
         network_constants: NetworkConstants,
         monitoring: Arc<MonitoringService>,
         fee: FeeService,
@@ -138,6 +141,7 @@ impl BitcoinService {
     ) -> Self {
         Self {
             client,
+            ledger_db,
             network_constants,
             network,
             da_private_key,
@@ -157,6 +161,7 @@ impl BitcoinService {
     pub async fn from_config(
         config: &BitcoinServiceConfig,
         chain_params: RollupParams,
+        ledger_db: Option<LedgerDB>,
         client: Arc<Client>,
         network: bitcoin::Network,
         network_constants: NetworkConstants,
@@ -191,6 +196,7 @@ impl BitcoinService {
         Ok(Self::new(
             client,
             network,
+            ledger_db,
             network_constants,
             monitoring,
             fee_service,
@@ -941,6 +947,8 @@ impl DaService for BitcoinService {
         let mut aggregate_idxs = Vec::new();
         let mut chunks = std::collections::HashMap::new();
 
+        let ledger_db = self.ledger_db.clone().expect("LedgerDB should be present");
+
         for (i, tx) in block.txdata.iter().enumerate() {
             if !tx
                 .compute_wtxid()
@@ -997,10 +1005,7 @@ impl DaService for BitcoinService {
                             warn!("{tx_id}: Chunk: unexpected kind");
                             continue;
                         };
-                        if let Err(e) = self
-                            .ledger_db
-                            .store_chunk(wtxid.to_byte_array(), chunk_data)
-                        {
+                        if let Err(e) = ledger_db.store_chunk(wtxid.to_byte_array(), chunk_data) {
                             warn!("{tx_id}: Failed to store chunk: {e}");
                             continue;
                         }
@@ -1051,7 +1056,7 @@ impl DaService for BitcoinService {
                 };
 
                 // Get chunk data from ledger db
-                let chunk_data = match self.ledger_db.get_chunk(wtxid.to_byte_array()) {
+                let chunk_data = match ledger_db.get_chunk(wtxid.to_byte_array()) {
                     Ok(Some(data)) => data,
                     Ok(None) => {
                         error!("{}:{}: Chunk data not found for wtxid", tx_id, wtxid);
@@ -1066,7 +1071,7 @@ impl DaService for BitcoinService {
                 body.extend(chunk_data);
 
                 // Delete chunk after successful processing
-                if let Err(e) = self.ledger_db.delete_chunk(wtxid.to_byte_array()) {
+                if let Err(e) = ledger_db.delete_chunk(wtxid.to_byte_array()) {
                     warn!("{}:{}: Failed to delete chunk: {e}", tx_id, wtxid);
                 }
             }
