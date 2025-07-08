@@ -1,7 +1,9 @@
+//! This module provides a monitoring service for Bitcoin transactions.
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::anyhow;
 use bitcoin::address::NetworkUnchecked;
@@ -16,6 +18,7 @@ use reth_tasks::shutdown::GracefulShutdown;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::select;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::interval;
 use tracing::{debug, error, info, instrument};
@@ -27,67 +30,99 @@ use crate::spec::utxo::UTXO;
 type BlockHeight = u64;
 type Result<T> = std::result::Result<T, MonitorError>;
 
-fn get_timestamp() -> anyhow::Result<u64> {
-    Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
+/// Return UNIX timestamp in seconds
+fn get_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Cannot fail because there is always a UNIX epoch")
+        .as_secs()
 }
 
+/// Transaction status in the monitoring service.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TxStatus {
-    // Tx in mempool
+    /// Queued tx, not already broadcasted
+    Queued,
+    /// Tx in mempool
     #[serde(rename_all = "camelCase")]
-    InMempool { base_fee: u64, timestamp: u64 },
-    // Tx confirmed but below finality_depth
+    InMempool {
+        /// Base fee rate.
+        base_fee: u64,
+        /// Timestamp.
+        timestamp: u64,
+    },
+    /// Tx confirmed but below finality_depth
     #[serde(rename_all = "camelCase")]
     Confirmed {
+        /// Block hash where the tx was confirmed.
         block_hash: BlockHash,
+        /// Block height where the tx was confirmed.
         block_height: u64,
+        /// Number of confirmations.
         confirmations: u64,
     },
-    // Tx confirmed above finality_depth
+    /// Tx confirmed above finality_depth
     #[serde(rename_all = "camelCase")]
     Finalized {
+        /// Block hash where the tx was confirmed.
         block_hash: BlockHash,
+        /// Block height where the tx was confirmed.
         block_height: u64,
+        /// Number of confirmations.
         confirmations: u64,
     },
-    // Tx replaced by RBF
+    /// Tx replaced by RBF
     #[serde(rename_all = "camelCase")]
-    Replaced { by_txid: Txid },
-    // Tx that was previously in mempool and not found anymore
+    Replaced {
+        /// Txid of the transaction that replaced this one.
+        by_txid: Txid,
+    },
+    /// Tx that was previously in mempool and not found anymore
     #[serde(rename_all = "camelCase")]
     Evicted {
+        /// Last seen timestamp.
         last_seen: u64,
+        /// Number of rebroadcast attempts.
         rebroadcast_attempts: u32,
+        /// Last error message.
         last_error: Option<String>,
     },
 }
 
+/// The kind of transaction being monitored.
 #[derive(Debug, Clone, Copy)]
 pub enum MonitoredTxKind {
+    /// Commit transaction, the first in a commit/reveal pair
     Commit,
+    /// Reveal transaction, the second in a commit/reveal pair
     Reveal,
+    /// Child-pays-for-parent transaction
     Cpfp,
 }
 
+/// A type for a monitored transaction with its metadata.
 #[derive(Debug, Clone)]
 pub struct MonitoredTx {
-    pub tx: Transaction,
-    pub txid: Txid,
+    pub(crate) tx: Transaction,
+    pub(crate) txid: Txid,
     address: Option<Address<NetworkUnchecked>>,
-    pub initial_broadcast: u64,
-    pub initial_height: BlockHeight,
-    last_checked: Instant,
-    pub status: TxStatus,
-    pub prev_txid: Option<Txid>, // Previous tx in chain
-    pub next_txid: Option<Txid>, // Next tx in chain
-    pub kind: MonitoredTxKind,
+    pub(crate) initial_broadcast: u64,
+    pub(crate) initial_height: BlockHeight,
+    last_checked: u64,
+    pub(crate) status: TxStatus,
+    /// Previous tx in the chain
+    pub(crate) prev_txid: Option<Txid>,
+    /// Next tx in the chain
+    pub(crate) next_txid: Option<Txid>,
+    pub(crate) kind: MonitoredTxKind,
 }
 
 impl MonitoredTx {
+    /// Return the UTXOs for this transaction if it's not replaced or evicted.
     pub fn to_utxos(&self) -> Option<Vec<UTXO>> {
         let confirmations = match self.status {
-            TxStatus::InMempool { .. } => 0,
+            TxStatus::Queued | TxStatus::InMempool { .. } => 0,
             TxStatus::Confirmed { confirmations, .. }
             | TxStatus::Finalized { confirmations, .. } => confirmations,
             _ => return None,
@@ -113,31 +148,52 @@ impl MonitoredTx {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+/// The state of the blockchain.
+#[derive(Debug, Clone)]
 pub struct ChainState {
     current_height: BlockHeight,
-    current_tip: Option<BlockHash>,
+    current_tip: BlockHash,
     recent_blocks: Vec<(BlockHash, BlockHeight)>,
 }
 
+impl Default for ChainState {
+    fn default() -> Self {
+        Self {
+            current_height: BlockHeight::default(),
+            current_tip: BlockHash::all_zeros(),
+            recent_blocks: Vec::new(),
+        }
+    }
+}
+
+/// Error types for the monitoring service.
 #[derive(Error, Debug)]
 pub enum MonitorError {
+    /// Already monitored.
     #[error("Transaction already monitored")]
     AlreadyMonitored,
+    /// Transaction not found.
     #[error("Transaction not found")]
     TxNotFound,
-    #[error("BlockHash not found")]
-    BlockHashNotFound,
+    /// BlockHash not set.
+    #[error("BlockHash not set")]
+    BlockHashNotSet,
+    /// Previous transaction is not monitored.
     #[error("Previous transaction not monitored: {0}")]
     PrevTxNotMonitored(Txid),
+    /// Invalid transaction chain, odd number of transactions.
     #[error("Invalid tx chain, odd number of txs")]
     OddNumberOfTxs,
+    /// Transaction rebroadcast failed.
     #[error("Transaction rebroadcast failed: {0}")]
     RebroadcastFailed(String),
+    /// RPC error.
     #[error(transparent)]
     BitcoinRpcError(#[from] bitcoincore_rpc::Error),
     #[error(transparent)]
+    /// Bitcoin encoding error.
     BitcoinEncodeError(#[from] bitcoin::consensus::encode::Error),
+    /// Other errors.
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -164,16 +220,22 @@ mod monitoring_defaults {
     }
 }
 
+/// Configuration for the monitoring service.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct MonitoringConfig {
+    /// Interval in seconds to check the chain state and transactions.
     #[serde(default = "monitoring_defaults::check_interval")]
     pub check_interval: u64,
+    /// Limit on the number of historical transactions to keep track of.
     #[serde(default = "monitoring_defaults::history_limit")]
     pub history_limit: usize,
+    /// Maximum size of the history in bytes.
     #[serde(default = "monitoring_defaults::max_history_size")]
     pub max_history_size: usize,
+    /// Maximum number of rebroadcast attempts for evicted txs.
     #[serde(default = "monitoring_defaults::max_rebroadcast_attempts")]
     pub max_rebroadcast_attempts: u32,
+    /// Delay between rebroadcast attempts.
     #[serde(default = "monitoring_defaults::rebroadcast_delay")]
     pub rebroadcast_delay: u64,
 }
@@ -226,6 +288,9 @@ impl FromEnv for MonitoringConfig {
     }
 }
 
+/// Monitoring service for tracking transaction status and chain re-orgs.
+/// It monitors commit/reveal transaction pairs, handles rebroadcasting of evicted transactions,
+/// and maintains the chain state based on recent blocks.
 #[derive(Debug)]
 pub struct MonitoringService {
     client: Arc<Client>,
@@ -234,25 +299,38 @@ pub struct MonitoringService {
     config: MonitoringConfig,
     // Last tx in queue
     last_tx: Mutex<Option<Txid>>,
-    // Keep track of total monitored transaction size
-    // Only takes into account inner tx field from MonitoredTx
+    /// Keep track of total monitored transaction size
+    /// Only takes into account inner tx field from MonitoredTx
     total_size: AtomicUsize,
     finality_depth: u64,
+    block_tx: UnboundedSender<u64>,
 }
 
 impl MonitoringService {
-    pub fn new(client: Arc<Client>, config: Option<MonitoringConfig>, finality_depth: u64) -> Self {
-        Self {
-            client,
-            monitored_txs: RwLock::new(HashMap::new()),
-            chain_state: RwLock::new(ChainState::default()),
-            config: config.unwrap_or_default(),
-            last_tx: Mutex::new(None),
-            total_size: AtomicUsize::new(0),
-            finality_depth,
-        }
+    /// Creates a new instance of the MonitoringService
+    pub fn new(
+        client: Arc<Client>,
+        config: Option<MonitoringConfig>,
+        finality_depth: u64,
+    ) -> (Self, UnboundedReceiver<u64>) {
+        let (block_tx, block_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        (
+            Self {
+                client,
+                monitored_txs: RwLock::new(HashMap::new()),
+                chain_state: RwLock::new(ChainState::default()),
+                config: config.unwrap_or_default(),
+                last_tx: Mutex::new(None),
+                total_size: AtomicUsize::new(0),
+                finality_depth,
+                block_tx,
+            },
+            block_rx,
+        )
     }
 
+    /// Restores the chain state and transaction monitoring from UTXOs
     pub async fn restore(&self) -> Result<()> {
         self.initialize_chainstate().await?;
         self.restore_from_utxos().await
@@ -273,7 +351,7 @@ impl MonitoringService {
         let mut chain_state = self.chain_state.write().await;
         *chain_state = ChainState {
             current_height,
-            current_tip: Some(current_tip),
+            current_tip,
             recent_blocks,
         };
 
@@ -292,7 +370,7 @@ impl MonitoringService {
         });
         tracing::trace!("[restore_from_utxos] {unspent:?}");
 
-        let mut txids = Vec::new();
+        let mut txs = Vec::new();
         for tx in &unspent {
             let reveal_txid = tx.txid;
             let reveal_tx = self
@@ -317,20 +395,23 @@ impl MonitoringService {
                     .transaction()
                     .unwrap();
 
-                txids.push(TxWithId {
-                    id: commit_txid,
-                    tx: commit_tx,
-                });
-                txids.push(TxWithId {
-                    id: reveal_txid,
-                    tx: reveal_tx,
-                });
+                txs.push([
+                    TxWithId {
+                        id: commit_txid,
+                        tx: commit_tx,
+                    },
+                    TxWithId {
+                        id: reveal_txid,
+                        tx: reveal_tx,
+                    },
+                ]);
             }
         }
 
-        tracing::trace!("[restore_from_utxos] {txids:?}");
+        tracing::trace!("[restore_from_utxos] {txs:?}");
 
-        self.monitor_transaction_chain(txids).await
+        self.monitor_transaction_chain(txs).await?;
+        self.check_transactions().await
     }
 
     /// Run monitoring to keep track of TX status and chain re-orgs
@@ -366,15 +447,10 @@ impl MonitoringService {
     /// The txids are expected to be in order: [commit1, reveal1, commit2, reveal2, ..., commitN, revealN]
     /// where intermediate pairs are chunks leading to the final commit/reveal pair
     #[instrument(level = "trace", skip(self))]
-    pub async fn monitor_transaction_chain(&self, txs: Vec<TxWithId>) -> Result<()> {
-        if txs.len() % 2 != 0 {
-            return Err(MonitorError::OddNumberOfTxs);
-        }
-
+    pub async fn monitor_transaction_chain(&self, txs: Vec<[TxWithId; 2]>) -> Result<()> {
         let mut last_tx = *self.last_tx.lock().await;
 
-        let mut txids_iter = txs.into_iter();
-        while let (Some(commit), Some(reveal)) = (txids_iter.next(), txids_iter.next()) {
+        for [commit, reveal] in txs {
             let next_id = reveal.id;
             let prev_id = commit.id;
             self.monitor_transaction(commit, last_tx, Some(next_id), MonitoredTxKind::Commit)
@@ -389,6 +465,7 @@ impl MonitoringService {
         Ok(())
     }
 
+    /// Add a transaction to the monitoring service.
     #[instrument(skip(self))]
     pub async fn monitor_transaction(
         &self,
@@ -413,22 +490,18 @@ impl MonitoringService {
         }
 
         let current_height = self.client.get_block_count().await?;
-        let tx_result = self.client.get_transaction(&txid, None).await?;
-        let tx = tx_result.transaction()?;
 
-        self.total_size.fetch_add(tx.total_size(), Ordering::SeqCst);
+        self.total_size
+            .fetch_add(tx.tx.total_size(), Ordering::SeqCst);
 
-        let status = self.determine_tx_status(&tx_result).await?;
+        let status = TxStatus::Queued;
         let monitored_tx = MonitoredTx {
-            tx,
+            tx: tx.tx,
             txid,
-            address: tx_result
-                .details
-                .first()
-                .and_then(|detail| detail.address.clone()),
-            initial_broadcast: get_timestamp()?,
+            address: None,
+            initial_broadcast: get_timestamp(),
             initial_height: current_height,
-            last_checked: Instant::now(),
+            last_checked: get_timestamp(),
             status,
             prev_txid,
             next_txid,
@@ -442,7 +515,7 @@ impl MonitoringService {
         Ok(())
     }
 
-    // Replace a TX with a new RBF tx
+    /// Replace a TX with a new RBF tx.
     #[instrument(skip(self))]
     pub async fn replace_txid(&self, prev_txid: Txid, new_txid: Txid) -> Result<()> {
         let monitored_tx = self
@@ -458,7 +531,9 @@ impl MonitoringService {
         let tx = tx_result.transaction()?;
         self.total_size.fetch_add(tx.total_size(), Ordering::SeqCst);
 
-        let status = self.determine_tx_status(&tx_result).await?;
+        let status = self
+            .determine_tx_status(&tx_result, &monitored_tx.status)
+            .await?;
 
         let new_tx = MonitoredTx {
             tx,
@@ -467,9 +542,9 @@ impl MonitoringService {
                 .details
                 .first()
                 .and_then(|detail| detail.address.clone()),
-            initial_broadcast: get_timestamp()?,
+            initial_broadcast: get_timestamp(),
             initial_height: current_height,
-            last_checked: Instant::now(),
+            last_checked: get_timestamp(),
             status,
             kind: monitored_tx.kind,
             prev_txid: monitored_tx.prev_txid,
@@ -501,7 +576,10 @@ impl MonitoringService {
 
         let mut chain_state = self.chain_state.write().await;
 
-        if new_tip != chain_state.current_tip.unwrap_or(BlockHash::all_zeros()) {
+        if new_tip != chain_state.current_tip {
+            // Send new tip notification
+            let _ = self.block_tx.send(new_height);
+
             let mut current_hash: BlockHash;
             let mut new_blocks = vec![(new_tip, new_height)];
             let mut reorg_detected = false;
@@ -531,7 +609,7 @@ impl MonitoringService {
             }
 
             chain_state.current_height = new_height;
-            chain_state.current_tip = Some(new_tip);
+            chain_state.current_tip = new_tip;
             chain_state.recent_blocks = new_blocks;
         }
 
@@ -545,7 +623,7 @@ impl MonitoringService {
             if let TxStatus::Confirmed { confirmations, .. } = tx.status {
                 if confirmations <= depth {
                     let tx_result = self.client.get_transaction(txid, None).await?;
-                    tx.status = self.determine_tx_status(&tx_result).await?;
+                    tx.status = self.determine_tx_status(&tx_result, &tx.status).await?;
 
                     if let TxStatus::InMempool { .. } = tx.status {
                         info!("Rebroadcasting tx {} {tx:?}", tx.tx.compute_txid());
@@ -566,31 +644,38 @@ impl MonitoringService {
         for (txid, monitored_tx) in txs.iter_mut() {
             match &monitored_tx.status {
                 // Check non-finalized TXs
-                TxStatus::InMempool { .. }
+                TxStatus::Queued
+                | TxStatus::InMempool { .. }
                 | TxStatus::Evicted { .. }
                 | TxStatus::Confirmed { .. }
                 | TxStatus::Replaced { .. } => {
                     let tx_result = self.client.get_transaction(txid, None).await?;
-                    let new_status = self.determine_tx_status(&tx_result).await?;
+                    let new_status = self
+                        .determine_tx_status(&tx_result, &monitored_tx.status)
+                        .await?;
 
                     monitored_tx.status = new_status;
                 }
                 _ => {}
             }
 
-            monitored_tx.last_checked = Instant::now();
+            monitored_tx.last_checked = get_timestamp();
         }
 
         Ok(())
     }
 
-    async fn determine_tx_status(&self, tx_result: &GetTransactionResult) -> Result<TxStatus> {
+    async fn determine_tx_status(
+        &self,
+        tx_result: &GetTransactionResult,
+        current_status: &TxStatus,
+    ) -> Result<TxStatus> {
         let confirmations = tx_result.info.confirmations as u64;
         let status = if confirmations > 0 {
             let block_hash = tx_result
                 .info
                 .blockhash
-                .ok_or(MonitorError::BlockHashNotFound)?;
+                .ok_or(MonitorError::BlockHashNotSet)?;
             let block_height = self
                 .client
                 .get_block_info(&block_hash)
@@ -617,19 +702,17 @@ impl MonitoringService {
                     let base_fee = entry.fees.base.to_sat();
                     TxStatus::InMempool {
                         base_fee,
-                        timestamp: SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs(),
+                        timestamp: get_timestamp(),
                     }
                 }
                 Err(_) => {
+                    if *current_status == TxStatus::Queued {
+                        return Ok(current_status.clone());
+                    }
+
                     tracing::info!("Tx {} was evicted from mempool.", tx_result.info.txid);
                     TxStatus::Evicted {
-                        last_seen: SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs(),
+                        last_seen: get_timestamp(),
                         rebroadcast_attempts: 0,
                         last_error: None,
                     }
@@ -679,10 +762,13 @@ impl MonitoringService {
             } = &monitored_tx.status
             {
                 if *rebroadcast_attempts < self.config.max_rebroadcast_attempts {
-                    let now = get_timestamp()?;
+                    let now = get_timestamp();
 
                     if now.saturating_sub(*last_seen) >= self.config.rebroadcast_delay {
-                        match self.attempt_rebroadcast(txid, &monitored_tx.tx).await {
+                        match self
+                            .attempt_rebroadcast(txid, &monitored_tx.tx, &monitored_tx.status)
+                            .await
+                        {
                             Ok(new_status) => {
                                 info!("Successfully rebroadcast tx {txid}");
                                 monitored_tx.status = new_status;
@@ -705,35 +791,63 @@ impl MonitoringService {
     }
 
     #[instrument(skip(self, tx))]
-    async fn attempt_rebroadcast(&self, txid: &Txid, tx: &Transaction) -> Result<TxStatus> {
+    async fn attempt_rebroadcast(
+        &self,
+        txid: &Txid,
+        tx: &Transaction,
+        current_status: &TxStatus,
+    ) -> Result<TxStatus> {
         let raw_tx_hex = bitcoin::consensus::encode::serialize_hex(tx);
         self.client.send_raw_transaction(raw_tx_hex).await?;
         let tx_result = self.client.get_transaction(txid, None).await?;
-        self.determine_tx_status(&tx_result).await
+        self.determine_tx_status(&tx_result, current_status).await
     }
 
+    /// Get the status of a monitored transaction by its Txid
     pub async fn get_tx_status(&self, txid: &Txid) -> Option<TxStatus> {
         self.get_monitored_tx(txid).await.map(|tx| tx.status)
     }
 
+    /// Get a monitored transaction by its Txid
     pub async fn get_monitored_tx(&self, txid: &Txid) -> Option<MonitoredTx> {
         self.monitored_txs.read().await.get(txid).cloned()
     }
 
+    /// Get all monitored transactions.
     pub async fn get_monitored_txs(&self) -> HashMap<Txid, MonitoredTx> {
         self.monitored_txs.read().await.clone()
     }
 
+    /// Get the last monitored transaction.
     pub async fn get_last_tx(&self) -> Option<(Txid, MonitoredTx)> {
         let last_txid = (*self.last_tx.lock().await)?;
         let tx = self.monitored_txs.read().await.get(&last_txid)?.to_owned();
         Some((last_txid, tx))
     }
 
+    /// Set the next_txid for a given transaction.
     pub async fn set_next_tx(&self, txid: &Txid, next_txid: Txid) {
         let mut monitored_txs = self.monitored_txs.write().await;
         if let Some(parent) = monitored_txs.get_mut(txid) {
             parent.next_txid = Some(next_txid);
         }
+    }
+
+    /// Fetch and update the status of multiple transactions.
+    pub async fn update_txs_status(&self, txids: &[Txid]) -> Result<()> {
+        let mut monitored_txs = self.monitored_txs.write().await;
+        for txid in txids {
+            if let Some(entry) = monitored_txs.get_mut(txid) {
+                if let Ok(tx_result) = self.client.get_transaction(txid, None).await {
+                    entry.status = self.determine_tx_status(&tx_result, &entry.status).await?;
+                    entry.last_checked = get_timestamp();
+                    entry.address = tx_result
+                        .details
+                        .first()
+                        .and_then(|detail| detail.address.clone());
+                }
+            }
+        }
+        Ok(())
     }
 }

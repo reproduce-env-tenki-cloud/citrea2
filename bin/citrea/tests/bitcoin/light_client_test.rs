@@ -6,7 +6,7 @@ use alloy_primitives::{U32, U64};
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::Txid;
-use bitcoin_da::helpers::parsers::{parse_relevant_transaction, ParsedTransaction};
+use bitcoin_da::helpers::parsers::{parse_relevant_transaction, ParsedTransaction, VerifyParsed};
 use bitcoin_da::spec::RollupParams;
 use bitcoin_da::verifier::BitcoinVerifier;
 use bitcoincore_rpc::{Client, RpcApi};
@@ -1403,6 +1403,10 @@ impl TestCase for UnchainedBatchProofsTest {
         }
     }
 
+    fn scan_l1_start_height() -> Option<u64> {
+        Some(164)
+    }
+
     async fn cleanup(self) -> Result<()> {
         self.task_manager
             .graceful_shutdown_with_timeout(Duration::from_secs(1));
@@ -1575,6 +1579,7 @@ impl TestCase for UnchainedBatchProofsTest {
                 .await
                 .unwrap(),
         );
+
         da.wait_mempool_len(6, None).await?;
 
         da.generate_block(
@@ -1582,7 +1587,9 @@ impl TestCase for UnchainedBatchProofsTest {
                 .await?
                 .assume_checked()
                 .to_string(),
-            txs.into_iter().map(|tx| tx.id.to_string()).collect(),
+            txs.into_iter()
+                .flat_map(|tx| [tx[0].id.to_string(), tx[1].id.to_string()])
+                .collect(),
         )
         .await?;
 
@@ -2271,7 +2278,9 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
                 .await?
                 .assume_checked()
                 .to_string(),
-            txs.into_iter().map(|tx| tx.id.to_string()).collect(),
+            txs.into_iter()
+                .flat_map(|tx| [tx[0].id.to_string(), tx[1].id.to_string()])
+                .collect(),
         )
         .await?;
 
@@ -2338,7 +2347,9 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
                 .await?
                 .assume_checked()
                 .to_string(),
-            txs.into_iter().map(|tx| tx.id.to_string()).collect(),
+            txs.into_iter()
+                .flat_map(|tx| [tx[0].id.to_string(), tx[1].id.to_string()])
+                .collect(),
         )
         .await?;
 
@@ -2412,7 +2423,9 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
                 .await?
                 .assume_checked()
                 .to_string(),
-            txs.into_iter().map(|tx| tx.id.to_string()).collect(),
+            txs.into_iter()
+                .flat_map(|tx| [tx[0].id.to_string(), tx[1].id.to_string()])
+                .collect(),
         )
         .await?;
 
@@ -2449,7 +2462,9 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
                 .await?
                 .assume_checked()
                 .to_string(),
-            txs.into_iter().map(|tx| tx.id.to_string()).collect(),
+            txs.into_iter()
+                .flat_map(|tx| [tx[0].id.to_string(), tx[1].id.to_string()])
+                .collect(),
         )
         .await?;
 
@@ -2823,7 +2838,7 @@ struct UndecompressableBlobTest {
 impl UndecompressableBlobTest {
     fn verify_complete_is_non_decompressable(tx: &bitcoin::Transaction) -> bool {
         if let Ok(ParsedTransaction::Complete(complete)) = parse_relevant_transaction(tx) {
-            let Ok(data) = DataOnDa::try_from_slice(&complete.body) else {
+            let Ok(data) = DataOnDa::try_from_slice(complete.body()) else {
                 panic!("Failed to parse complete data");
             };
 
@@ -2841,7 +2856,7 @@ impl UndecompressableBlobTest {
 
         for tx in &block.txdata {
             if let Ok(ParsedTransaction::Aggregate(aggregate)) = parse_relevant_transaction(tx) {
-                complete_proof.extend_from_slice(&aggregate.body);
+                complete_proof.extend_from_slice(aggregate.body());
             }
         }
 
