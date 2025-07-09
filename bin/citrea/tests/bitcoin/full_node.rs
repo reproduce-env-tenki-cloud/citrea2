@@ -18,6 +18,8 @@ use citrea_fullnode::rpc::FullNodeRpcClient;
 use citrea_light_client_prover::rpc::LightClientProverRpcClient;
 use reth_tasks::TaskManager;
 use risc0_zkvm::{FakeReceipt, InnerReceipt, MaybePruned, ReceiptClaim};
+use sov_db::ledger_db::LedgerDB;
+use sov_db::rocks_db_config::RocksdbConfig;
 use sov_db::schema::types::L2HeightAndIndex;
 use sov_ledger_rpc::LedgerRpcClient;
 use sov_modules_api::BatchProofCircuitOutputV3;
@@ -536,11 +538,15 @@ impl TestCase for PendingCommitmentHaltingErrorTest {
 
         let max_l2_blocks_per_commitment = sequencer.max_l2_blocks_per_commitment();
 
+        let da_ledger_dir = Self::test_config().dir.join("da_ledger");
+        let rocksdb_config = RocksdbConfig::new(&da_ledger_dir, None, None);
+        let da_ledger_db = LedgerDB::with_config(&rocksdb_config)?;
+
         let bitcoin_da_service = spawn_bitcoin_da_prover_service(
             &task_executor,
             &da.config,
             Self::test_config().dir,
-            None,
+            Some(da_ledger_db),
         )
         .await;
 
@@ -963,11 +969,15 @@ impl TestCase for OutOfOrderCommitmentsTest {
 
         let max_l2_blocks_per_commitment = sequencer.max_l2_blocks_per_commitment();
 
+        let da_ledger_dir = Self::test_config().dir.join("da_ledger");
+        let rocksdb_config = RocksdbConfig::new(&da_ledger_dir, None, None);
+        let da_ledger_db = LedgerDB::with_config(&rocksdb_config)?;
+
         let bitcoin_da_service = spawn_bitcoin_da_prover_service(
             &task_executor,
             &da.config,
             Self::test_config().dir,
-            None,
+            Some(da_ledger_db),
         )
         .await;
 
@@ -1160,11 +1170,15 @@ impl TestCase for ConflictingCommitmentsTest {
 
         let max_l2_blocks_per_commitment = sequencer.max_l2_blocks_per_commitment();
 
+        let da_ledger_dir = Self::test_config().dir.join("da_ledger");
+        let rocksdb_config = RocksdbConfig::new(&da_ledger_dir, None, None);
+        let da_ledger_db = LedgerDB::with_config(&rocksdb_config)?;
+
         let bitcoin_da_service = spawn_bitcoin_da_prover_service(
             &task_executor,
             &da.config,
             Self::test_config().dir,
-            None,
+            Some(da_ledger_db),
         )
         .await;
 
