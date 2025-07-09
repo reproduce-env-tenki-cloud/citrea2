@@ -578,6 +578,7 @@ impl TestCase for LightClientBatchProofMethodIdUpdateTest {
                 "79122E48DF1A002FB6584B2E94D0D50F95037416C82DAF280F21CD67D17D9077".to_string(),
             ),
             REVEAL_TX_PREFIX.to_vec(),
+            None,
         )
         .await;
 
@@ -783,6 +784,7 @@ impl TestCase for LightClientUnverifiableBatchProofTest {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -790,6 +792,7 @@ impl TestCase for LightClientUnverifiableBatchProofTest {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -1046,6 +1049,7 @@ impl TestCase for VerifyChunkedTxsInLightClient {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -1053,6 +1057,7 @@ impl TestCase for VerifyChunkedTxsInLightClient {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -1421,6 +1426,7 @@ impl TestCase for UnchainedBatchProofsTest {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -1428,6 +1434,7 @@ impl TestCase for UnchainedBatchProofsTest {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -1693,12 +1700,14 @@ impl TestCase for UnknownL1HashBatchProofTest {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
         let sequencer_bitcoin_da_service = spawn_bitcoin_da_sequencer_service(
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -1837,6 +1846,7 @@ impl TestCase for ChainProofByCommitmentIndex {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -1844,6 +1854,7 @@ impl TestCase for ChainProofByCommitmentIndex {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -2049,6 +2060,7 @@ impl TestCase for ProofWithMissingCommitment {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -2194,6 +2206,7 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -2201,6 +2214,7 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -2212,6 +2226,7 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
                 "1212121212121212121212121212121212121212121212121212121212121212".to_string(),
             ),
             REVEAL_TX_PREFIX.to_vec(),
+            None,
         )
         .await;
 
@@ -2545,6 +2560,7 @@ impl TestCase for ProofWithWrongPreviousCommitmentHash {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -2552,6 +2568,7 @@ impl TestCase for ProofWithWrongPreviousCommitmentHash {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
@@ -3070,6 +3087,7 @@ impl TestCase for UndecompressableBlobTest {
             &self.task_manager.executor(),
             &da.config,
             Self::test_config().dir,
+            None,
         )
         .await;
 
