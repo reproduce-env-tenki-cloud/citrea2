@@ -123,6 +123,7 @@ impl TestCase for BitcoinServiceTest {
                 .into_iter()
                 .map(|(_, proof)| proof)
                 .collect();
+
             assert_eq!(proofs, block_proofs);
         }
 

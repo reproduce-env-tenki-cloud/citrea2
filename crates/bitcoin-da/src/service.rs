@@ -918,25 +918,28 @@ impl DaService for BitcoinService {
                 error!("{tx_id}: Chunk IDs and WTXID lengths mismatch");
                 continue;
             }
+
             for (chunk_id, wtxid) in chunk_ids.iter().zip(wtx_ids.iter()) {
                 let chunk_id = Txid::from_byte_array(*chunk_id);
                 let wtxid = Wtxid::from_byte_array(*wtxid);
 
-                // Verify chunk order
-                if let Err(e) = self
-                    .verify_chunk_order(
-                        block.header.height,
-                        &tx_id,
-                        &chunk_id,
-                        aggregate_idx,
-                        None,
-                        &chunks,
-                    )
-                    .await
-                {
-                    warn!("{}:{}: Failed to process chunk: {e}", tx_id, chunk_id);
-                    continue 'aggregate;
-                };
+                // Verify chunk order - only for chunks in the same block
+                if chunks.contains_key(&chunk_id) {
+                    if let Err(e) = self
+                        .verify_chunk_order(
+                            block.header.height,
+                            &tx_id,
+                            &chunk_id,
+                            aggregate_idx,
+                            None,
+                            &chunks,
+                        )
+                        .await
+                    {
+                        warn!("{}:{}: Failed to process chunk: {e}", tx_id, chunk_id);
+                        continue 'aggregate;
+                    };
+                }
 
                 // Get chunk data from ledger db
                 let chunk_data = match ledger_db.get_chunk(wtxid.to_byte_array()) {
@@ -952,12 +955,8 @@ impl DaService for BitcoinService {
                 };
 
                 body.extend(chunk_data);
-
-                // Delete chunk after successful processing
-                if let Err(e) = ledger_db.delete_chunk(wtxid.to_byte_array()) {
-                    warn!("{}:{}: Failed to delete chunk: {e}", tx_id, wtxid);
-                }
             }
+
             let Ok(zk_proof) = decompress_blob(&body) else {
                 warn!("{tx_id}: Failed to decompress blob from Aggregate");
                 continue 'aggregate;
