@@ -999,14 +999,6 @@ impl NodeLedgerOps for LedgerDB {
     fn get_chunk(&self, wtxid: Wtxid) -> anyhow::Result<Option<Vec<u8>>> {
         self.db.get::<ChunksByWtxid>(&wtxid)
     }
-
-    #[instrument(level = "trace", skip(self), err)]
-    fn delete_chunk(&self, wtxid: Wtxid) -> anyhow::Result<()> {
-        let mut schema_batch = SchemaBatch::new();
-        schema_batch.delete::<ChunksByWtxid>(&wtxid)?;
-        self.db.write_schemas(schema_batch)?;
-        Ok(())
-    }
 }
 
 #[cfg(test)]

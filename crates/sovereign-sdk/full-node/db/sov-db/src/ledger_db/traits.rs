@@ -213,9 +213,6 @@ pub trait NodeLedgerOps: SharedLedgerOps + Send + Sync {
 
     /// Get a chunk by its wtxid
     fn get_chunk(&self, wtxid: Wtxid) -> Result<Option<Vec<u8>>>;
-
-    /// Delete a chunk by its wtxid
-    fn delete_chunk(&self, wtxid: Wtxid) -> Result<()>;
 }
 
 /// Prover ledger operations
