@@ -538,11 +538,11 @@ impl TestCase for PendingCommitmentHaltingErrorTest {
 
         let max_l2_blocks_per_commitment = sequencer.max_l2_blocks_per_commitment();
 
-        let da_ledger_dir = Self::test_config().dir.join("da_ledger");
+        let da_ledger_dir = Self::test_config().dir.join(LedgerDB::DB_PATH_SUFFIX);
         let rocksdb_config = RocksdbConfig::new(&da_ledger_dir, None, None);
         let da_ledger_db = LedgerDB::with_config(&rocksdb_config)?;
 
-        let bitcoin_da_service = spawn_bitcoin_da_prover_service(
+        let bitcoin_da_service = spawn_bitcoin_da_sequencer_service(
             &task_executor,
             &da.config,
             Self::test_config().dir,
@@ -969,11 +969,11 @@ impl TestCase for OutOfOrderCommitmentsTest {
 
         let max_l2_blocks_per_commitment = sequencer.max_l2_blocks_per_commitment();
 
-        let da_ledger_dir = Self::test_config().dir.join("da_ledger");
+        let da_ledger_dir = Self::test_config().dir.join(LedgerDB::DB_PATH_SUFFIX);
         let rocksdb_config = RocksdbConfig::new(&da_ledger_dir, None, None);
         let da_ledger_db = LedgerDB::with_config(&rocksdb_config)?;
 
-        let bitcoin_da_service = spawn_bitcoin_da_prover_service(
+        let bitcoin_da_service = spawn_bitcoin_da_sequencer_service(
             &task_executor,
             &da.config,
             Self::test_config().dir,
@@ -1170,11 +1170,11 @@ impl TestCase for ConflictingCommitmentsTest {
 
         let max_l2_blocks_per_commitment = sequencer.max_l2_blocks_per_commitment();
 
-        let da_ledger_dir = Self::test_config().dir.join("da_ledger");
+        let da_ledger_dir = Self::test_config().dir.join(LedgerDB::DB_PATH_SUFFIX);
         let rocksdb_config = RocksdbConfig::new(&da_ledger_dir, None, None);
         let da_ledger_db = LedgerDB::with_config(&rocksdb_config)?;
 
-        let bitcoin_da_service = spawn_bitcoin_da_prover_service(
+        let bitcoin_da_service = spawn_bitcoin_da_sequencer_service(
             &task_executor,
             &da.config,
             Self::test_config().dir,
