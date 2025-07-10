@@ -1,5 +1,6 @@
 use core::fmt::Debug as DebugTrait;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -237,9 +238,14 @@ where
         rollup_config.rpc.clone(),
     )?;
 
+    let lcp_finished = Arc::new(AtomicBool::new(false));
     if matches!(node_type, NodeWithConfig::LightClientProver(_)) {
-        register_healthcheck_rpc_light_client_prover(&mut rpc_module, da_service.clone())
-            .expect("Failed to register healthcheck RPC for light client prover");
+        register_healthcheck_rpc_light_client_prover(
+            &mut rpc_module,
+            da_service.clone(),
+            lcp_finished.clone(),
+        )
+        .expect("Failed to register healthcheck RPC for light client prover");
     } else {
         register_healthcheck_rpc(&mut rpc_module, ledger_db.clone())?;
         // Register Ethereum RPC methods if the node is not a light client prover
@@ -341,7 +347,8 @@ where
             task_executor.spawn_critical_with_graceful_shutdown_signal(
                 "LightClient",
                 |shutdown_signal| async move {
-                    l1_block_handler.run(starting_block, shutdown_signal).await
+                    l1_block_handler.run(starting_block, shutdown_signal).await;
+                    lcp_finished.store(true, Ordering::SeqCst);
                 },
             );
         }

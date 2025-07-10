@@ -1,4 +1,5 @@
 //! Common RPC crate provides helper methods that are needed in rpc servers
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -79,10 +80,12 @@ pub fn register_healthcheck_rpc<T: Send + Sync + 'static>(
 pub fn register_healthcheck_rpc_light_client_prover<T: Send + Sync + 'static, Da: DaService>(
     rpc_methods: &mut RpcModule<T>,
     da_service: Arc<Da>,
+    lcp_finished: Arc<AtomicBool>,
 ) -> Result<(), RegisterMethodError> {
-    let mut rpc = RpcModule::new(da_service.clone());
+    let mut rpc = RpcModule::new((da_service, lcp_finished));
 
-    rpc.register_async_method("health_check", |_, da_service, _| async move {
+    rpc.register_async_method("health_check", |_, context, _| async move {
+        let (da_service, lcp_finished) = (*context).clone();
         let error = |msg: &str| {
             ErrorObjectOwned::owned(
                 INTERNAL_ERROR_CODE,
@@ -91,19 +94,20 @@ pub fn register_healthcheck_rpc_light_client_prover<T: Send + Sync + 'static, Da
             )
         };
 
+        if lcp_finished.load(Ordering::SeqCst) {
+            return Err(error("LCP has already finished. Cannot run health check."));
+        }
+
         let exponential_backoff = ExponentialBackoff {
             max_elapsed_time: Some(Duration::from_secs(120)),
             ..Default::default()
         };
 
-        let res = retry_backoff(exponential_backoff.clone(), || {
-            let da_service = da_service.clone();
-            async move {
-                da_service.get_head_block_header().await.map_err(|e| {
-                    let e = e;
-                    backoff::Error::transient(e)
-                })
-            }
+        let res = retry_backoff(exponential_backoff.clone(), async || {
+            da_service.get_head_block_header().await.map_err(|e| {
+                let e = e;
+                backoff::Error::transient(e)
+            })
         })
         .await;
         match res {

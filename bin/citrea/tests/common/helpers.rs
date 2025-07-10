@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -208,9 +209,14 @@ pub async fn start_rollup(
         )
         .expect("RPC module setup should work");
 
+    let lcp_finished = Arc::new(AtomicBool::new(false));
     if light_client_prover_config.is_some() {
-        register_healthcheck_rpc_light_client_prover(&mut rpc_module, da_service.clone())
-            .expect("Failed to register healthcheck RPC for light client prover");
+        register_healthcheck_rpc_light_client_prover(
+            &mut rpc_module,
+            da_service.clone(),
+            lcp_finished.clone(),
+        )
+        .expect("Failed to register healthcheck RPC for light client prover");
     } else {
         // Register Ethereum RPC methods if this is not the Light Client Prover
         citrea::register_ethereum(
@@ -355,7 +361,8 @@ pub async fn start_rollup(
                 l1_block_handler
                     .run(starting_block, shutdown_signal)
                     .instrument(handler_span.clone())
-                    .await
+                    .await;
+                lcp_finished.store(true, Ordering::SeqCst);
             },
         );
     } else {
