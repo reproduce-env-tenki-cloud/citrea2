@@ -31,17 +31,17 @@ pub enum ParsedTransaction {
 /// ParsedComplete is a transaction that contains the full body of a proof.
 #[derive(Debug, Clone)]
 pub struct ParsedComplete {
-    pub(crate) body: Vec<u8>,
-    pub(crate) signature: Vec<u8>,
-    pub(crate) public_key: Vec<u8>,
+    pub body: Vec<u8>,
+    pub signature: Vec<u8>,
+    pub public_key: Vec<u8>,
 }
 
 /// ParsedAggregate is a transaction that contains txids of chunks of data.
 #[derive(Debug, Clone)]
 pub struct ParsedAggregate {
-    pub(crate) body: Vec<u8>,
-    pub(crate) signature: Vec<u8>,
-    pub(crate) public_key: Vec<u8>,
+    pub body: Vec<u8>,
+    pub signature: Vec<u8>,
+    pub public_key: Vec<u8>,
 }
 
 /// That's the only kind of transaction that does not have
@@ -49,23 +49,23 @@ pub struct ParsedAggregate {
 /// in the parent Aggregate transaction.
 #[derive(Debug, Clone)]
 pub struct ParsedChunk {
-    pub(crate) body: Vec<u8>,
+    pub body: Vec<u8>,
 }
 
 /// ParsedSequencerCommitment is a transaction that contains the sequencer commitment.
 #[derive(Debug, Clone)]
 pub struct ParsedSequencerCommitment {
-    pub(crate) body: Vec<u8>,
-    pub(crate) signature: Vec<u8>,
-    pub(crate) public_key: Vec<u8>,
+    pub body: Vec<u8>,
+    pub signature: Vec<u8>,
+    pub public_key: Vec<u8>,
 }
 
 /// ParsedBatchProverMethodId is a transaction that contains the BatchProver method id.
 #[derive(Debug, Clone)]
 pub struct ParsedBatchProverMethodId {
-    pub(crate) body: Vec<u8>,
-    pub(crate) signature: Vec<u8>,
-    pub(crate) public_key: Vec<u8>,
+    pub body: Vec<u8>,
+    pub signature: Vec<u8>,
+    pub public_key: Vec<u8>,
 }
 
 /// To verify the signature of the inscription and get the hash of the body
