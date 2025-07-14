@@ -324,20 +324,18 @@ where
                 None => StartVariant::FromBlock(light_client_prover_config.initial_da_height),
             };
 
-            let (mut prover, l1_block_handler, rpc_module) =
-                CitreaRollupBlueprint::create_light_client_prover(
-                    &rollup_blueprint,
-                    network,
-                    light_client_prover_config,
-                    rollup_config.clone(),
-                    da_service,
-                    ledger_db,
-                    storage_manager,
-                    rpc_module,
-                    backup_manager,
-                )
-                .await
-                .expect("Could not start light client prover");
+            let (l1_block_handler, rpc_module) = CitreaRollupBlueprint::create_light_client_prover(
+                &rollup_blueprint,
+                network,
+                light_client_prover_config,
+                da_service,
+                ledger_db,
+                storage_manager,
+                rpc_module,
+                backup_manager,
+            )
+            .await
+            .expect("Could not start light client prover");
 
             start_rpc_server(rollup_config.rpc.clone(), &task_executor, rpc_module, None);
 
@@ -347,12 +345,6 @@ where
                     l1_block_handler.run(starting_block, shutdown_signal).await
                 },
             );
-
-            task_executor.spawn_with_graceful_shutdown_signal(|shutdown_signal| async move {
-                if let Err(e) = prover.run(shutdown_signal).await {
-                    error!("Error: {}", e);
-                }
-            });
         }
         _ => {
             let (mut l2_syncer, l1_block_handler, pruner_service, rpc_module) =
