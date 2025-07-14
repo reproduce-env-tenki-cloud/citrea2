@@ -32,7 +32,7 @@ async fn create_backup(
     Ok(client
         .request(
             "backup_create",
-            rpc_params![path, Some(API_KEY.to_string())],
+            rpc_params![path, None::<u32>, Some(API_KEY.to_string())],
         )
         .await?)
 }
@@ -87,7 +87,11 @@ impl BackupSequencerTest {
         let client = sequencer.client.http_client();
 
         // Should fail as backup methods are protected and api_key is not passed as hidden second param
-        let backup = sequencer.client.http_client().backup_create(None).await;
+        let backup = sequencer
+            .client
+            .http_client()
+            .backup_create(None, None)
+            .await;
 
         assert!(backup.is_err());
 
@@ -988,7 +992,7 @@ impl TestCase for BackupLightClientProverTest {
         let first_proof = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height))
             .await?;
 
         assert!(first_proof.is_some());
@@ -1053,7 +1057,7 @@ impl TestCase for BackupLightClientProverTest {
         let second_proof = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(second_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(second_proof_l1_height))
             .await?
             .unwrap();
 
@@ -1097,7 +1101,7 @@ impl TestCase for BackupLightClientProverTest {
         let restored_proof = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(second_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(second_proof_l1_height))
             .await?
             .unwrap();
 
@@ -1158,7 +1162,7 @@ impl TestCase for BackupLightClientProverTest {
         let rollback_proof = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(second_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(second_proof_l1_height))
             .await?
             .unwrap();
 
@@ -1200,7 +1204,7 @@ impl TestCase for BackupLightClientProverTest {
         let third_proof = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(third_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(third_proof_l1_height))
             .await?
             .unwrap();
 
@@ -1237,7 +1241,7 @@ impl TestCase for BackupLightClientProverTest {
         let final_proof = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(third_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(third_proof_l1_height))
             .await?
             .unwrap();
 
@@ -1253,7 +1257,7 @@ impl TestCase for BackupLightClientProverTest {
         assert!(light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(third_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(third_proof_l1_height))
             .await?
             .is_some());
 
