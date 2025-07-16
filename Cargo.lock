@@ -1602,7 +1602,6 @@ dependencies = [
  "k256",
  "lru 0.13.0",
  "metrics 0.23.0",
- "pin-project",
  "rand 0.8.5",
  "reqwest",
  "reth-tasks",
@@ -2277,7 +2276,6 @@ dependencies = [
  "jmt",
  "jsonrpsee",
  "l2-block-rule-enforcer",
- "lazy_static",
  "log",
  "log-panics",
  "metrics 0.23.0",
@@ -2338,8 +2336,6 @@ dependencies = [
  "jsonrpsee",
  "metrics 0.23.0",
  "metrics-derive",
- "num_cpus",
- "once_cell",
  "parking_lot",
  "prover-services",
  "rand 0.8.5",
@@ -2474,8 +2470,6 @@ dependencies = [
  "itertools 0.13.0",
  "jsonrpsee",
  "k256",
- "lazy_static",
- "once_cell",
  "rand 0.8.5",
  "rayon",
  "reth-chainspec",
@@ -2530,7 +2524,6 @@ dependencies = [
  "jsonrpsee",
  "metrics 0.23.0",
  "metrics-derive",
- "once_cell",
  "reth-tasks",
  "rs_merkle",
  "serde",
@@ -2565,7 +2558,6 @@ dependencies = [
  "jsonrpsee",
  "metrics 0.23.0",
  "metrics-derive",
- "once_cell",
  "prover-services",
  "rand 0.8.5",
  "reth-tasks",
@@ -2656,7 +2648,6 @@ dependencies = [
  "l2-block-rule-enforcer",
  "metrics 0.23.0",
  "metrics-derive",
- "once_cell",
  "parking_lot",
  "reth-chainspec",
  "reth-db",
@@ -5421,7 +5412,6 @@ dependencies = [
  "citrea-evm",
  "hex",
  "jsonrpsee",
- "lazy_static",
  "serde",
  "sov-db",
  "sov-keys",
@@ -6811,7 +6801,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "borsh",
- "futures",
  "rand 0.8.5",
  "sov-mock-da",
  "sov-mock-zkvm",
@@ -8849,9 +8838,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-binfmt"
-version = "2.0.1"
+version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4fe7599ac55ad77515608ec42a9727001559fe4f579c533cb7c973b54800c05"
+checksum = "62eb7025356a233c1bc267c458a2ce56fcfc89b136d813c8a77be14ef1eaf2b1"
 dependencies = [
  "anyhow",
  "borsh",
@@ -8868,9 +8857,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-build"
-version = "2.1.2"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d17d6657b1fb615c0482bd4b57aae7850911ed7dbdc8e783df20e93f33209a8f"
+checksum = "c951d23a3255fe9e43526418ad8fc3471cac1c48b338f9cfeb4063d250c1f698"
 dependencies = [
  "anyhow",
  "cargo_metadata 0.19.2",
@@ -8892,9 +8881,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-keccak"
-version = "2.0.2"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d339c65b0e011677404bd6bdfe1b0f29748187a568fb2f74df7fb650590181a"
+checksum = "0094af5a57b020388a03bdd3834959c7d62723f1687be81414ade25104d93263"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -8908,9 +8897,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-recursion"
-version = "2.0.2"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c6501fd3936aea2dd3e55915f34328fe96e6ca25ef00320242f837ae668785b"
+checksum = "76ebded45c902c2b6939924a1cddd1d06b5d1d4ad1531e8798ebfee78f9c038d"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -8923,9 +8912,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-rv32im"
-version = "2.0.4"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c80e0a8f0f56106295bb682dbc27093438e163a5f6384a79e877ab895a11d9ae"
+checksum = "15030849f8356f01f23c74b37dbfa4283100b594eb634109993e9e005ef45f64"
 dependencies = [
  "anyhow",
  "bit-vec",
@@ -8952,9 +8941,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-groth16"
-version = "2.0.1"
+version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b31cb7b2a46f0cdaf71803ea7e0389af9f5bc1aea2531106f2972b241f26e98"
+checksum = "7cf5d0b673d5fc67a89147c2e9c53134707dcc8137a43d1ef06b4ff68e99b74f"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -8983,9 +8972,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkp"
-version = "2.0.1"
+version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa210a232361fd671b30918469856b64d715f2564956d0a5df97ab6cb116d28b"
+checksum = "a287e9cd6d7b3b38eeb49c62090c46a1935922309fbd997a9143ed8c43c8f3cb"
 dependencies = [
  "anyhow",
  "blake2",
@@ -9008,9 +8997,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm"
-version = "2.1.0"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f1014d2efcb3b359aff878c9aeb6aa949a6d91f091a2ffb5ffd8d928a1ab7f3"
+checksum = "910c2023c39ac1e23dd4f7acdff086333f31ca608035f96c74366a79c098de3b"
 dependencies = [
  "anyhow",
  "bincode",
@@ -9045,9 +9034,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm-platform"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e4de2938eaf24892ef927d9cef6e4acb6a19ce01c017cd498533896f633f332"
+checksum = "cae9cb2c2f6cab2dfa395ea6e2576713929040c7fb0c5f4150d13e1119d18686"
 dependencies = [
  "bytemuck",
  "cfg-if",
@@ -9803,7 +9792,6 @@ version = "0.7.3-rc.2"
 dependencies = [
  "borsh",
  "futures",
- "once_cell",
  "parking_lot",
  "sov-db",
  "sov-mock-da",
@@ -9937,7 +9925,6 @@ dependencies = [
  "byteorder",
  "criterion",
  "jmt",
- "num_cpus",
  "rand 0.8.5",
  "rlimit",
  "rocksdb",
@@ -9991,9 +9978,7 @@ dependencies = [
  "async-trait",
  "borsh",
  "bytes",
- "futures",
  "hex",
- "pin-project",
  "rusqlite",
  "serde",
  "serde_json",
@@ -10001,7 +9986,6 @@ dependencies = [
  "sov-rollup-interface",
  "tempfile",
  "tokio",
- "tokio-stream",
  "tracing",
 ]
 
@@ -10159,7 +10143,6 @@ dependencies = [
  "bytes",
  "digest 0.10.7",
  "faster-hex",
- "futures",
  "hex",
  "jmt",
  "risc0-zkp",
@@ -10181,7 +10164,6 @@ dependencies = [
  "byteorder",
  "metrics 0.23.0",
  "metrics-derive",
- "once_cell",
  "rocksdb",
  "sov-schema-db",
  "tempfile",

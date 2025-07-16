@@ -10,7 +10,7 @@ use citrea_common::utils::{get_tangerine_activation_height_non_zero, merge_state
 use citrea_common::{BatchProverConfig, ProverGuestRunConfig};
 use citrea_primitives::compression::compress_blob;
 use citrea_primitives::forks::fork_from_block_number;
-use citrea_primitives::{MAX_TX_BODY_SIZE, MAX_WITNESS_CACHE_SIZE};
+use citrea_primitives::{network_to_dev_mode, MAX_TX_BODY_SIZE, MAX_WITNESS_CACHE_SIZE};
 use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
@@ -31,6 +31,7 @@ use sov_rollup_interface::services::da::DaService;
 use sov_rollup_interface::zk::batch_proof::input::v3::{BatchProofCircuitInputV3, PrevHashProof};
 use sov_rollup_interface::zk::batch_proof::output::BatchProofCircuitOutput;
 use sov_rollup_interface::zk::{Proof, ProofWithJob, ReceiptType, ZkvmHost};
+use sov_rollup_interface::Network;
 use sov_state::Witness;
 use tokio::select;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -96,6 +97,8 @@ where
     sync_target_l2_height: Option<u64>,
     /// Flag to indicate if proving is paused, can be set by RPC request
     proving_paused: bool,
+    /// Citrea network the batch prover is operating on
+    network: Network,
 }
 
 impl<Da, DB, Vm> Prover<Da, DB, Vm>
@@ -119,6 +122,7 @@ where
     /// * `request_rx` - Channel for RPC requests to trigger manual proving operations
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        network: Network,
         prover_config: BatchProverConfig,
         ledger_db: DB,
         storage_manager: ProverStorageManager,
@@ -144,6 +148,7 @@ where
             request_rx,
             sync_target_l2_height: None,
             proving_paused: false,
+            network,
         }
     }
 
@@ -670,12 +675,15 @@ where
             })
             .collect::<FuturesUnordered<_>>();
 
+        let network = self.network;
+
         // start watching the proving jobs to finish in the background
         tokio::spawn(async move {
             while let Some((job_id, proof)) = proving_jobs.next().await {
                 info!("Proving job finished {}", job_id);
 
-                let output = extract_proof_output::<Vm>(&job_id, &proof, &code_commitments_by_spec);
+                let output =
+                    extract_proof_output::<Vm>(&job_id, &proof, &code_commitments_by_spec, network);
 
                 // stores proof and marks job as waiting for da
                 ledger_db
@@ -721,8 +729,12 @@ where
         while let Some(ProofWithJob { job_id, proof }) = proving_jobs.next().await {
             info!("Proving job finished {}", job_id);
 
-            let output =
-                extract_proof_output::<Vm>(&job_id, &proof, &self.code_commitments_by_spec);
+            let output = extract_proof_output::<Vm>(
+                &job_id,
+                &proof,
+                &self.code_commitments_by_spec,
+                self.network,
+            );
 
             // stores proof and marks job as waiting for da
             self.ledger_db
@@ -1150,6 +1162,7 @@ fn extract_proof_output<Vm: ZkvmHost>(
     job_id: &Uuid,
     proof: &Proof,
     code_commitments_by_spec: &HashMap<SpecId, Vm::CodeCommitment>,
+    network: Network,
 ) -> BatchProofCircuitOutput {
     let output = Vm::extract_output::<BatchProofCircuitOutput>(proof)
         .expect("Failed to extract batch proof output");
@@ -1168,8 +1181,12 @@ fn extract_proof_output<Vm: ZkvmHost>(
         job_id, code_commitment
     );
 
-    Vm::verify(proof.as_slice(), code_commitment)
-        .unwrap_or_else(|_| panic!("Failed to verify proof with job_id={}", job_id));
+    Vm::verify(
+        proof.as_slice(),
+        code_commitment,
+        network_to_dev_mode(network),
+    )
+    .unwrap_or_else(|_| panic!("Failed to verify proof with job_id={}", job_id));
 
     debug!("circuit output: {:?}", output);
     output
@@ -1247,6 +1264,7 @@ mod tests {
         let (request_tx, request_rx) = mpsc::channel(4);
 
         let prover = Prover::new(
+            sov_rollup_interface::Network::Nightly,
             BatchProverConfig::default(),
             ledger_db,
             storage_manager,
