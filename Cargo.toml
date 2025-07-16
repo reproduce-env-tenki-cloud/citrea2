@@ -94,7 +94,6 @@ num_cpus = "1.0"
 uuid = { version = "=1.12.1", default-features = false, features = ["serde", "borsh", "v7"] }
 parking_lot = "0.12.3"
 proptest = { version = "1.6.0", default-features = false, features = ["alloc"] }
-pin-project = "1.1.9"
 rand = "0.8"
 rayon = "1.8.0"
 rlimit = "0.10.2"
