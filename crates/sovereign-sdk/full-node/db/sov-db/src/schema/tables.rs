@@ -38,33 +38,23 @@ pub const STATE_TABLES: &[&str] = &[
     StaleNodes::table_name(),
 ];
 
-/// A list of all tables used by Sequencer LedgerDB
+/// A list of all tables used by Sequencer LedgerDB.
+///
+/// Note: Please keep the list sorted alphabetically
 pub const SEQUENCER_LEDGER_TABLES: &[&str] = &[
-    ExecutedMigrations::table_name(),
-    L2BlockByNumber::table_name(),
-    L2BlockByHash::table_name(),
-    L2RangeByL1Height::table_name(),
-    L2GenesisStateRoot::table_name(),
-    StateDiffByBlockNumber::table_name(),
-    PendingSequencerCommitment::table_name(),
     CommitmentsByNumber::table_name(),
-    MempoolTxs::table_name(),
+    ExecutedMigrations::table_name(),
+    L2BlockByHash::table_name(),
+    L2BlockByNumber::table_name(),
+    L2GenesisStateRoot::table_name(),
+    L2RangeByL1Height::table_name(),
     LastPrunedBlock::table_name(),
-    // ########
-    // The following tables exist in the sequencer since they enable
-    // using the fullnode's backup as a sequencer database without having
-    // to remove these tables first as demonstrated by the
-    // `test_sequencer_crash_and_replace_full_node` test.
-    VerifiedBatchProofsBySlotNumber::table_name(),
-    ProverLastScannedSlot::table_name(),
-    SlotByHash::table_name(),
-    ShortHeaderProofBySlotHash::table_name(),
-    CommitmentMerkleRoots::table_name(),
+    MempoolTxs::table_name(),
+    PendingSequencerCommitment::table_name(),
     SequencerCommitmentByIndex::table_name(),
-    L2StatusHeights::table_name(),
-    PendingSequencerCommitments::table_name(),
-    PendingProofs::table_name(),
-    // ########
+    ShortHeaderProofBySlotHash::table_name(),
+    StateDiffByBlockNumber::table_name(),
+    // #### TESTS RELATED TABLES ####
     #[cfg(test)]
     TestTableOld::table_name(),
     #[cfg(test)]
@@ -72,24 +62,26 @@ pub const SEQUENCER_LEDGER_TABLES: &[&str] = &[
 ];
 
 /// A list of all tables used by FullNode LedgerDB
-/// Also includes tables of Sequencer LedgerDB so that it can be used as a sequencer if needed
+///
+/// Note: Please keep the list sorted alphabetically
 pub const FULL_NODE_LEDGER_TABLES: &[&str] = &[
-    ExecutedMigrations::table_name(),
-    SlotByHash::table_name(),
-    L2BlockByNumber::table_name(),
-    L2BlockByHash::table_name(),
-    ShortHeaderProofBySlotHash::table_name(),
-    L2RangeByL1Height::table_name(),
-    L2GenesisStateRoot::table_name(),
-    ProverLastScannedSlot::table_name(),
-    CommitmentsByNumber::table_name(),
-    LastPrunedBlock::table_name(),
-    VerifiedBatchProofsBySlotNumber::table_name(),
     CommitmentMerkleRoots::table_name(),
-    SequencerCommitmentByIndex::table_name(),
+    CommitmentsByNumber::table_name(),
+    ExecutedMigrations::table_name(),
+    L2BlockByHash::table_name(),
+    L2BlockByNumber::table_name(),
+    L2GenesisStateRoot::table_name(),
+    L2RangeByL1Height::table_name(),
     L2StatusHeights::table_name(),
-    PendingSequencerCommitments::table_name(),
+    LastPrunedBlock::table_name(),
     PendingProofs::table_name(),
+    PendingSequencerCommitments::table_name(),
+    ProverLastScannedSlot::table_name(),
+    SequencerCommitmentByIndex::table_name(),
+    ShortHeaderProofBySlotHash::table_name(),
+    SlotByHash::table_name(),
+    VerifiedBatchProofsBySlotNumber::table_name(),
+    // #### TESTS RELATED TABLES ####
     #[cfg(test)]
     TestTableOld::table_name(),
     #[cfg(test)]
@@ -97,23 +89,26 @@ pub const FULL_NODE_LEDGER_TABLES: &[&str] = &[
 ];
 
 /// A list of all tables used by BatchProver LedgerDB
+///
+/// Note: Please keep the list sorted alphabetically
 pub const BATCH_PROVER_LEDGER_TABLES: &[&str] = &[
-    ExecutedMigrations::table_name(),
-    SlotByHash::table_name(),
-    L2BlockByNumber::table_name(),
-    L2BlockByHash::table_name(),
-    ShortHeaderProofBySlotHash::table_name(),
-    L2GenesisStateRoot::table_name(),
-    ProverLastScannedSlot::table_name(),
-    ProverStateDiffs::table_name(),
-    LastPrunedBlock::table_name(),
-    SequencerCommitmentByIndex::table_name(),
-    CommitmentIndicesByL1::table_name(),
-    ProofByJobId::table_name(),
-    JobIdOfCommitment::table_name(),
     CommitmentIndicesByJobId::table_name(),
-    ProverPendingCommitments::table_name(),
+    CommitmentIndicesByL1::table_name(),
+    ExecutedMigrations::table_name(),
+    JobIdOfCommitment::table_name(),
+    L2BlockByHash::table_name(),
+    L2BlockByNumber::table_name(),
+    L2GenesisStateRoot::table_name(),
+    LastPrunedBlock::table_name(),
     PendingL1SubmissionJobs::table_name(),
+    ProofByJobId::table_name(),
+    ProverLastScannedSlot::table_name(),
+    ProverPendingCommitments::table_name(),
+    ProverStateDiffs::table_name(),
+    SequencerCommitmentByIndex::table_name(),
+    ShortHeaderProofBySlotHash::table_name(),
+    SlotByHash::table_name(),
+    // #### TESTS RELATED TABLES ####
     #[cfg(test)]
     TestTableOld::table_name(),
     #[cfg(test)]
@@ -121,13 +116,16 @@ pub const BATCH_PROVER_LEDGER_TABLES: &[&str] = &[
 ];
 
 /// A list of all tables used by LightClientProver LedgerDB
+///
+/// Note: Please keep the list sorted alphabetically
 pub const LIGHT_CLIENT_PROVER_LEDGER_TABLES: &[&str] = &[
-    ExecutedMigrations::table_name(),
-    SlotByHash::table_name(),
-    LightClientProofBySlotNumber::table_name(),
-    ProverLastScannedSlot::table_name(),
     // Don't know if this will be needed
     CommitmentMerkleRoots::table_name(),
+    ExecutedMigrations::table_name(),
+    LightClientProofBySlotNumber::table_name(),
+    ProverLastScannedSlot::table_name(),
+    SlotByHash::table_name(),
+    // #### TESTS RELATED TABLES ####
     #[cfg(test)]
     TestTableOld::table_name(),
     #[cfg(test)]
@@ -136,43 +134,45 @@ pub const LIGHT_CLIENT_PROVER_LEDGER_TABLES: &[&str] = &[
 
 /// A list of all tables used by the LedgerDB. These tables store rollup "history" - meaning
 /// transaction, events, receipts, etc.
+///
+/// Note: Please keep the list sorted alphabetically
 pub const LEDGER_TABLES: &[&str] = &[
-    ExecutedMigrations::table_name(),
-    SlotByHash::table_name(),
-    L2BlockByNumber::table_name(),
-    L2BlockByHash::table_name(),
-    L2RangeByL1Height::table_name(),
-    L2Witness::table_name(),
-    L2GenesisStateRoot::table_name(),
-    StateDiffByBlockNumber::table_name(),
-    LightClientProofBySlotNumber::table_name(),
-    PendingSequencerCommitment::table_name(),
-    ProverLastScannedSlot::table_name(),
-    ShortHeaderProofBySlotHash::table_name(),
+    CommitmentIndicesByJobId::table_name(),
+    CommitmentIndicesByL1::table_name(),
+    CommitmentMerkleRoots::table_name(),
     CommitmentsByNumber::table_name(),
+    ExecutedMigrations::table_name(),
+    JobIdOfCommitment::table_name(),
+    L2BlockByHash::table_name(),
+    L2BlockByNumber::table_name(),
+    L2GenesisStateRoot::table_name(),
+    L2RangeByL1Height::table_name(),
+    L2StatusHeights::table_name(),
+    L2Witness::table_name(),
+    LastPrunedBlock::table_name(),
+    LightClientProofBySlotNumber::table_name(),
+    MempoolTxs::table_name(),
+    PendingBonsaiSessionByJobId::table_name(),
+    PendingL1SubmissionJobs::table_name(),
+    PendingProofs::table_name(),
+    PendingProvingSessions::table_name(),
+    PendingSequencerCommitment::table_name(),
+    PendingSequencerCommitments::table_name(),
+    ProofByJobId::table_name(),
     ProofsBySlotNumber::table_name(),
     ProofsBySlotNumberV2::table_name(),
-    VerifiedBatchProofsBySlotNumber::table_name(),
-    MempoolTxs::table_name(),
-    PendingProvingSessions::table_name(),
-    ProverStateDiffs::table_name(),
-    LastPrunedBlock::table_name(),
-    CommitmentMerkleRoots::table_name(),
-    SequencerCommitmentByIndex::table_name(),
-    CommitmentIndicesByL1::table_name(),
-    ProofByJobId::table_name(),
-    JobIdOfCommitment::table_name(),
-    CommitmentIndicesByJobId::table_name(),
+    ProverLastScannedSlot::table_name(),
     ProverPendingCommitments::table_name(),
-    PendingL1SubmissionJobs::table_name(),
-    PendingBonsaiSessionByJobId::table_name(),
-    L2StatusHeights::table_name(),
-    PendingSequencerCommitments::table_name(),
-    PendingProofs::table_name(),
-    #[cfg(test)]
-    TestTableOld::table_name(),
+    ProverStateDiffs::table_name(),
+    SequencerCommitmentByIndex::table_name(),
+    ShortHeaderProofBySlotHash::table_name(),
+    SlotByHash::table_name(),
+    StateDiffByBlockNumber::table_name(),
+    VerifiedBatchProofsBySlotNumber::table_name(),
     #[cfg(test)]
     TestTableNew::table_name(),
+    #[cfg(test)]
+    TestTableOld::table_name(),
 ];
 
 /// A list of all tables used by the NativeDB. These tables store
