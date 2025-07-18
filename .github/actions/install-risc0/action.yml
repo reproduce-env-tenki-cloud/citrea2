@@ -20,3 +20,6 @@ runs:
         rzup install cargo-risczero 2.0.2
         rzup install cpp
         rzup install rust 1.85.0
+        rzup default r0vm 2.0.2
+        rzup default cargo-risczero 2.0.2
+        rzup default rust 1.85.0
