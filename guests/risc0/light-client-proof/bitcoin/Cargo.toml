@@ -1,6 +1,6 @@
 [package]
 name = "light-client-proof-bitcoin"
-version = "0.7.3-rc.3"
+version = "0.7.3-rc.4"
 edition = "2021"
 resolver = "2"
 
@@ -11,7 +11,10 @@ resolver = "2"
 # but we tend to forget to update this while updating risc0
 # so putting here explicitly
 risc0-bigint2 = "1.4.5"
-risc0-zkvm = { version = "2.3.0", default-features = false, features = ["unstable", "std"] }
+risc0-zkvm = { version = "2.3.0", default-features = false, features = [
+    "unstable",
+    "std",
+] }
 risc0-zkvm-platform = { version = "2.0.3", features = ["sys-getenv"] }
 
 anyhow = "1.0.95"
