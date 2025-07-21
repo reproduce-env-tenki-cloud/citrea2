@@ -29,12 +29,22 @@ Sequencer RPC is accessible at `127.0.0.1:12345`
 _Optional_: Run full node on Mock DA:
 
 ```sh
-./target/debug/citrea --dev --rollup-config-path resources/configs/mock/rollup_config.toml --genesis-paths resources/genesis/mock/
+./target/debug/citrea --dev --da-layer mock --rollup-config-path resources/configs/mock/rollup_config.toml --genesis-paths resources/genesis/mock/
 ```
 
 Full node RPC is accessible at `127.0.0.1:12346`
 
 If test_mode is set to false in the sequencer config, the sequencer will publish blocks every 2 seconds.
+
+_Optional_: Run batch prover on Mock DA:
+```sh
+PARALLEL_PROOF_LIMIT=1 ./target/debug/citrea --dev --da-layer mock --rollup-config-path resources/configs/mock/batch_prover_rollup_config.toml --genesis-paths resources/genesis/mock/ --batch-prover resources/configs/mock/batch_prover_config.toml
+```
+
+_Optional_: Run light client prover on Mock DA:
+```sh
+./target/debug/citrea --dev --da-layer mock --rollup-config-path resources/configs/mock/light_client_prover_rollup_config.toml --genesis-paths resources/genesis/mock/ --light-client-prover resources/configs/mock/light_client_prover_config.toml
+```
 
 ### Run on Bitcoin Regtest
 
@@ -102,7 +112,7 @@ Full node RPC is accessible at `127.0.0.1:12346`
 _Optional_: Run batch prover:
 
 ```sh
-./target/debug/citrea --dev --da-layer bitcoin --rollup-config-path resources/configs/bitcoin-regtest/batch_prover_rollup_config.toml --batch-prover resources/configs/bitcoin-regtest/batch_prover_config.toml --genesis-paths resources/genesis/bitcoin-regtest
+PARALLEL_PROOF_LIMIT=1 ./target/debug/citrea --dev --da-layer bitcoin --rollup-config-path resources/configs/bitcoin-regtest/batch_prover_rollup_config.toml --batch-prover resources/configs/bitcoin-regtest/batch_prover_config.toml --genesis-paths resources/genesis/bitcoin-regtest
 ```
 
 If you want to test proofs, make sure to set `proof_sampling_number` in `resources/configs/bitcoin-regtest/batch_prover_config.toml` to 0, and you can set the `max_l2_blocks_per_commitment` to a number between 5-50, as higher numbers than that takes too long even if you run the prover in execute mode.
@@ -148,6 +158,11 @@ If your testing of the local network requires mining sequencer commitments and b
 
 ```sh
 bitcoin-cli -regtest -generate
+```
+
+Or you can run this command in a separate terminal to periodically mine new regtest blocks:
+```sh
+while true; do; bitcoin-cli -regtest -generate; sleep 10; done;
 ```
 
 ## Testing
