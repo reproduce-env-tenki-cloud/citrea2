@@ -33,6 +33,7 @@
 //! Transition Function's inner workings, allowing it to preview transaction results before
 //! finalizing L2 blocks.
 
+use std::ops::Deref;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -45,7 +46,9 @@ use deposit_data_mempool::DepositDataMempool;
 use jsonrpsee::RpcModule;
 use mempool::CitreaMempool;
 use parking_lot::Mutex;
+use reth_provider::{CanonStateNotificationStream, CanonStateSubscriptions};
 use reth_tasks::TaskExecutor;
+use reth_transaction_pool::maintain::maintain_transaction_pool_future;
 pub use rpc::SequencerRpcClient;
 pub use runner::{CitreaSequencer, MAX_MISSED_DA_BLOCKS_PER_L2_BLOCK};
 use sov_db::ledger_db::LedgerDB;
@@ -127,8 +130,23 @@ where
     let mempool = Arc::new(CitreaMempool::new(
         db_provider.clone(),
         sequencer_config.mempool_conf.clone(),
-        task_executor,
+        &task_executor,
     )?);
+
+    task_executor.spawn_critical(
+        "reth txpool maintenance task",
+        maintain_transaction_pool_future(
+            db_provider.clone(),
+            mempool.clone().0.clone(),
+            db_provider.canonical_state_stream(),
+            task_executor.clone(),
+            reth_transaction_pool::maintain::MaintainPoolConfig {
+                max_update_depth: 1,
+                ..Default::default()
+            },
+        ),
+    );
+
     let deposit_mempool = Arc::new(Mutex::new(DepositDataMempool::new()));
 
     let rpc_storage = storage_manager.create_final_view_storage();

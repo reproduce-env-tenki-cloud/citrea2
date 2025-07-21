@@ -13,13 +13,15 @@ use citrea_evm::{Evm, EvmChainConfig};
 use citrea_stf::runtime::DefaultContext;
 use jsonrpsee::core::RpcResult;
 use reth_chainspec::{Chain, ChainInfo, ChainSpec, ChainSpecBuilder};
-use reth_primitives::{Account, Bytecode, RecoveredBlock, SealedHeader};
+use reth_primitives::{Account, Bytecode, EthPrimitives, RecoveredBlock, SealedHeader};
 use reth_provider::{
     AccountReader, BlockBodyIndicesProvider, BlockHashReader, BlockIdReader, BlockNumReader,
-    BlockReader, BlockReaderIdExt, ChainSpecProvider, HashedPostStateProvider, HeaderProvider,
-    OmmersProvider, ProviderError, ProviderResult, ReceiptProvider, ReceiptProviderIdExt,
-    StateProofProvider, StateProvider, StateProviderFactory, StateRootProvider,
-    StorageRootProvider, TransactionVariant, TransactionsProvider, WithdrawalsProvider,
+    BlockReader, BlockReaderIdExt, CanonStateNotification, CanonStateNotificationSender,
+    CanonStateSubscriptions, ChainSpecProvider, HashedPostStateProvider, HeaderProvider,
+    NodePrimitivesProvider, OmmersProvider, ProviderError, ProviderResult, ReceiptProvider,
+    ReceiptProviderIdExt, StateProofProvider, StateProvider, StateProviderFactory,
+    StateRootProvider, StorageRootProvider, TransactionVariant, TransactionsProvider,
+    WithdrawalsProvider,
 };
 use reth_trie::updates::TrieUpdates;
 use reth_trie::{HashedPostState, HashedStorage, StorageMultiProof, StorageProof};
@@ -47,6 +49,8 @@ pub struct DbProvider {
     pub storage: <DefaultContext as Spec>::Storage,
     /// LedgerDb
     ledger_db: LedgerDB,
+    /// Channel for state updates, used by the mempool
+    canon_state_sender: CanonStateNotificationSender,
 }
 
 impl Debug for DbProvider {
@@ -66,6 +70,7 @@ impl DbProvider {
             evm,
             storage,
             ledger_db,
+            canon_state_sender: CanonStateNotificationSender::new(100), // TODO: set value
         }
     }
 
@@ -109,6 +114,18 @@ impl DbProvider {
 
         Ok(rich_block)
     }
+
+    /// Send canon state notification
+    pub fn send_canon_state_notification(
+        &self,
+        notification: CanonStateNotification<EthPrimitives>,
+    ) -> Result<usize, ProviderError> {
+        // TODO: fix error handling
+        Ok(self
+            .canon_state_sender
+            .send(notification)
+            .expect("should not close"))
+    }
 }
 
 impl AccountReader for DbProvider {
@@ -149,6 +166,18 @@ impl StateProvider for DbProvider {
 
         Ok(code.map(reth_primitives::Bytecode))
     }
+}
+
+impl CanonStateSubscriptions for DbProvider {
+    fn subscribe_to_canonical_state(
+        &self,
+    ) -> reth_provider::CanonStateNotifications<Self::Primitives> {
+        self.canon_state_sender.subscribe()
+    }
+}
+
+impl NodePrimitivesProvider for DbProvider {
+    type Primitives = EthPrimitives;
 }
 
 impl OmmersProvider for DbProvider {

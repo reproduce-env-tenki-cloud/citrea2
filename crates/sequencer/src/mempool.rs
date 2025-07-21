@@ -28,14 +28,14 @@ type CitreaMempoolImpl = Pool<
 type Transaction = <CitreaMempoolImpl as TransactionPool>::Transaction;
 
 /// An abstraction on top of Reth's mempool with custom Citrea functionality.
-pub struct CitreaMempool(CitreaMempoolImpl);
+pub struct CitreaMempool(pub CitreaMempoolImpl);
 
 impl CitreaMempool {
     /// Creates a new instance of the Citrea mempool.
     pub(crate) fn new(
         client: DbProvider,
         mempool_conf: SequencerMempoolConfig,
-        task_executor: TaskExecutor,
+        task_executor: &TaskExecutor,
     ) -> anyhow::Result<Self> {
         let blob_store = NoopBlobStore::default();
 

@@ -4,7 +4,9 @@ use std::time::{Duration, Instant};
 use std::vec;
 
 use alloy_eips::eip2718::Encodable2718;
-use alloy_primitives::{Address, Bytes, TxHash, U256};
+use alloy_primitives::{Address, Bytes, TxHash, B256, U256};
+use alloy_rpc_types_eth::Block as AlloyRpcBlock;
+use alloy_serde::WithOtherFields;
 use anyhow::{anyhow, bail};
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
@@ -23,13 +25,16 @@ use citrea_primitives::types::L2BlockHash;
 use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use parking_lot::Mutex;
 use reth_execution_types::ChangedAccount;
-use reth_provider::{AccountReader, BlockReaderIdExt};
+use reth_primitives::RecoveredBlock;
+use reth_provider::{AccountReader, BlockReaderIdExt, Chain, ExecutionOutcome};
 use reth_tasks::shutdown::GracefulShutdown;
 use reth_transaction_pool::error::InvalidPoolTransactionError;
 use reth_transaction_pool::{
     BestTransactions, BestTransactionsAttributes, EthPooledTransaction, PoolTransaction,
     ValidPoolTransaction,
 };
+use revm::database::{BundleAccount, BundleState};
+use revm::primitives::KECCAK_EMPTY;
 use sov_accounts::Accounts;
 use sov_accounts::Response::{AccountEmpty, AccountExists};
 use sov_db::ledger_db::{LedgerDB, SequencerLedgerOps, SharedLedgerOps};
@@ -638,14 +643,49 @@ where
         let mut txs_to_remove = self.db_provider.last_block_tx_hashes()?;
         txs_to_remove.extend(l1_fee_failed_txs);
 
-        // Remove processed/failed transactions from mempool
-        self.mempool.remove_transactions(txs_to_remove.clone());
-        SEQUENCER_METRICS.mempool_txs.set(self.mempool.len() as f64);
+        // // Remove processed/failed transactions from mempool
+        // self.mempool.remove_transactions(txs_to_remove.clone());
 
-        // Update account states in mempool
-        let account_updates = self.get_account_updates()?;
+        // // Update account states in mempool
+        let (head, account_updates) = self.get_account_updates()?;
 
-        self.mempool.update_accounts(account_updates);
+        // self.mempool.update_accounts(account_updates);
+
+        // only accounts used
+        self.db_provider.send_canon_state_notification(
+            reth_provider::CanonStateNotification::Commit {
+                new: Arc::new(Chain::from_block(
+                    RecoveredBlock::new_sealed(head.into_consensus().seal(B256::ZERO), vec![]),
+                    ExecutionOutcome::new(
+                        BundleState {
+                            state: account_updates
+                                .into_iter()
+                                .map(|acc| {
+                                    (acc.address, {
+                                        BundleAccount::new(
+                                            None,
+                                            Some(revm::state::AccountInfo {
+                                                balance: acc.balance,
+                                                nonce: acc.nonce,
+                                                code_hash: KECCAK_EMPTY,
+                                                code: None,
+                                            }),
+                                            Default::default(),
+                                            Default::default(),
+                                        )
+                                    })
+                                })
+                                .collect(),
+                            ..Default::default()
+                        },
+                        vec![],
+                        todo!(),
+                        vec![],
+                    ),
+                    None,
+                )),
+            },
+        )?;
 
         // Remove transactions from persistent storage
         let txs = txs_to_remove
@@ -655,6 +695,8 @@ where
         if let Err(e) = self.ledger_db.remove_mempool_txs(txs) {
             warn!("Failed to remove txs from mempool: {:?}", e);
         }
+
+        SEQUENCER_METRICS.mempool_txs.set(self.mempool.len() as f64);
 
         Ok(())
     }
@@ -975,7 +1017,9 @@ where
     ///
     /// # Returns
     /// A vector of changed accounts with their updated states
-    fn get_account_updates(&self) -> Result<Vec<ChangedAccount>, anyhow::Error> {
+    fn get_account_updates(
+        &self,
+    ) -> Result<(WithOtherFields<AlloyRpcBlock>, Vec<ChangedAccount>), anyhow::Error> {
         // Get the most recent block
         let head = self
             .db_provider
@@ -1005,7 +1049,7 @@ where
             });
         }
 
-        Ok(updates)
+        Ok((head, updates))
     }
 
     /// Processes missed DA blocks to catch up with L1
