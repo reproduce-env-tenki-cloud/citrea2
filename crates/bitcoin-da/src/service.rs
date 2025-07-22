@@ -127,6 +127,7 @@ pub struct BitcoinService {
     pub monitoring: Arc<MonitoringService>,
     fee: FeeService,
     l1_block_hash_to_height: Arc<Mutex<LruCache<BlockHash, usize>>>,
+    filtered_block_cache: Arc<Mutex<LruCache<BlockHash, BitcoinBlock>>>,
     tx_queue: Arc<Mutex<VecDeque<SignedTxPair>>>,
     pub(crate) tx_signer: TxSigner,
 }
@@ -156,6 +157,9 @@ impl BitcoinService {
             monitoring,
             fee,
             l1_block_hash_to_height: Arc::new(Mutex::new(LruCache::new(
+                NonZeroUsize::new(100).unwrap(),
+            ))),
+            filtered_block_cache: Arc::new(Mutex::new(LruCache::new(
                 NonZeroUsize::new(100).unwrap(),
             ))),
             tx_queue: Arc::new(Mutex::new(VecDeque::new())),
@@ -1177,6 +1181,13 @@ impl DaService for BitcoinService {
         let hash = hash.0;
         debug!("Getting block with hash {:?}", hash);
 
+        {
+            let mut cache = self.filtered_block_cache.lock().await;
+            if let Some(cached_block) = cache.get(&hash) {
+                return Ok(cached_block.clone());
+            }
+        }
+
         let block = self.client.get_block_verbose(&hash).await?;
 
         let header: Header = Header {
@@ -1200,10 +1211,17 @@ impl DaService for BitcoinService {
 
         let witness_root = calculate_witness_root(&txs, tx_count);
 
-        Ok(BitcoinBlock {
+        let filtered_block = BitcoinBlock {
             header: HeaderWrapper::new(header, tx_count as u32, block.height, witness_root),
             txdata: txs,
-        })
+        };
+
+        self.filtered_block_cache
+            .lock()
+            .await
+            .put(hash, filtered_block.clone());
+
+        Ok(filtered_block)
     }
 
     fn block_to_short_header_proof(
