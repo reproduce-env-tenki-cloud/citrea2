@@ -4,6 +4,8 @@ mod call;
 mod evm;
 mod genesis;
 mod hooks;
+#[cfg(feature = "native")]
+mod metrics;
 mod provider_functions;
 
 use alloy_consensus::TxReceipt;
@@ -16,6 +18,8 @@ pub use genesis::*;
 pub use hooks::{
     create_initial_system_events, populate_deposit_system_events, populate_set_block_info_event,
 };
+#[cfg(feature = "native")]
+pub use metrics::EVM_METRICS;
 use revm::context::BlockEnv;
 use revm::primitives::hardfork::SpecId as EvmSpecId;
 #[cfg(feature = "native")]

@@ -34,6 +34,7 @@ pub struct ProcessL2BlockResult {
     pub state_root: StorageRootHash,
     pub state_diff: StateDiff,
     pub process_duration: f64,
+    pub block_size: usize,
 }
 
 enum SyncError {
@@ -95,6 +96,8 @@ pub async fn process_l2_block<Da: DaService, DB: SharedLedgerOps>(
         .try_into()
         .context("Failed to parse transactions")?;
 
+    let block_size = l2_block.calculate_size();
+
     let l2_block_result = {
         // Post tangerine, we do not have the slot hash in l2 blocks we inspect the txs and get the slot hashes from set block infos
         // Then store the short header proofs of those blocks in the ledger db
@@ -144,6 +147,7 @@ pub async fn process_l2_block<Da: DaService, DB: SharedLedgerOps>(
         state_root: next_state_root,
         state_diff: l2_block_result.state_diff,
         process_duration: duration,
+        block_size,
     })
 }
 

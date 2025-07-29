@@ -1,11 +1,10 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::anyhow;
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
-use metrics::Histogram;
 use sov_rollup_interface::da::{BlockHeaderTrait, SequencerCommitment};
 use sov_rollup_interface::services::da::{DaService, SlotData};
 use sov_rollup_interface::zk::Proof;
@@ -25,13 +24,10 @@ pub async fn sync_l1<Da>(
     da_service: Arc<Da>,
     block_queue: Arc<Mutex<VecDeque<Da::FilteredBlock>>>,
     l1_block_cache: Arc<Mutex<L1BlockCache<Da>>>,
-    l1_block_scan_histogram: Histogram,
 ) where
     Da: DaService,
 {
     info!("Starting to sync from L1 height {}", start_from);
-
-    let start = Instant::now();
 
     loop {
         let last_finalized_l1_block_header =
@@ -71,14 +67,6 @@ pub async fn sync_l1<Da>(
             }
 
             start_from = block_number + 1;
-
-            // If the send above does not succeed, we don't set new values
-            // nor do we record any metrics.
-            l1_block_scan_histogram.record(
-                Instant::now()
-                    .saturating_duration_since(start)
-                    .as_secs_f64(),
-            );
         }
 
         sleep(Duration::from_secs(2)).await;

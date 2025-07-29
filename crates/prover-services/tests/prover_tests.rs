@@ -2,10 +2,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use prover_services::{ParallelProverService, ProofData, ProofGenMode};
+use prover_services::{ParallelProverService, ProofData, ProofGenMode, ProofWithDuration};
 use sov_mock_da::{MockAddress, MockDaService, MockHash};
 use sov_mock_zkvm::MockZkvm;
-use sov_rollup_interface::zk::{Proof, ReceiptType, ZkvmHost};
+use sov_rollup_interface::zk::{ReceiptType, ZkvmHost};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -33,10 +33,10 @@ async fn test_successful_prover_execution() {
     let proof = rx.await.unwrap();
 
     // Check that the output is correct
-    let hash_from_proof = extract_output_header(&proof);
+    let hash_from_proof = extract_output_header(&proof.proof);
     assert_eq!(hash_from_proof, header_hash);
 
-    prover_service.submit_proof(proof, id).await.unwrap();
+    prover_service.submit_proof(proof.proof, id).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -69,13 +69,13 @@ async fn test_parallel_proofs_equal_to_limit() {
     let proof_2 = rx_2.await.unwrap();
 
     // Check that the output is correct and the order of proofs are same as the input
-    let hash_1_from_proof = extract_output_header(&proof_1);
+    let hash_1_from_proof = extract_output_header(&proof_1.proof);
     assert_eq!(hash_1_from_proof, header_hash_1);
-    let hash_2_from_proof = extract_output_header(&proof_2);
+    let hash_2_from_proof = extract_output_header(&proof_2.proof);
     assert_eq!(hash_2_from_proof, header_hash_2);
 
     let txs_and_proofs = prover_service
-        .submit_proofs(vec![proof_1, proof_2])
+        .submit_proofs(vec![proof_1.proof, proof_2.proof])
         .await
         .unwrap();
     assert_eq!(txs_and_proofs.len(), 2);
@@ -134,17 +134,22 @@ async fn test_parallel_proofs_higher_than_limit() {
     let proof_4 = rx_4.await.unwrap();
 
     // Check that the output is correct and the order of proofs are same as the input
-    let hash_1 = extract_output_header(&proof_1);
+    let hash_1 = extract_output_header(&proof_1.proof);
     assert_eq!(hash_1, header_hash_1);
-    let hash_2 = extract_output_header(&proof_2);
+    let hash_2 = extract_output_header(&proof_2.proof);
     assert_eq!(hash_2, header_hash_2);
-    let hash_3 = extract_output_header(&proof_3);
+    let hash_3 = extract_output_header(&proof_3.proof);
     assert_eq!(hash_3, header_hash_3);
-    let hash_3 = extract_output_header(&proof_4);
+    let hash_3 = extract_output_header(&proof_4.proof);
     assert_eq!(hash_3, header_hash_4);
 
     let txs_and_proofs = prover_service
-        .submit_proofs(vec![proof_1, proof_2, proof_3, proof_4])
+        .submit_proofs(vec![
+            proof_1.proof,
+            proof_2.proof,
+            proof_3.proof,
+            proof_4.proof,
+        ])
         .await
         .unwrap();
     assert_eq!(txs_and_proofs.len(), 4);
@@ -186,7 +191,7 @@ fn extract_output_header(proof: &Vec<u8>) -> MockHash {
 async fn start_proof(
     prover_service: &ParallelProverService<MockDaService, MockZkvm>,
     header_hash: MockHash,
-) -> (Uuid, oneshot::Receiver<Proof>) {
+) -> (Uuid, oneshot::Receiver<ProofWithDuration>) {
     // Spawn mock proving in the background
     let id = Uuid::now_v7();
     let rx = prover_service

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use alloy_eips::eip2718::Encodable2718;
 use alloy_eips::BlockId;
@@ -22,7 +23,7 @@ use tracing::{debug, error};
 
 use crate::deposit_data_mempool::DepositDataMempool;
 use crate::mempool::CitreaMempool;
-use crate::metrics::SEQUENCER_METRICS;
+use crate::metrics::SEQUENCER_METRICS as SM;
 use crate::types::SequencerRpcMessage;
 use crate::utils::recover_raw_transaction;
 
@@ -207,8 +208,8 @@ impl SequencerRpcServer for SequencerRpcServerImpl {
         {
             tracing::warn!("Failed to insert mempool tx into db: {:?}", e);
         } else {
-            SEQUENCER_METRICS.mempool_txs.increment(1);
-            SEQUENCER_METRICS.mempool_txs_inc.increment(1);
+            SM.mempool_txs.increment(1);
+            SM.mempool_txs_inc.increment(1);
         }
 
         Ok(hash)
@@ -264,6 +265,9 @@ impl SequencerRpcServer for SequencerRpcServerImpl {
     fn send_raw_deposit_transaction(&self, deposit: Bytes) -> RpcResult<()> {
         debug!("Sequencer: citrea_sendRawDepositTransaction");
 
+        let deposit_tx_size = deposit.len();
+        SM.deposit_tx_size.record(deposit_tx_size as f64);
+
         let evm = Evm::<DefaultContext>::default();
         let mut working_set = WorkingSet::new(self.context.storage.clone());
 
@@ -273,6 +277,7 @@ impl SequencerRpcServer for SequencerRpcServerImpl {
             .lock()
             .make_deposit_tx_from_data(deposit.clone().into());
 
+        let start = std::time::Instant::now();
         let tx_res = evm.get_call(
             dep_tx,
             Some(BlockId::pending()),
@@ -281,6 +286,10 @@ impl SequencerRpcServer for SequencerRpcServerImpl {
             &mut working_set,
             &self.context.ledger,
         );
+        let deposit_tx_call_duration = Instant::now()
+            .saturating_duration_since(start)
+            .as_secs_f64();
+        SM.deposit_tx_call_duration.record(deposit_tx_call_duration);
 
         match tx_res {
             Ok(hex_res) => {
@@ -293,6 +302,7 @@ impl SequencerRpcServer for SequencerRpcServerImpl {
             }
             Err(e) => {
                 error!("Error processing deposit tx: {:?}", e);
+                SM.unaccepted_deposit_txs.increment(1);
                 Err(e)
             }
         }
