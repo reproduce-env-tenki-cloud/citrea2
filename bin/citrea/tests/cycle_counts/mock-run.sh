@@ -7,4 +7,4 @@ git checkout $MAIN_BRANCH
 cargo build --features testing
 bash $TEST_DIR/run-test.sh nightly-stats.json
 
-python3 $TEST_DIR/compare_results.py $TEST_DIR/results/patch-stats.json $TEST_DIR/results/nightly-stats.json
+python3 $TEST_DIR/compare-results.py $TEST_DIR/results/patch-stats.json $TEST_DIR/results/nightly-stats.json
