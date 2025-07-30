@@ -1,4 +1,4 @@
-use alloy_primitives::U64;
+use alloy_primitives::U32;
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use citrea_e2e::{
@@ -106,18 +106,19 @@ impl TestCase for GenerateProvingStatsDB {
         da.wait_mempool_len(4, None).await?;
         da.generate(DEFAULT_FINALITY_DEPTH).await?;
 
-        let commitments = batch_prover
-            .client
-            .http_client()
-            .get_sequencer_commitments_on_slot_by_number(
-                U64::from(da.get_finalized_height(None).await?)
-        ).await?.expect("Commitments not found");
+        batch_prover.wait_for_l1_height(da.get_finalized_height(None).await?, None).await?;
+        let commitments = futures::future::try_join_all([1, 2, 3].map(
+            |i| batch_prover.client.http_client().get_sequencer_commitment_by_index(U32::from(i)),
+        )).await?;
+        assert!(commitments[0].is_some());
+        assert!(commitments[1].is_some());
+        assert!(commitments[2].is_none());
 
-        assert_eq!(commitments.len(), 2);
         Ok(())
     }
 }
 
+#[ignore = "Used for generating proving stats database, not a regular test"]
 #[tokio::test(flavor = "multi_thread")]
 async fn generate_proving_stats_db() -> Result<()> {
     TestCaseRunner::new(GenerateProvingStatsDB)
