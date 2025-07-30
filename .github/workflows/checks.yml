@@ -514,38 +514,86 @@ jobs:
           codespell --skip="*.lock,./target,./crates/evm/ethereum-tests," -I="codespell_ignore.txt"
 
 
-    cycle_counts:
-      runs-on: ubicloud-standard-2
-      needs: build
-      if: github.event.pull_request.draft == false
-      steps:
-        - uses: actions/checkout@v4
-        - uses: actions/setup-python@v5
-          with:
-            python-version: "3.x"
-        - uses: dcarbone/install-jq-action@v2
-        - name: Download artifact
-          uses: actions/download-artifact@v4
-          with:
-            name: citrea-build
-            path: target/debug
-        - name: Make citrea executable
-          run: chmod +x target/debug/citrea
-        - name: Install dependencies
-          working-directory: bin/citrea/tests/cycle_counts
-          run: pip install -r requirements.txt
-        - name: Run tests on current branch
-          run: |
-            bash run-test.sh current_stats.json
-        - name: Run tests on main branch
-          run: |
-            git checkout nightly
-            bash run-test.sh nightly_stats.json
-        - name: Compare the results
-          run: |
-            python3 bin/citrea/tests/cycle_counts/compare_results.py
-        - name: Send comment to the PR(if PR exists)
-          run: |
-            if [ -n "${{ github.event.pull_request }}" ]; then
-              echo "Comparing results for PR #${{ github.event.pull_request.number }}"
-            fi
+  cycle_counts:
+    runs-on: ubicloud-standard-2
+    needs: build
+    if: github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install risc0
+        uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: citrea-build
+          path: target/debug
+      - name: Make citrea executable
+        run: chmod +x target/debug/citrea
+      - name: Install dependencies
+        working-directory: bin/citrea/tests/cycle_counts
+        run: pip install -r requirements.txt
+      - name: Run tests on current branch
+        run: ./github/scripts/run-test.sh current_stats.json
+        shell: bash
+
+      - name: Checkout nightly branch
+        run: git checkout nightly
+
+      - name: Get nightly commit hash
+        id: nightly-commit
+        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Restore nightly test cache
+        id: restore-nightly
+        uses: actions/cache@v4
+        with:
+          path: bin/citrea/tests/cycle_counts/results/nightly.json
+          key: nightly-cycle-counts-${{ steps.nightly-commit.outputs.hash }}
+
+      # --- Run test only if cache missed ---
+      - name: Install Rust toolchain
+        if: steps.restore-nightly.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Setup mold linker
+        if: steps.restore-nightly.outputs.cache-hit != 'true'
+        uses: rui314/setup-mold@v1
+
+      - name: Install Protoc
+        if: steps.restore-nightly.outputs.cache-hit != 'true'
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "23.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Rust cache
+        if: steps.restore-nightly.outputs.cache-hit != 'true'
+        uses: ubicloud/rust-cache@v2
+      - name: Build citrea on nightly
+        if: steps.restore-nightly.outputs.cache-hit != 'true'
+        run: make build
+      - name: Run tests on nightly
+        if: steps.restore-nightly.outputs.cache-hit != 'true'
+        run: ./github/scripts/run-test.sh nightly.json
+        shell: bash
+
+      - name: Compare the results
+        working-directory: bin/citrea/tests/cycle_counts
+        run: |
+          output=$(python compare_results.py results/nightly.json results/current_stats.json)
+          echo "SCRIPT_OUTPUT<<EOF" >> $GITHUB_ENV
+          echo "$output" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+      - name: Post PR comment
+        if: github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ${{ env.SCRIPT_OUTPUT }}
