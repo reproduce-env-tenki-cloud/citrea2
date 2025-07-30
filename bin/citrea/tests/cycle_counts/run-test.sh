@@ -10,7 +10,7 @@ target/debug/citrea --dev --da-layer bitcoin --rollup-config-path $TEST_DIR/conf
 PARALLEL_PROOF_LIMIT=2 target/debug/citrea --dev --da-layer bitcoin --rollup-config-path $TEST_DIR/configs/batch_prover_rollup_config.toml --batch-prover $TEST_DIR/configs/batch_prover_config.toml --genesis-paths bin/citrea/tests/bitcoin/test-data/gen-proof-input-genesis >> batch-prover.log &
 
 source bin/citrea/tests/cycle_counts/.venv/bin/activate
-python3 bin/citrea/tests/cycle_counts/get_proving_stats.py batch-prover.log > $TEST_DIR/results/$OUT_FILE_NAME
+python3 bin/citrea/tests/cycle_counts/get_proving_stats.py batch-prover.log $TEST_DIR/results/$OUT_FILE_NAME
 
 pkill citrea
 pkill bitcoind
