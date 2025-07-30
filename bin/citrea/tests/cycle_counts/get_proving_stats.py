@@ -85,11 +85,10 @@ def state_diff_size(state_diff):
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: python get_proof_data.py <output_file> <batch_prover_stdout_file>")
+    if len(sys.argv) < 2:
+        print("Usage: python get_proof_data.py <batch_prover_stdout_file>")
         sys.exit(1)
-    output_file = sys.argv[1]
-    batch_prover_stdout_file = sys.argv[2]
+    batch_prover_stdout_file = sys.argv[1]
 
     # Wait for proofs to be ready
     proofs = wait_for_proofs()
@@ -106,9 +105,8 @@ def main():
     cycles = extract_cycles(log_lines)
     print(f"Extracted cycles: {cycles}")
 
-    with open(output_file, 'w') as out_f:
-        output_data = {**cycles, "state_diff_size": total_diff_size}
-        json.dump(output_data, out_f, indent=4)
+    output_data = {**cycles, "state_diff_size": total_diff_size}
+    print(json.dumps(output_data))
 
 if __name__ == "__main__":
     main()
