@@ -69,10 +69,10 @@ def extract_cycles(log_lines):
 
     assert matched == 2, f"Expected exactly two lines with cycle counts, found {matched}."
     return {
-        "total_cycles": total,
-        "user_cycles": user,
-        "paging_cycles": paging,
-        "reserved_cycles": reserved,
+        "Total Cycles": total,
+        "User Cycles": user,
+        "Paging Cycles": paging,
+        "Reserved Cycles": reserved,
     }
 
 def state_diff_size(state_diff):
@@ -107,7 +107,7 @@ def main():
     print(f"Extracted cycles: {cycles}")
 
     with open(output_file, 'w') as out_f:
-        output_data = {**cycles, "state_diff_size": total_diff_size}
+        output_data = {**cycles, "State Diff Size (bytes)": total_diff_size}
         json.dump(output_data, out_f, indent=4)
 
 if __name__ == "__main__":
