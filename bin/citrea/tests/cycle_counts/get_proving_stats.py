@@ -40,7 +40,7 @@ def wait_for_proofs()->dict:
             if proof:
                 return proof
             elif (time.time() - start_time) > 600: # 10 minutes in seconds
-                print(f"❌ Timeout: Commitment {commitment_id} not proven within 10 minutes.")
+                raise TimeoutError(f"Timeout: Commitment {commitment_id} not proven within 10 minutes.")
                 return None
             time.sleep(5)
 

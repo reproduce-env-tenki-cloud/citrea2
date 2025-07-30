@@ -24,7 +24,7 @@ def main():
             results.append(f"✅ {key.replace('_', ' ').title()} is the same: {nightly_value}")
         else:
             emoji = "📈" if delta > 0 else "📉"
-            results.append(f"{emoji} {key.replace('_', ' ').title()} differ {nightly_value} vs {branch_value} ({delta:+.2f}%)")
+            results.append(f"{emoji} {key.replace('_', ' ').title()} differ {branch_value} vs {nightly_value} ({delta:+.2f}%)")
 
     with open('comment-body.md', 'w') as f:
         f.write("Comparing proving stats of patch with nightly\n")
