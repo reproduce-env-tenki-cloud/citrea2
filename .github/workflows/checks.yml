@@ -514,7 +514,7 @@ jobs:
           codespell --skip="*.lock,./target,./crates/evm/ethereum-tests," -I="codespell_ignore.txt"
 
 
-  cycle_counts:
+  proving-stats:
     runs-on: ubicloud-standard-2
     needs: build
     if: github.event.pull_request.draft == false
