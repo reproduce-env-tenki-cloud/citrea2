@@ -592,4 +592,4 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
-          body-path: 'comment-body.md'
+          body-path: 'bin/citrea/tests/cycle_counts/comment-body.md'
