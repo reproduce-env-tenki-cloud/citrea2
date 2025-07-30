@@ -543,7 +543,7 @@ jobs:
         shell: bash
 
       - name: Checkout nightly branch
-        run: git checkout nightly
+        run: git fetch origin nightly && git checkout nightly
 
       - name: Get nightly commit hash
         id: nightly-commit
