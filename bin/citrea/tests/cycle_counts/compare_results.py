@@ -26,7 +26,8 @@ def main():
             emoji = "📈" if delta > 0 else "📉"
             results.append(f"{emoji} {key.replace('_', ' ').title()} differ {nightly_value} vs {branch_value} ({delta:+.2f}%)")
 
-    print("Comparing proving stats of patch with nightly")
-    print("\n".join(results))
+    with open('comment-body.md', 'w') as f:
+        f.write("Comparing proving stats of patch with nightly\n")
+        f.write("\n".join(results))
 if __name__ == "__main__":
     main()

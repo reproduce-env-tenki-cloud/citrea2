@@ -585,15 +585,11 @@ jobs:
       - name: Compare the results
         working-directory: bin/citrea/tests/cycle_counts
         run: |
-          output=$(python compare_results.py results/nightly.json results/current_stats.json)
-          echo "SCRIPT_OUTPUT<<EOF" >> $GITHUB_ENV
-          echo "$output" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          python compare_results.py results/nightly.json results/current_stats.json
       - name: Post PR comment
         if: github.event_name == 'pull_request'
         uses: peter-evans/create-or-update-comment@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ${{ env.SCRIPT_OUTPUT }}
+          body-path: 'comment-body.md'
