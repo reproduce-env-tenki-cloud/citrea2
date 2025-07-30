@@ -539,7 +539,7 @@ jobs:
         working-directory: bin/citrea/tests/proving-stats
         run: pip install -r requirements.txt
       - name: Run tests on current branch
-        run: ./github/scripts/run-test.sh current-stats.json
+        run: ./.github/scripts/run-test.sh current-stats.json
         shell: bash
 
       - name: Checkout nightly branch
@@ -579,7 +579,7 @@ jobs:
         run: make build
       - name: Run tests on nightly
         if: steps.restore-nightly.outputs.cache-hit != 'true'
-        run: ./github/scripts/run-test.sh nightly.json
+        run: ./.github/scripts/run-test.sh nightly.json
         shell: bash
 
       - name: Compare the results
