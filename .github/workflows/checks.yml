@@ -543,7 +543,7 @@ jobs:
         shell: bash
 
       - name: Checkout nightly branch
-        run: git fetch origin nightly && git checkout nightly
+        run: git fetch origin ege/mock-nightly-2 && git checkout ege/mock-nightly-2
 
       - name: Get nightly commit hash
         id: nightly-commit
