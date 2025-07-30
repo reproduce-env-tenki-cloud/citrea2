@@ -1,5 +1,5 @@
 MAIN_BRANCH=ege/mock-nightly-2
-TEST_DIR=bin/citrea/tests/cycle_counts
+TEST_DIR=bin/citrea/tests/proving-stats
 
 bash $TEST_DIR/run-test.sh patch-stats.json
 git checkout $MAIN_BRANCH

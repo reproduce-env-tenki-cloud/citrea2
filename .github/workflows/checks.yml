@@ -536,7 +536,7 @@ jobs:
       - name: Make citrea executable
         run: chmod +x target/debug/citrea
       - name: Install dependencies
-        working-directory: bin/citrea/tests/cycle_counts
+        working-directory: bin/citrea/tests/proving-stats
         run: pip install -r requirements.txt
       - name: Run tests on current branch
         run: ./github/scripts/run-test.sh current-stats.json
@@ -553,7 +553,7 @@ jobs:
         id: restore-nightly
         uses: actions/cache@v4
         with:
-          path: bin/citrea/tests/cycle_counts/results/nightly.json
+          path: bin/citrea/tests/proving-stats/results/nightly.json
           key: nightly-cycle-counts-${{ steps.nightly-commit.outputs.hash }}
 
       # --- Run test only if cache missed ---
@@ -583,7 +583,7 @@ jobs:
         shell: bash
 
       - name: Compare the results
-        working-directory: bin/citrea/tests/cycle_counts
+        working-directory: bin/citrea/tests/proving-stats
         run: |
           python compare-results.py results/nightly.json results/current-stats.json
       - name: Post PR comment
@@ -592,4 +592,4 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
-          body-path: 'bin/citrea/tests/cycle_counts/comment-body.md'
+          body-path: 'bin/citrea/tests/proving-stats/comment-body.md'
