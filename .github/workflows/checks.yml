@@ -538,6 +538,8 @@ jobs:
       - name: Install dependencies
         working-directory: bin/citrea/tests/proving-stats
         run: pip install -r requirements.txt
+      - name: Make scripts executable
+        run: chmod +x ./.github/scripts/run-test.sh
       - name: Run tests on current branch
         run: ./.github/scripts/run-test.sh current-stats.json
         shell: bash
