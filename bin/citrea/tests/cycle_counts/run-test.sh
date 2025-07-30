@@ -14,5 +14,7 @@ python3 bin/citrea/tests/cycle_counts/get_proving_stats.py $TEST_DIR/results/out
 pkill citrea
 pkill bitcoind
 
+sleep 2 # Give some time for the processes to terminate
+
 git reset --hard
 git clean -fd
