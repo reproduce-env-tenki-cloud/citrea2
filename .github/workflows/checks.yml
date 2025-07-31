@@ -518,7 +518,7 @@ jobs:
 
   proving-stats:
     runs-on: ubicloud-standard-2
-    needs: build
+    needs: [build, docker-setup]
     if: github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
@@ -540,6 +540,16 @@ jobs:
       - name: Install dependencies
         working-directory: bin/citrea/tests/proving-stats
         run: pip install -r requirements.txt
+
+      - name: Restore cached Docker image
+        uses: actions/cache@v4
+        with:
+          path: /tmp/docker
+          key: ${{ runner.os }}-docker-${{ env.TEST_BITCOIN_DOCKER }}
+      - name: Load Docker image
+        continue-on-error: true
+        run: docker load < /tmp/docker/bitcoin.tar
+
       - name: Run tests on current branch 
         run: |
           chmod +x ./.github/scripts/run-test.sh
