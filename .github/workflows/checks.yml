@@ -590,6 +590,12 @@ jobs:
         uses: ubicloud/rust-cache@v2
         with:
             shared-key: build  
+      - name: Cache ethereum-tests
+        if: steps.restore-nightly.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          key: "eth-tests-1c23e3c"
+          path: crates/evm/ethereum-tests
       - name: Build citrea on nightly
         if: steps.restore-nightly.outputs.cache-hit != 'true'
         run: cargo build --features testing
