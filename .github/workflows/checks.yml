@@ -592,7 +592,7 @@ jobs:
             shared-key: build  
       - name: Build citrea on nightly
         if: steps.restore-nightly.outputs.cache-hit != 'true'
-        run: make build
+        run: cargo build --features testing
       - name: Run tests on nightly
         if: steps.restore-nightly.outputs.cache-hit != 'true'
         run: |
