@@ -598,7 +598,7 @@ jobs:
           path: crates/evm/ethereum-tests
       - name: Build citrea on nightly
         if: steps.restore-nightly.outputs.cache-hit != 'true'
-        run: cargo build --features testing
+        run: make build
       - name: Run tests on nightly
         if: steps.restore-nightly.outputs.cache-hit != 'true'
         run: |
