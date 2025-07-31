@@ -91,6 +91,8 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
       - name: Rust Cache
         uses: ubicloud/rust-cache@v2
+        with:
+          shared-key: build
       - name: Install risc0
         uses: ./.github/actions/install-risc0
         with:
@@ -538,10 +540,10 @@ jobs:
       - name: Install dependencies
         working-directory: bin/citrea/tests/proving-stats
         run: pip install -r requirements.txt
-      - name: Make scripts executable
-        run: chmod +x ./.github/scripts/run-test.sh
-      - name: Run tests on current branch
-        run: ./.github/scripts/run-test.sh current-stats.json
+      - name: Run tests on current branch 
+        run: |
+          chmod +x ./.github/scripts/run-test.sh
+          ./.github/scripts/run-test.sh current-stats.json
         shell: bash
 
       - name: Checkout nightly branch
@@ -576,12 +578,16 @@ jobs:
       - name: Rust cache
         if: steps.restore-nightly.outputs.cache-hit != 'true'
         uses: ubicloud/rust-cache@v2
+        with:
+            shared-key: build  
       - name: Build citrea on nightly
         if: steps.restore-nightly.outputs.cache-hit != 'true'
         run: make build
       - name: Run tests on nightly
         if: steps.restore-nightly.outputs.cache-hit != 'true'
-        run: ./.github/scripts/run-test.sh nightly.json
+        run: |
+          chmod +x ./.github/scripts/run-test.sh
+          ./.github/scripts/run-test.sh nightly.json
         shell: bash
 
       - name: Compare the results
