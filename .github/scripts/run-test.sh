@@ -13,10 +13,9 @@ PARALLEL_PROOF_LIMIT=2 target/debug/citrea --dev --da-layer bitcoin --rollup-con
 python3 bin/citrea/tests/proving-stats/get-proving-stats.py batch-prover.log $TEST_DIR/results/$OUT_FILE_NAME
 
 pkill citrea
-pkill bitcoind
+docker compose -f $TEST_DIR/docker-compose.regtest.yml down
 
 sleep 2 # Give some time for the processes to terminate
 
-# TODO: see if we can remove this
 git reset --hard
 git clean -fd
