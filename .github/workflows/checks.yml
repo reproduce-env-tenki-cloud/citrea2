@@ -617,4 +617,4 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
           body-path: 'bin/citrea/tests/proving-stats/comment-body.md'
-          edit-mode: append
+          edit-mode: replace
