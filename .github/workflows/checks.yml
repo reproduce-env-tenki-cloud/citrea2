@@ -609,7 +609,7 @@ jobs:
       - name: Compare the results
         working-directory: bin/citrea/tests/proving-stats
         run: |
-          python compare-results.py results/nightly.json results/current-stats.json
+          python compare-results.py results/current-stats.json results/nightly.json
       - name: Post PR comment
         if: github.event_name == 'pull_request'
         uses: peter-evans/create-or-update-comment@v4
