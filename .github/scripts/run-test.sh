@@ -2,7 +2,7 @@ TEST_DIR=bin/citrea/tests/proving-stats
 OUT_FILE_NAME="$1"
 
 docker compose -f $TEST_DIR/docker-compose.regtest.yml up -d
-sleep 5
+sleep 10
 
 docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=citrea -rpcpassword=citrea loadwallet sequencer
 docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=citrea -rpcpassword=citrea loadwallet batch-prover
