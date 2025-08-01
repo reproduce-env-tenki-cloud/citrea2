@@ -2,7 +2,7 @@ TEST_DIR=bin/citrea/tests/proving-stats
 OUT_FILE_NAME="$1"
 
 docker compose -f $TEST_DIR/docker-compose.regtest.yml up -d
-sleep 10
+sleep 5
 
 docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=citrea -rpcpassword=citrea loadwallet sequencer
 docker exec bitcoin-regtest bitcoin-cli -regtest -rpcuser=citrea -rpcpassword=citrea loadwallet batch-prover
@@ -15,6 +15,7 @@ python3 bin/citrea/tests/proving-stats/get-proving-stats.py batch-prover.log $TE
 
 pkill citrea
 docker compose -f $TEST_DIR/docker-compose.regtest.yml down
+sudo chown -R $USER:$USER ./bitcoin
 
 sleep 2 # Give some time for the processes to terminate
 

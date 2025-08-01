@@ -2,7 +2,6 @@ services:
   citrea-bitcoin-regtest:
     image: bitcoin/bitcoin:29.0
     container_name: bitcoin-regtest
-    user: "1001:1001"
     environment:
       - BITCOIN_DATA=/var/lib/bitcoin
     volumes:
