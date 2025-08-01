@@ -21,7 +21,7 @@ use tokio::select;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::interval;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::helpers::builders::TxWithId;
 use crate::helpers::parsers::parse_relevant_transaction;
@@ -29,6 +29,8 @@ use crate::spec::utxo::UTXO;
 
 type BlockHeight = u64;
 type Result<T> = std::result::Result<T, MonitorError>;
+
+const REBROADCAST_EACH_N_BLOCK: u64 = 1;
 
 /// Return UNIX timestamp in seconds
 fn get_timestamp() -> u64 {
@@ -51,6 +53,8 @@ pub enum TxStatus {
         base_fee: u64,
         /// Timestamp.
         timestamp: u64,
+        /// Block height when transaction entered pool
+        height: u64,
     },
     /// Tx confirmed but below finality_depth
     #[serde(rename_all = "camelCase")]
@@ -645,7 +649,6 @@ impl MonitoringService {
             match &monitored_tx.status {
                 // Check non-finalized TXs
                 TxStatus::Queued
-                | TxStatus::InMempool { .. }
                 | TxStatus::Evicted { .. }
                 | TxStatus::Confirmed { .. }
                 | TxStatus::Replaced { .. } => {
@@ -653,6 +656,24 @@ impl MonitoringService {
                     let new_status = self
                         .determine_tx_status(&tx_result, &monitored_tx.status)
                         .await?;
+
+                    monitored_tx.status = new_status;
+                }
+                TxStatus::InMempool { height, .. } => {
+                    let tx_result = self.client.get_transaction(txid, None).await?;
+                    let mut new_status = self
+                        .determine_tx_status(&tx_result, &monitored_tx.status)
+                        .await?;
+
+                    // If status is still InMempool, check for how many block it has been in mempool and rebroadcast every REBROADCAST_EACH_N_BLOCK
+                    if let TxStatus::InMempool { .. } = new_status {
+                        let current_height = self.client.get_block_count().await?;
+                        if (current_height.saturating_sub(*height)) >= REBROADCAST_EACH_N_BLOCK {
+                            new_status = self
+                                .attempt_rebroadcast(txid, &monitored_tx.tx, &new_status)
+                                .await?
+                        }
+                    }
 
                     monitored_tx.status = new_status;
                 }
@@ -703,6 +724,7 @@ impl MonitoringService {
                     TxStatus::InMempool {
                         base_fee,
                         timestamp: get_timestamp(),
+                        height: entry.height,
                     }
                 }
                 Err(_) => {
@@ -790,13 +812,13 @@ impl MonitoringService {
         Ok(())
     }
 
-    #[instrument(skip(self, tx))]
     async fn attempt_rebroadcast(
         &self,
         txid: &Txid,
         tx: &Transaction,
         current_status: &TxStatus,
     ) -> Result<TxStatus> {
+        warn!("Rebroadcasting txid: {txid} with current_status {current_status:?}");
         let raw_tx_hex = bitcoin::consensus::encode::serialize_hex(tx);
         self.client.send_raw_transaction(raw_tx_hex).await?;
         let tx_result = self.client.get_transaction(txid, None).await?;
