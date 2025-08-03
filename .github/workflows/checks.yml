@@ -553,21 +553,26 @@ jobs:
       - name: Run tests on current branch 
         run: |
           chmod +x ./.github/scripts/run-test.sh
-          ./.github/scripts/run-test.sh current-stats.json
+          ./.github/scripts/run-test.sh patch-stats.json
         shell: bash
+
+      - name: Get current commit hash
+        id: current-commit
+        run: |
+          echo "patch-hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
       - name: Checkout nightly branch
         run: git fetch origin ege/mock-nightly && git checkout ege/mock-nightly
 
       - name: Get nightly commit hash
         id: nightly-commit
-        run: echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+        run: echo "nightly-hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
       - name: Restore nightly test cache
         id: restore-nightly
         uses: actions/cache@v4
         with:
-          path: bin/citrea/tests/proving-stats/results/nightly.json
+          path: bin/citrea/tests/proving-stats/results/nightly-stats.json
           key: nightly-cycle-counts-${{ steps.nightly-commit.outputs.hash }}
 
       # --- Run test only if cache missed ---
@@ -603,13 +608,17 @@ jobs:
         if: steps.restore-nightly.outputs.cache-hit != 'true'
         run: |
           chmod +x ./.github/scripts/run-test.sh
-          ./.github/scripts/run-test.sh nightly.json
+          ./.github/scripts/run-test.sh nightly-stats.json
         shell: bash
 
       - name: Compare the results
         working-directory: bin/citrea/tests/proving-stats
         run: |
-          python compare-results.py results/current-stats.json results/nightly.json
+          python compare-results.py \
+            --patch-file results/patch-stats.json \
+            --nightly-file results/nightly-stats.json \
+            --patch-commit ${{ steps.current-commit.outputs.patch-hash }} \
+            --nightly-commit ${{ steps.nightly-commit.outputs.nightly-hash }}
       - name: Find Comment
         if: github.event_name == 'pull_request'
         uses: peter-evans/find-comment@v3
@@ -617,7 +626,7 @@ jobs:
         with:
           issue-number: ${{ github.event.pull_request.number }}
           comment-author: 'github-actions[bot]'
-          body-includes: Comparing proving stats of patch with nightly
+          body-includes: Proving stats report
 
       - name: Create or update comment
         if: github.event_name == 'pull_request'
