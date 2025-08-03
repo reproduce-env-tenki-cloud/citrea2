@@ -15,19 +15,23 @@ def main():
         branch_data = json.load(f)
     
     assert nightly_data.keys() == branch_data.keys(), "Keys in the two files do not match."
-    results = []
+
+    lines = []
+    lines.append("Comparing proving stats of patch with nightly\n")
+    lines.append("|    | Metric                  | Nightly        | Patch           | Change     |")
+    lines.append("|----|-------------------------|----------------|------------------|------------|")
+
     for key in nightly_data.keys():
         nightly_value = nightly_data[key]
         branch_value = branch_data[key]
         delta = calculate_delta(nightly_value, branch_value)
-        if delta == 0:
-            results.append(f"✅ {key.replace('_', ' ').title()} is the same: {nightly_value}")
-        else:
-            emoji = "📈" if delta > 0 else "📉"
-            results.append(f"{emoji} {key.replace('_', ' ').title()} differ {branch_value} vs {nightly_value} ({delta:+.2f}%)")
+
+        emoji = "✅" if delta == 0 else ("📈" if delta > 0 else "📉")
+        metric = key.replace('_', ' ').title()
+        delta_str = f"{delta:+.2f}%"
+        lines.append(f"| {emoji} | {metric:<23} | {nightly_value:,} | {branch_value:,} | {delta_str:<9} |")
 
     with open('comment-body.md', 'w') as f:
-        f.write("Comparing proving stats of patch with nightly\n")
-        f.write("\n".join(results))
+        f.write("\n".join(lines))
 if __name__ == "__main__":
     main()
