@@ -210,6 +210,7 @@ where
             l2_block_hash,
             state_root,
             process_duration,
+            block_size,
             ..
         } = l2_block_result;
 
@@ -221,6 +222,7 @@ where
 
         FULLNODE_METRICS.current_l2_block.set(l2_height as f64);
         FULLNODE_METRICS.process_l2_block.record(process_duration);
+        FULLNODE_METRICS.l2_block_size.record(block_size as f64);
 
         Ok(())
     }

@@ -215,6 +215,7 @@ where
             state_root,
             state_diff,
             process_duration,
+            ..
         } = l2_block_result;
 
         self.state_root = state_root;

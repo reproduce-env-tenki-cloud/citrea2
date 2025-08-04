@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Context;
 use rand::Rng;
@@ -9,7 +10,8 @@ use tokio::sync::{oneshot, Mutex, Notify};
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
-use crate::{ProofData, ProofGenMode};
+use crate::metrics::PARALLEL_PROVER_METRICS;
+use crate::{ProofData, ProofGenMode, ProofWithDuration};
 
 /// Prover service capable of invoking the zkVM proving sessions in parallel.
 pub struct ParallelProverService<Da, Vm>
@@ -92,7 +94,11 @@ where
     ///
     /// * `data` - the proof data to be used for generating a proof
     /// * `receipt_type` - the expected receipt type of the proof
-    pub async fn prove(&self, data: ProofData, receipt_type: ReceiptType) -> anyhow::Result<Proof> {
+    pub async fn prove(
+        &self,
+        data: ProofData,
+        receipt_type: ReceiptType,
+    ) -> anyhow::Result<ProofWithDuration> {
         let job_id = Uuid::nil();
         let rx = self.start_proving(data, receipt_type, job_id).await?;
         Ok(rx.await.expect("Proof channel should not close"))
@@ -117,7 +123,7 @@ where
         data: ProofData,
         receipt_type: ReceiptType,
         job_id: Uuid,
-    ) -> anyhow::Result<oneshot::Receiver<Proof>> {
+    ) -> anyhow::Result<oneshot::Receiver<ProofWithDuration>> {
         self.reserve_proof_slot().await;
 
         let ProofData {
@@ -134,6 +140,7 @@ where
         }
 
         // start proof immediately in the background
+        let proof_start_time = std::time::Instant::now();
         let proof_rx = make_proof(vm, job_id, elf, self.proof_mode, receipt_type)
             .context("Failed to start proving")?;
         debug!("Started proving job");
@@ -147,10 +154,18 @@ where
             let proof = proof_rx.await;
 
             *ongoing_proof_count.lock().await -= 1;
+            PARALLEL_PROVER_METRICS.ongoing_proving_jobs.decrement(1);
 
             match proof {
                 Ok(proof) => {
-                    tx.send(proof.proof)
+                    let duration = Instant::now()
+                        .saturating_duration_since(proof_start_time)
+                        .as_secs_f64();
+                    let proof_with_duration = ProofWithDuration {
+                        proof: proof.proof,
+                        duration,
+                    };
+                    tx.send(proof_with_duration)
                         .expect("Proof channel should not close");
                 }
                 Err(e) => {
@@ -173,11 +188,17 @@ where
         // try to reserve a slot if there is one available
         if *ongoing_proof_count < self.parallel_proof_limit {
             *ongoing_proof_count += 1;
+            PARALLEL_PROVER_METRICS
+                .ongoing_proving_jobs
+                .set(*ongoing_proof_count as f64);
             return;
         }
         // release the lock manually just in case
         drop(ongoing_proof_count);
 
+        PARALLEL_PROVER_METRICS
+            .proof_count_waiting_in_queue
+            .increment(1);
         warn!("Reached parallel proof limit, waiting for one of the proving tasks to finish");
 
         loop {
@@ -189,6 +210,12 @@ where
             let mut ongoing_proof_count = self.ongoing_proof_count.lock().await;
             if *ongoing_proof_count < self.parallel_proof_limit {
                 *ongoing_proof_count += 1;
+                PARALLEL_PROVER_METRICS
+                    .ongoing_proving_jobs
+                    .set(*ongoing_proof_count as f64);
+                PARALLEL_PROVER_METRICS
+                    .proof_count_waiting_in_queue
+                    .decrement(1);
                 return;
             }
         }

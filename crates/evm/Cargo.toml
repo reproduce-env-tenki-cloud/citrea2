@@ -23,6 +23,8 @@ citrea-primitives = { path = "../primitives" }
 borsh = { workspace = true, features = ["rc"] }
 hex = { workspace = true, optional = true }
 jsonrpsee = { workspace = true, features = ["macros", "client-core", "server"], optional = true }
+metrics = { workspace = true, optional = true }
+metrics-derive = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true, optional = true }
 sha2 = { workspace = true }
@@ -99,6 +101,8 @@ native = [
   "dep:alloy-rpc-types-trace",
   "dep:alloy-serde",
   "dep:alloy-network",
+  "dep:metrics",
+  "dep:metrics-derive",
 
   "dep:hex",
   "dep:jsonrpsee",
