@@ -145,7 +145,7 @@ pub mod bitcoinda {
     pub const DEVNET_INITIAL_BATCH_PROOF_METHOD_IDS: NonEmptySlice<(u64, [u32; 8])> =
         NonEmptySlice::new(&[(
             0,
-            decode_to_u32_array("9cb8e7d97389bd4fc1c1c5916340d5dce6afbfab81a72fbe26c733d0e2a2d2d7"),
+            decode_to_u32_array("1c13e18cd83c22eba3f620e8619af49363b240de764f37501fac5d65047146ca"),
         )]);
 
     /// Initial batch proof method IDs for the Bitcoin DA on Nightly.
