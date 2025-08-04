@@ -44,21 +44,21 @@ const SEQUENCER_PUBLIC_KEY: [u8; 33] = {
 
 const INITIAL_PREV_L2_BLOCK_HASH: Option<[u8; 32]> = {
     let hex_block_hash: Option<&str> = match NETWORK {
-        Network::Mainnet => Some("0000000000000000000000000000000000000000000000000000000000000000"),
-        Network::Testnet => Some("deca8bf8314fc46e772898f7a4df864eb4b635ae9d1bbccab25a87e52f68902c"), // block #9056999
+        Network::Mainnet => {
+            Some("0000000000000000000000000000000000000000000000000000000000000000")
+        }
+        Network::Testnet => {
+            Some("00f60fc8c66032c232912aa89ba702e6fd5bb95a748c161285cbd62d4b72550a")
+        } // block #9056999
         Network::Devnet => Some("0000000000000000000000000000000000000000000000000000000000000000"),
-        Network::Nightly => {
-            match option_env!("INITIAL_PREV_L2_BLOCK_HASH") {
-                Some(hex) => Some(hex),
-                None => Some("0000000000000000000000000000000000000000000000000000000000000000"),
-            }
-        }
-        Network::TestNetworkWithForks => {
-            match option_env!("INITIAL_PREV_L2_BLOCK_HASH") {
-                Some(hex) => Some(hex),
-                None => None,
-            }
-        }
+        Network::Nightly => match option_env!("INITIAL_PREV_L2_BLOCK_HASH") {
+            Some(hex) => Some(hex),
+            None => Some("0000000000000000000000000000000000000000000000000000000000000000"),
+        },
+        Network::TestNetworkWithForks => match option_env!("INITIAL_PREV_L2_BLOCK_HASH") {
+            Some(hex) => Some(hex),
+            None => None,
+        },
     };
 
     match hex_block_hash {
@@ -69,7 +69,6 @@ const INITIAL_PREV_L2_BLOCK_HASH: Option<[u8; 32]> = {
         None => None,
     }
 };
-
 
 const FORKS: &[Fork] = match NETWORK {
     Network::Mainnet => &MAINNET_FORKS,
