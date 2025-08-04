@@ -48,7 +48,14 @@ where
         forks: &[Fork],
     ) -> BatchProofCircuitOutput {
         println!("Running sequencer commitments in DA slot");
-
+        fn fib(n: u32) -> u64 {
+            if n <= 1 {
+                n as u64
+            } else {
+                fib(n - 1) + fib(n - 2)
+            }
+        }
+        fib(20);
         let mut data: BatchProofCircuitInputV3Part1 = guest.read_from_host();
 
         let short_header_proof_provider: ZkShortHeaderProofProviderService<Da> =
