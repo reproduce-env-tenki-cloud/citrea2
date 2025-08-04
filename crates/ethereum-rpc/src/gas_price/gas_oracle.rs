@@ -352,7 +352,7 @@ impl<C: sov_modules_api::Context> GasPriceOracle<C> {
 
         let base_fee_per_gas = block.header().base_fee_per_gas();
         let parent_hash = block.header().parent_hash();
-        let beneficary = block.header().beneficiary();
+        let beneficiary = block.header().beneficiary();
 
         // get the transactions (block.transactions is a enum but we only care about the 2nd arm)
         let txs = match &mut block.transactions {
@@ -385,7 +385,7 @@ impl<C: sov_modules_api::Context> GasPriceOracle<C> {
             }
 
             // check if the sender was the coinbase, if so, ignore
-            if tx.inner.signer() == beneficary || tx.inner.signer() == SYSTEM_SIGNER {
+            if tx.inner.signer() == beneficiary || tx.inner.signer() == SYSTEM_SIGNER {
                 continue;
             }
 
