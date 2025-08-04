@@ -345,20 +345,21 @@ impl<C: sov_modules_api::Context> GasPriceOracle<C> {
             let mut cache = self.fee_history_cache.lock();
             cache.block_cache.get_block(block_hash, working_set)?
         };
-        let block = match block_hit {
+        let mut block = match block_hit {
             Some(block) => block,
             None => return Ok(None),
         };
 
         let base_fee_per_gas = block.header().base_fee_per_gas();
         let parent_hash = block.header().parent_hash();
+        let beneficary = block.header().beneficiary();
 
         // get the transactions (block.transactions is a enum but we only care about the 2nd arm)
-        let mut txs = match block.transactions.clone() {
+        let txs = match &mut block.transactions {
             BlockTransactions::Full(txs) => txs,
             _ => return Ok(None),
         };
-        // sort the functions by ascending effective tip first
+        // sort the transactions by ascending effective tip first
         txs.sort_by_cached_key(|tx| {
             if let Some(base_fee) = base_fee_per_gas {
                 (*tx).effective_tip_per_gas(base_fee)
@@ -384,9 +385,7 @@ impl<C: sov_modules_api::Context> GasPriceOracle<C> {
             }
 
             // check if the sender was the coinbase, if so, ignore
-            if tx.inner.signer() == block.header().beneficiary()
-                || tx.inner.signer() == SYSTEM_SIGNER
-            {
+            if tx.inner.signer() == beneficary || tx.inner.signer() == SYSTEM_SIGNER {
                 continue;
             }
 
