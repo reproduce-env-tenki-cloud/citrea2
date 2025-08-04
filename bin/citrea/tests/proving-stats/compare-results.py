@@ -26,10 +26,11 @@ def main():
     patch_commit = args.patch_commit[:7]
     nightly_commit = args.nightly_commit[:7]
     
-    patch_commit = f"[(`{patch_commit}`)](https://github.com/citrea/citrea/commit/{patch_commit})"
-    nightly_commit = f"[(`{nightly_commit}`)](https://github.com/citrea/citrea/commit/{nightly_commit})"
-    
-    lines.append(f"> Comparing patch{patch_commit} to nightly{nightly_commit}.\n")
+    commit_url_base = "https://github.com/chainwayxyz/citrea/commit/"
+    patch_commit = f"[(`{patch_commit}`)]({commit_url_base}{patch_commit})"
+    nightly_commit = f"[(`{nightly_commit}`)]({commit_url_base}{nightly_commit})"
+
+    lines.append(f"Comparing patch{patch_commit} to nightly{nightly_commit}.\n")
     lines.append("|    | Metric                  | Nightly        | Patch           | Change     |")
     lines.append("|----|-------------------------|----------------|------------------|------------|")
 
