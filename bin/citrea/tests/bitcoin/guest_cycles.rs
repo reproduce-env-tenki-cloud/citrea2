@@ -173,7 +173,7 @@ async fn guest_cycles() {
         }
     };
 
-    println!("\nELF path: {:?}", elf_path);
+    println!("\nELF path: {elf_path:?}");
     let elf = fs::read(elf_path).unwrap();
 
     let exec_env = ExecutorEnvBuilder::default()
@@ -192,5 +192,5 @@ async fn guest_cycles() {
         .prove_with_opts(exec_env, &elf, &ProverOpts::groth16())
         .unwrap();
 
-    println!("Execution stats: {:?}", stats);
+    println!("Execution stats: {stats:?}");
 }
