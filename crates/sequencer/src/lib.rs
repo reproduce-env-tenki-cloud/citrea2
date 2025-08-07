@@ -181,6 +181,7 @@ where
             l2_block_tx,
             backup_manager.clone(),
             true, // Include tx body must be true in listen mode
+            true,
         )
         .unwrap();
 

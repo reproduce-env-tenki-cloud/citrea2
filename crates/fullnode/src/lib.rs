@@ -241,6 +241,7 @@ where
         l2_block_tx,
         backup_manager.clone(),
         include_tx_bodies,
+        false,
     )?;
 
     let l1_block_handler = L1BlockHandler::new(

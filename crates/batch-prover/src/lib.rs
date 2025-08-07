@@ -155,6 +155,7 @@ where
         l2_block_tx.clone(),
         backup_manager.clone(),
         true,
+        runner_config.with_subscription,
     )?;
 
     let (l1_signal_tx, l1_signal_rx) = mpsc::channel(1);
