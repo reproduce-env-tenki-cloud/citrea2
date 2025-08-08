@@ -144,7 +144,7 @@ node_url = "http://0.0.0.0:18433/wallet/sequencer-wallet"
 
 # batch_prover_rollup_config.toml
 [da]
-# node_url = "HOST:PORT/wallet-name"
+# node_url = "http://HOST:PORT/wallet/wallet-name"
 node_url = "http://0.0.0.0:18433/wallet/batch-prover-wallet"
 ```
 
