@@ -18,7 +18,6 @@ use citrea_stf::genesis_config::GenesisPaths;
 use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use clap::Parser;
 use metrics_exporter_prometheus::PrometheusBuilder;
-use metrics_util::MetricKindMask;
 use reth_tasks::TaskManager;
 use short_header_proof_provider::{
     NativeShortHeaderProofProviderService, SHORT_HEADER_PROOF_PROVIDER,
@@ -127,12 +126,6 @@ where
 
         let builder = PrometheusBuilder::new().with_http_listener(telemetry_addr);
         builder
-            .idle_timeout(
-                MetricKindMask::GAUGE | MetricKindMask::HISTOGRAM,
-                // Keep the idle timeout larger than one L1 block production.
-                // Setting this here for 30 minutes.
-                Some(Duration::from_secs(30 * 60)),
-            )
             .install()
             .map_err(|_| anyhow!("failed to install Prometheus recorder"))?;
     }
