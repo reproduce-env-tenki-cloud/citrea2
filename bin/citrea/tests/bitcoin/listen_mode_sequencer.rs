@@ -749,7 +749,7 @@ impl TestCase for MempoolSyncerTest {
             let tx = listen_mode_sequencer
                 .client
                 .http_client()
-                .eth_get_transaction_by_hash(tx_hash.clone(), Some(false))
+                .eth_get_transaction_by_hash(tx_hash, Some(false))
                 .await?
                 .unwrap();
             assert!(
