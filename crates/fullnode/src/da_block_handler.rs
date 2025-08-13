@@ -6,6 +6,7 @@
 use core::panic;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::anyhow;
 use citrea_common::backup::BackupManager;
@@ -33,7 +34,7 @@ use tokio::time::Duration;
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::error::{CommitmentError, HaltingError, ProcessingError, ProofError, SkippableError};
-use crate::metrics::FULLNODE_METRICS;
+use crate::metrics::FULLNODE_METRICS as FM;
 
 /// Result of processing a commitment or proof
 enum ProcessingResult {
@@ -140,7 +141,6 @@ where
             self.da_service.clone(),
             self.queued_l1_blocks.clone(),
             self.l1_block_cache.clone(),
-            Some(FULLNODE_METRICS.scan_l1_block.clone()),
         );
         tokio::pin!(l1_sync_worker);
 
@@ -148,6 +148,7 @@ where
             select! {
                 biased;
                 _ = &mut shutdown_signal => {
+                    info!("Shutting down L1BlockHandler");
                     return;
                 }
                 _ = &mut l1_sync_worker => {},
@@ -184,6 +185,7 @@ where
     /// 2. Records block height mapping
     /// 3. Extracts and processes contained ZK proofs and commitments
     async fn process_l1_block(&mut self, l1_block: Da::FilteredBlock) -> anyhow::Result<()> {
+        let start_scanning = Instant::now();
         let _l1_lock = self.backup_manager.start_l1_processing().await;
 
         let short_header_proof: <<Da as DaService>::Spec as DaSpec>::ShortHeaderProof =
@@ -220,6 +222,7 @@ where
                         );
                         continue;
                     }
+                    let start_commitment_process = std::time::Instant::now();
                     if let Err(e) = self
                         .process_sequencer_commitment(
                             l1_block.header().height(),
@@ -240,8 +243,14 @@ where
                             }
                         }
                     }
+                    FM.sequencer_commitment_processing_time.record(
+                        Instant::now()
+                            .saturating_duration_since(start_commitment_process)
+                            .as_secs_f64(),
+                    );
                 }
                 ProofOrCommitment::Proof(proof) => {
+                    let start_proof_process = std::time::Instant::now();
                     if let Err(e) = self
                         .process_zk_proof(
                             l1_block.header().height(),
@@ -260,6 +269,11 @@ where
                             }
                         }
                     }
+                    FM.batch_proof_processing_time.record(
+                        Instant::now()
+                            .saturating_duration_since(start_proof_process)
+                            .as_secs_f64(),
+                    );
                 }
             }
         }
@@ -298,7 +312,12 @@ where
             .set_last_scanned_l1_height(SlotNumber(l1_height))
             .map_err(|e| anyhow!("Could not set last scanned l1 height: {e}"))?;
 
-        FULLNODE_METRICS.current_l1_block.set(l1_height as f64);
+        FM.current_l1_block.set(l1_height as f64);
+        FM.set_scan_l1_block_duration(
+            Instant::now()
+                .saturating_duration_since(start_scanning)
+                .as_secs_f64(),
+        );
 
         Ok(())
     }
@@ -498,6 +517,10 @@ where
                 commitment_index: sequencer_commitment.index,
             },
         )?;
+
+        FM.highest_committed_l2_height.set(end_l2_height as f64);
+        FM.highest_committed_index
+            .set(sequencer_commitment.index as f64);
 
         Ok(ProcessingResult::Success)
     }
@@ -718,6 +741,8 @@ where
                 commitment_index: sequencer_commitment_index_range.1,
             },
         )?;
+
+        FM.highest_proven_l2_height.set(end_l2_height as f64);
 
         Ok(ProcessingResult::Success)
     }

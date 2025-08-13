@@ -2,6 +2,8 @@
 //!
 use std::sync::{Arc, Mutex};
 
+use metrics::counter;
+
 use crate::schema::{KeyCodec, KeyDecoder, ValueCodec};
 use crate::schema_batch::SchemaBatchIterator;
 use crate::{Operation, Schema, SchemaBatch, SchemaKey, SchemaValue, SeekKeyEncoder, DB};
@@ -64,9 +66,11 @@ impl DbTransaction {
 
         // 1. Check in cache
         if let Some(operation) = local_cache.read(key)? {
+            // Record Cache hit
+            counter!("schemadb_cache_hits", "cf_name" => S::COLUMN_FAMILY_NAME).increment(1);
             return decode_operation::<S>(operation);
         }
-
+        counter!("schemadb_cache_misses", "cf_name" => S::COLUMN_FAMILY_NAME).increment(1);
         self.db.get(key)
     }
 
@@ -168,15 +172,23 @@ where
                     if next.is_none() {
                         continue;
                     }
+                    counter!("schemadb_cache_hits", "cf_name" => S::COLUMN_FAMILY_NAME)
+                        .increment(1);
                     return next;
                 }
                 // Local exhausted
                 (None, Some((_key, _value))) => {
+                    // not sure on this
+                    counter!("schemadb_cache_misses", "cf_name" => S::COLUMN_FAMILY_NAME)
+                        .increment(1);
                     return self.db_iter.next();
                 }
                 // Both are active, need to compare keys
                 (Some(&(local_key, local_operation)), Some((db_key, _db_value))) => {
                     return if local_key < db_key {
+                        // not sure on this
+                        counter!("schemadb_cache_misses", "cf_name" => S::COLUMN_FAMILY_NAME)
+                            .increment(1);
                         self.db_iter.next()
                     } else {
                         // Local is preferable, as it is the latest
@@ -189,6 +201,8 @@ where
                         if next.is_none() {
                             continue;
                         }
+                        counter!("schemadb_cache_hits", "cf_name" => S::COLUMN_FAMILY_NAME)
+                            .increment(1);
                         next
                     };
                 }

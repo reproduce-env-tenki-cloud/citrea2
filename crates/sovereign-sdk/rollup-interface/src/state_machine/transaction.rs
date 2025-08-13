@@ -71,6 +71,13 @@ impl TransactionV1 {
         hasher.update(self.nonce.to_be_bytes());
         <[u8; 32]>::from(hasher.finalize_fixed())
     }
+
+    pub fn calculate_size(&self) -> usize {
+        self.signature.len()
+            + self.pub_key.pub_key.to_sec1_bytes().len()
+            + self.runtime_msg.len()
+            + EXTEND_MESSAGE_LEN
+    }
 }
 
 /// A Transaction object that is compatible with the module-system/sov-default-stf.
@@ -123,6 +130,13 @@ impl TransactionV2 {
         hasher.update(self.chain_id.to_be_bytes());
         hasher.update(self.nonce.to_be_bytes());
         <[u8; 32]>::from(hasher.finalize_fixed())
+    }
+
+    pub fn calculate_size(&self) -> usize {
+        borsh::to_vec(&self.signature).unwrap().len()
+            + self.pub_key.pub_key.to_sec1_bytes().len()
+            + self.runtime_msg.len()
+            + EXTEND_MESSAGE_LEN
     }
 }
 
@@ -221,6 +235,13 @@ impl Transaction {
         match self {
             Self::V1(tx) => tx.compute_digest(),
             Self::V2(tx) => tx.compute_digest(),
+        }
+    }
+
+    pub fn calculate_size(&self) -> usize {
+        match self {
+            Self::V1(tx) => tx.calculate_size(),
+            Self::V2(tx) => tx.calculate_size(),
         }
     }
 }

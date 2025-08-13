@@ -10,6 +10,7 @@ use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context};
 use async_trait::async_trait;
@@ -26,7 +27,6 @@ use citrea_common::utils::read_env;
 use citrea_primitives::compression::{compress_blob, decompress_blob};
 use citrea_primitives::MAX_TX_BODY_SIZE;
 use lru::LruCache;
-use metrics::gauge;
 use reth_tasks::shutdown::GracefulShutdown;
 use serde::{Deserialize, Serialize};
 use sov_rollup_interface::da::{DaSpec, DaTxRequest, DataOnDa, SequencerCommitment};
@@ -47,6 +47,7 @@ use crate::helpers::builders::TxWithId;
 use crate::helpers::merkle_tree::BitcoinMerkleTree;
 use crate::helpers::parsers::{parse_relevant_transaction, ParsedTransaction, VerifyParsed};
 use crate::helpers::{merkle_tree, TransactionKind};
+use crate::metrics::BITCOIN_DA_METRICS as BM;
 use crate::monitoring::{MonitoredTxKind, MonitoringConfig, MonitoringService, TxStatus};
 use crate::network_constants::NetworkConstants;
 use crate::spec::blob::BlobWithSender;
@@ -295,6 +296,7 @@ impl BitcoinService {
         tx_request: DaTxRequest,
         fee_sat_per_vbyte: u64,
     ) -> Result<Vec<[TxWithId; 2]>> {
+        let now = Instant::now();
         // Prevent sending tx to DA while transaction queue is not empty
         // otherwise, the tx that will be built may use the same UTXO as the one in the queue
         if !self.tx_queue.lock().await.is_empty() {
@@ -323,6 +325,9 @@ impl BitcoinService {
 
         // Process transaction queue.
         self.process_transaction_queue().await?;
+
+        BM.transaction_queue_processing_time
+            .record(Instant::now().saturating_duration_since(now).as_secs_f64());
 
         Ok(txs)
     }
@@ -435,7 +440,9 @@ impl BitcoinService {
     }
 
     async fn queue_transactions(&self, txs: Vec<SignedTxPair>) {
+        let txs_len = txs.len();
         self.tx_queue.lock().await.extend(txs);
+        BM.transaction_queue_size.increment(txs_len as f64);
     }
 
     /// Send transaction out of the queue to DA until the first error.
@@ -458,6 +465,7 @@ impl BitcoinService {
             match self.send_signed_transaction(tx).await {
                 Ok(ids) => {
                     queue.pop_front();
+                    BM.transaction_queue_size.decrement(1);
                     txids.extend(ids)
                 }
                 Err(e) => {
@@ -488,11 +496,11 @@ impl BitcoinService {
                 info!("Blob inscribe tx sent. Hash: {}", tx.reveal_txid())
             }
             TransactionKind::Chunks => {
-                gauge!("da_transaction_size").set(raw_txs_size_sum);
+                BM.transaction_size.set(raw_txs_size_sum);
                 info!("Blob chunk inscribe tx sent. Hash: {}", tx.reveal_txid())
             }
             TransactionKind::Aggregate => {
-                gauge!("da_transaction_size").set(raw_txs_size_sum);
+                BM.transaction_size.set(raw_txs_size_sum);
                 info!("Blob chunk aggregate tx sent. Hash: {}", tx.reveal_txid())
             }
             TransactionKind::Unknown(_) => unimplemented!(),
@@ -602,7 +610,7 @@ impl BitcoinService {
         self.client.test_mempool_accept(&[&raw_hex]).await?;
 
         let new_txid = self.client.send_raw_transaction(&raw_hex).await?;
-        gauge!("da_transaction_size").set(raw_hex.len() as f64);
+        BM.transaction_size.set(raw_hex.len() as f64);
 
         match method {
             BumpFeeMethod::Cpfp => {

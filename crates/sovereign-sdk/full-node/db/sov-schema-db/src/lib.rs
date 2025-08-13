@@ -356,7 +356,8 @@ impl DB {
             for (key, operation) in rows {
                 match operation {
                     Operation::Put { value } => {
-                        histogram!("schemadb_put_bytes").record((key.len() + value.len()) as f64);
+                        histogram!("schemadb_batch_put_bytes")
+                            .record((key.len() + value.len()) as f64);
                     }
                     Operation::Delete => {
                         gauge!("schemadb_deletes", "cf_name" => cf_name.to_owned()).increment(1)

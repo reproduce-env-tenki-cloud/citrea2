@@ -24,5 +24,8 @@ impl<DB> L2BlockProcessor<DB> for FullNodeL2BlockProcessor {
         FULLNODE_METRICS
             .process_l2_block
             .record(result.process_duration);
+        FULLNODE_METRICS
+            .l2_block_size
+            .record(result.block_size as f64);
     }
 }

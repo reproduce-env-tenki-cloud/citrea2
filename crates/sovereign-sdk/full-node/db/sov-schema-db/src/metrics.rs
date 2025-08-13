@@ -34,6 +34,10 @@ pub struct SchemaDbMetrics {
     pub(crate) batch_put_bytes: Histogram,
     #[metric(describe = "sov_schema_db schema batch put latency in seconds")]
     pub(crate) batch_put_latency_seconds: Histogram,
+    #[metric(describe = "Schemadb cache hits")]
+    pub(crate) cache_hits: Counter,
+    #[metric(describe = "Schemadb cache misses")]
+    pub(crate) cache_misses: Counter,
 }
 
 /// Schema DB metrics

@@ -19,6 +19,8 @@ use sov_rollup_interface::services::da::DaService;
 use tower_http::cors::{Any, CorsLayer};
 
 mod auth;
+mod metrics;
+pub(crate) use metrics::RpcMetrics;
 pub mod server;
 pub mod utils;
 

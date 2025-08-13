@@ -4,6 +4,7 @@
 
 use std::collections::{hash_map, HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Context;
 use citrea_common::utils::{get_tangerine_activation_height_non_zero, merge_state_diffs};
@@ -14,7 +15,7 @@ use citrea_primitives::{network_to_dev_mode, MAX_TX_BODY_SIZE, MAX_WITNESS_CACHE
 use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use prover_services::{ParallelProverService, ProofData};
+use prover_services::{ParallelProverService, ProofData, ProofWithDuration};
 use rand::Rng;
 use reth_tasks::shutdown::GracefulShutdown;
 use rs_merkle::algorithms::Sha256;
@@ -40,6 +41,7 @@ use tracing::{debug, error, info, instrument, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use uuid::Uuid;
 
+use crate::metrics::BATCH_PROVER_METRICS;
 use crate::partition::{Partition, PartitionMode, PartitionReason, PartitionState};
 
 /// Request types for the Prover service.
@@ -294,7 +296,12 @@ where
             return Ok(vec![]);
         }
 
-        let mut proving_jobs = Vec::with_capacity(partitions.len());
+        let (proving_jobs_tx, proving_jobs_rx) = mpsc::unbounded_channel();
+
+        // start watching the proving jobs to finish in the background
+        self.watch_proving_jobs(proving_jobs_rx);
+
+        let mut job_ids = Vec::with_capacity(partitions.len());
         for partition in partitions {
             let id = Uuid::now_v7();
             let input = self
@@ -303,7 +310,10 @@ where
 
             // start the proving job in the background
             let rx = self.start_proving(input, id).await?;
-            proving_jobs.push((id, rx));
+            proving_jobs_tx
+                .send((id, rx))
+                .context("Failed to send proving job to watcher")?;
+            job_ids.push(id);
 
             let commitment_indices = partition
                 .commitments
@@ -320,10 +330,7 @@ where
                 .context("Failed to delete pending commitments")?;
         }
 
-        let job_ids = proving_jobs.iter().map(|job| job.0).collect();
-
-        // start watching the proving jobs to finish in the background
-        self.watch_proving_jobs(proving_jobs);
+        assert!(!job_ids.is_empty(), "received empty jobs list");
 
         Ok(job_ids)
     }
@@ -550,6 +557,7 @@ where
         partition: &Partition<'_>,
         _job_id: Uuid,
     ) -> anyhow::Result<BatchProofCircuitInputV3> {
+        let input_preparation_start = std::time::Instant::now();
         let initial_state_root = self
             .ledger_db
             .get_l2_state_root(partition.start_height - 1)
@@ -588,13 +596,21 @@ where
             .as_ref()
             .map(|c| get_prev_hash_proof(c, &self.ledger_db));
 
+        let sequencer_commitments = partition.commitments.to_vec();
+
+        BATCH_PROVER_METRICS.total_input_preparation_time.record(
+            Instant::now()
+                .saturating_duration_since(input_preparation_start)
+                .as_secs_f64(),
+        );
+
         Ok(BatchProofCircuitInputV3 {
             initial_state_root,
             final_state_root,
             l2_blocks: committed_l2_blocks,
             state_transition_witnesses,
             short_header_proofs,
-            sequencer_commitments: partition.commitments.to_vec(),
+            sequencer_commitments,
             cache_prune_l2_heights,
             last_l1_hash_witness,
             previous_sequencer_commitment,
@@ -617,7 +633,7 @@ where
         &self,
         input: BatchProofCircuitInputV3,
         job_id: Uuid,
-    ) -> anyhow::Result<oneshot::Receiver<Proof>> {
+    ) -> anyhow::Result<oneshot::Receiver<ProofWithDuration>> {
         let end_l2_height = input
             .sequencer_commitments
             .last()
@@ -640,6 +656,7 @@ where
             assumptions: vec![],
             elf,
         };
+
         self.prover_service
             .start_proving(proof_data, ReceiptType::Groth16, job_id)
             .await
@@ -660,38 +677,40 @@ where
     /// * `proving_jobs` - A vector of tuples containing the job ID and the signal receiver for each proving job.
     /// * Each job ID is a unique identifier for the proving job, and the signal receiver is used to get the proof once the job is completed.
     #[instrument(skip_all)]
-    fn watch_proving_jobs(&self, proving_jobs: Vec<(Uuid, oneshot::Receiver<Proof>)>) {
-        assert!(!proving_jobs.is_empty(), "received empty jobs list");
-
+    fn watch_proving_jobs(
+        &self,
+        mut proving_jobs: mpsc::UnboundedReceiver<(Uuid, oneshot::Receiver<ProofWithDuration>)>,
+    ) {
         let ledger_db = self.ledger_db.clone();
         let prover_service = self.prover_service.clone();
         let code_commitments_by_spec = self.code_commitments_by_spec.clone();
-
-        let mut proving_jobs = proving_jobs
-            .into_iter()
-            .map(|(job_id, rx)| async move {
-                let proof = rx.await.expect("Proof channel should never close");
-                (job_id, proof)
-            })
-            .collect::<FuturesUnordered<_>>();
-
         let network = self.network;
 
         // start watching the proving jobs to finish in the background
         tokio::spawn(async move {
-            while let Some((job_id, proof)) = proving_jobs.next().await {
+            while let Some((job_id, rx)) = proving_jobs.recv().await {
+                let proof_with_duration = rx.await.expect("Proof channel should never close");
                 info!("Proving job finished {}", job_id);
 
-                let output =
-                    extract_proof_output::<Vm>(&job_id, &proof, &code_commitments_by_spec, network);
+                let output = extract_proof_output::<Vm>(
+                    &job_id,
+                    &proof_with_duration.proof,
+                    &code_commitments_by_spec,
+                    network,
+                );
 
                 // stores proof and marks job as waiting for da
                 ledger_db
-                    .put_proof_by_job_id(job_id, proof.clone(), output.into())
+                    .put_proof_by_job_id(job_id, proof_with_duration.proof.clone(), output.into())
                     .expect("Should put proof to db");
 
+                // Record the proving time metric
+                BATCH_PROVER_METRICS
+                    .proving_time
+                    .record(proof_with_duration.duration);
+
                 let tx_id = prover_service
-                    .submit_proof(proof, job_id)
+                    .submit_proof(proof_with_duration.proof, job_id)
                     .await
                     .expect("Failed to submit proof");
 
@@ -917,6 +936,7 @@ pub(crate) fn get_batch_proof_circuit_input_from_commitments<
         committed_l2_blocks.push_back(l2_blocks);
     }
 
+    let start_generate_cumulative_witness = std::time::Instant::now();
     // Replay transactions in the commitment blocks and collect cumulative witnesses
     let (
         state_transition_witnesses,
@@ -929,6 +949,14 @@ pub(crate) fn get_batch_proof_circuit_input_from_commitments<
         storage_manager,
         sequencer_pub_key,
     )?;
+
+    BATCH_PROVER_METRICS
+        .cumulative_witness_generation_time
+        .record(
+            std::time::Instant::now()
+                .saturating_duration_since(start_generate_cumulative_witness)
+                .as_secs_f64(),
+        );
 
     Ok(CommitmentStateTransitionData {
         short_header_proofs,
@@ -1042,6 +1070,16 @@ fn generate_cumulative_witness<Da: DaService, DB: BatchProverLedgerOps>(
                 offchain_log.prune_half();
                 cache_prune_l2_heights.push(l2_height);
             }
+
+            let state_log_cache_size = state_log.estimated_cache_size();
+            let offchain_log_cache_size = offchain_log.estimated_cache_size();
+
+            BATCH_PROVER_METRICS
+                .state_log_cache_size
+                .record(state_log_cache_size as f64);
+            BATCH_PROVER_METRICS
+                .offchain_log_cache_size
+                .record(offchain_log_cache_size as f64);
 
             cumulative_state_log = Some(state_log);
             cumulative_offchain_log = Some(offchain_log);

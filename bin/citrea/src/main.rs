@@ -19,7 +19,6 @@ use citrea_stf::genesis_config::GenesisPaths;
 use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use clap::Parser;
 use metrics_exporter_prometheus::PrometheusBuilder;
-use metrics_util::MetricKindMask;
 use reth_tasks::TaskManager;
 use short_header_proof_provider::{
     NativeShortHeaderProofProviderService, SHORT_HEADER_PROOF_PROVIDER,
@@ -129,12 +128,6 @@ where
 
         let builder = PrometheusBuilder::new().with_http_listener(telemetry_addr);
         builder
-            .idle_timeout(
-                MetricKindMask::GAUGE | MetricKindMask::HISTOGRAM,
-                // Keep the idle timeout larger than one L1 block production.
-                // Setting this here for 30 minutes.
-                Some(Duration::from_secs(30 * 60)),
-            )
             .install()
             .map_err(|_| anyhow!("failed to install Prometheus recorder"))?;
     }
@@ -328,13 +321,15 @@ where
 
             start_rpc_server(rollup_config.rpc.clone(), &task_executor, rpc_module, None);
 
-            task_executor.spawn_with_graceful_shutdown_signal(|shutdown_signal| async move {
-                l1_syncer.run(shutdown_signal).await
-            });
+            task_executor.spawn_critical_with_graceful_shutdown_signal(
+                "ProverL1Syncer",
+                |shutdown_signal| async move { l1_syncer.run(shutdown_signal).await },
+            );
 
-            task_executor.spawn_with_graceful_shutdown_signal(|shutdown_signal| async move {
-                l2_syncer.run(shutdown_signal).await
-            });
+            task_executor.spawn_critical_with_graceful_shutdown_signal(
+                "ProverL2Syncer",
+                |shutdown_signal| async move { l2_syncer.run(shutdown_signal).await },
+            );
 
             task_executor.spawn_critical_with_graceful_shutdown_signal(
                 "Prover",
@@ -402,9 +397,12 @@ where
                 }
             };
 
-            task_executor.spawn_with_graceful_shutdown_signal(|shutdown_signal| async move {
-                l1_block_handler.run(l1_start_height, shutdown_signal).await
-            });
+            task_executor.spawn_critical_with_graceful_shutdown_signal(
+                "FullNodeL1BlockHandler",
+                |shutdown_signal| async move {
+                    l1_block_handler.run(l1_start_height, shutdown_signal).await
+                },
+            );
 
             // Spawn pruner if configs are set
             if let Some(pruner_service) = pruner_service {
@@ -416,7 +414,7 @@ where
             }
 
             task_executor.spawn_critical_with_graceful_shutdown_signal(
-                "FullNode",
+                "FullNodeL2Syncer",
                 |shutdown_signal| async move { l2_syncer.run(shutdown_signal).await },
             );
         }
@@ -428,22 +426,22 @@ where
 }
 
 /// Wait for a termination signal and cancel all running tasks
-pub async fn wait_shutdown(task_manager: TaskManager) {
+pub async fn wait_shutdown(mut task_manager: TaskManager) {
     let mut term_signal =
         signal(SignalKind::terminate()).expect("Failed to create termination signal");
     let mut interrupt_signal =
         signal(SignalKind::interrupt()).expect("Failed to create interrupt signal");
 
     let wait_duration = Duration::from_secs(5);
+
     tokio::select! {
-        _ = signal::ctrl_c() => {
-            task_manager.graceful_shutdown_with_timeout(wait_duration);
-        }
-        _ = term_signal.recv() => {
-            task_manager.graceful_shutdown_with_timeout(wait_duration);
-        },
-        _ = interrupt_signal.recv() => {
-            task_manager.graceful_shutdown_with_timeout(wait_duration);
-        }
+        _ = signal::ctrl_c() => {}
+        _ = term_signal.recv() => {},
+        _ = interrupt_signal.recv() => {}
+        _= &mut task_manager => {}
     }
+
+    info!("Graceful shutdown initiated...");
+    task_manager.graceful_shutdown_with_timeout(wait_duration);
+    info!("Graceful shutdown completed");
 }
