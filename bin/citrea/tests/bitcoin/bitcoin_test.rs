@@ -28,7 +28,7 @@ impl TestCase for BitcoinReorgTest {
         TestCaseConfig {
             with_sequencer: true,
             with_batch_prover: true,
-            n_nodes: HashMap::from([(NodeKind::Sequencer, 2)]),
+            n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
             ..Default::default()
         }
     }
