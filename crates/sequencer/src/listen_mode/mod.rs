@@ -18,8 +18,8 @@
 //!     This is for saving the sequencer commitments and when restarted as producer sequencer it will only fetch commitments that are non-finalized or in mempool using `resubmit_pending_commitments` function
 //!     Listen mode sequencer does not need to track pending commitments of producer sequencer because the commitment service is deterministic and readonly sequencer will be creating the same exact commitments
 //! - Mempool transactions:
-//!     Normally producer sequencer stores all the mempool transactions in persisten storage as well to recover them in case of crashes and restarts
-//!     For that reason listen mode sequencer also stores all mempool transactions in its own persistent storage, updates the persisten storage regularly and does not keep in block txs in that storage
+//!     Normally producer sequencer stores all the mempool transactions in persistent storage as well to recover them in case of crashes and restarts
+//!     For that reason listen mode sequencer also stores all mempool transactions in its own persistent storage, updates the persistent storage regularly and does not keep in block txs in that storage
 //!     When restarted as producer sequencer, it will put all the txs in the persistent storage back into mempool
 
 use citrea_common::l2::{L2BlockProcessor, L2Syncer, ProcessL2BlockResult};
