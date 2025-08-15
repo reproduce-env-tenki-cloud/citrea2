@@ -9,10 +9,10 @@ use super::address::AddressWrapper;
 /// BlobWithSender is a wrapper around BlobBuf to implement BlobReaderTrait
 #[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct BlobWithSender {
-    pub(crate) hash: [u8; 32],
-    pub(crate) sender: AddressWrapper,
-    pub(crate) blob: Vec<u8>,
-    pub(crate) wtxid: [u8; 32],
+    pub hash: [u8; 32],
+    pub sender: AddressWrapper,
+    pub blob: Vec<u8>,
+    pub wtxid: [u8; 32],
 }
 
 impl BlobWithSender {
