@@ -27,10 +27,7 @@ impl TestCase for BitcoinReorgTest {
         TestCaseConfig {
             with_sequencer: true,
             with_batch_prover: true,
-            n_nodes: std::collections::HashMap::from([
-                (NodeKind::BatchProver, 1),
-                (NodeKind::Sequencer, 1),
-            ]),
+            n_nodes: std::collections::HashMap::from([(NodeKind::Bitcoin, 2)]),
             ..Default::default()
         }
     }
