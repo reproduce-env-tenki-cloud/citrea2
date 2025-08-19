@@ -126,6 +126,11 @@ impl BitcoinMerkleTree {
             level += 1;
             index /= 2;
         }
+
+        assert!(
+            index == 0,
+            "Merkle proof is invalid: index should be 0 at the end"
+        );
         combined_hash
     }
 }
@@ -272,5 +277,24 @@ mod tests {
         let f = [6; 32];
 
         BitcoinMerkleTree::new(vec![a, b, c, d, a, b, c, d, e, f]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Merkle proof is invalid: index should be 0 at the end")]
+    fn test_cant_extend_index() {
+        let mut transactions: Vec<[u8; 32]> = vec![];
+        for i in 0u8..100u8 {
+            let tx = [i; 32];
+            transactions.push(tx);
+        }
+        let tree = BitcoinMerkleTree::new(transactions.clone());
+        let root = tree.root();
+        let idx_path = tree.get_idx_path(0);
+        let calculated_root =
+            BitcoinMerkleTree::calculate_root_with_merkle_proof(transactions[0], 0, &idx_path);
+        assert_eq!(root, calculated_root);
+
+        let _ =
+            BitcoinMerkleTree::calculate_root_with_merkle_proof(transactions[0], 256, &idx_path);
     }
 }
