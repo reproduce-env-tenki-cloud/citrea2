@@ -1,6 +1,6 @@
 [package]
 name = "batch-proof-bitcoin"
-version = "0.7.3-rc.7"
+version = "0.7.3-rc.8"
 edition = "2021"
 resolver = "2"
 
