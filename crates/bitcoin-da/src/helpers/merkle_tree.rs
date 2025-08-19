@@ -294,7 +294,12 @@ mod tests {
             BitcoinMerkleTree::calculate_root_with_merkle_proof(transactions[0], 0, &idx_path);
         assert_eq!(root, calculated_root);
 
+        // with a 7 level tree like ours, represent 0 with
+        // 0000000 in bits
+        // without the assert!(index == 0) at the and of the verify function
+        // any index that has its last 7 bits 0 would pass
+        // e.g. 10000000 (128) or 100000000 (256) or even 101110000000 (2944)
         let _ =
-            BitcoinMerkleTree::calculate_root_with_merkle_proof(transactions[0], 256, &idx_path);
+            BitcoinMerkleTree::calculate_root_with_merkle_proof(transactions[0], 2944, &idx_path);
     }
 }
