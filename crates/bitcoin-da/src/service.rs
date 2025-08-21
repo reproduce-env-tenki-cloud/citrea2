@@ -533,7 +533,7 @@ impl BitcoinService {
                 tx.reveal_txid()
             );
             if let Err(e) = self.test_mempool_accept(&tx.as_raw_txs()).await {
-                warn!(?e, "Rejected by mempool");
+                debug!(?e, "Rejected by mempool");
                 break;
             }
 
