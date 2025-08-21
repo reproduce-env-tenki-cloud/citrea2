@@ -95,7 +95,7 @@ pub enum TxStatus {
 }
 
 /// The kind of transaction being monitored.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum MonitoredTxKind {
     /// Commit transaction, the first in a commit/reveal pair
     Commit,
@@ -484,15 +484,16 @@ impl MonitoringService {
         let txid = tx.id;
 
         {
-            let monitored_txs = self.monitored_txs.read().await;
+            let mut monitored_txs = self.monitored_txs.write().await;
             if monitored_txs.contains_key(&txid) {
                 return Err(MonitorError::AlreadyMonitored);
             }
 
             if let Some(prev_tx_id) = prev_txid {
-                if !monitored_txs.contains_key(&prev_tx_id) {
+                let Some(prev_tx) = monitored_txs.get_mut(&prev_tx_id) else {
                     return Err(MonitorError::PrevTxNotMonitored(prev_tx_id));
-                }
+                };
+                prev_tx.next_txid = Some(txid);
             }
         }
 
@@ -659,9 +660,20 @@ impl MonitoringService {
 
                     monitored_tx.status = new_status;
                 }
+                // Check evicted TXs that have already been rebroadcasted at least once
+                TxStatus::Evicted {
+                    rebroadcast_attempts,
+                    ..
+                } if *rebroadcast_attempts > 0 => {
+                    let tx_result = self.client.get_transaction(txid, None).await?;
+                    let new_status = self
+                        .determine_tx_status(&tx_result, &monitored_tx.status)
+                        .await?;
+                    monitored_tx.status = new_status;
+                }
                 TxStatus::InMempool { height, .. } => {
                     let tx_result = self.client.get_transaction(txid, None).await?;
-                    let mut new_status = self
+                    let new_status = self
                         .determine_tx_status(&tx_result, &monitored_tx.status)
                         .await?;
 
@@ -669,9 +681,7 @@ impl MonitoringService {
                     if let TxStatus::InMempool { .. } = new_status {
                         let current_height = self.client.get_block_count().await?;
                         if (current_height.saturating_sub(*height)) >= REBROADCAST_EACH_N_BLOCK {
-                            new_status = self
-                                .attempt_rebroadcast(txid, &monitored_tx.tx, &new_status)
-                                .await?
+                            self.attempt_rebroadcast(txid, &new_status).await?
                         }
                     }
 
@@ -727,18 +737,20 @@ impl MonitoringService {
                         height: entry.height,
                     }
                 }
-                Err(_) => {
-                    if *current_status == TxStatus::Queued {
-                        return Ok(current_status.clone());
+                // Tx not found in mempool
+                Err(_) => match current_status {
+                    // If transaction is queued or evicted, keep status as is
+                    TxStatus::Queued | TxStatus::Evicted { .. } => current_status.clone(),
+                    // If transaction was previously in mempool or confirmed, re-org happened and it got evicted from mempool
+                    _ => {
+                        tracing::info!("Tx {} was evicted from mempool.", tx_result.info.txid);
+                        TxStatus::Evicted {
+                            last_seen: get_timestamp(),
+                            rebroadcast_attempts: 0,
+                            last_error: None,
+                        }
                     }
-
-                    tracing::info!("Tx {} was evicted from mempool.", tx_result.info.txid);
-                    TxStatus::Evicted {
-                        last_seen: get_timestamp(),
-                        rebroadcast_attempts: 0,
-                        last_error: None,
-                    }
-                }
+                },
             }
         };
         Ok(status)
@@ -785,13 +797,14 @@ impl MonitoringService {
                 if *rebroadcast_attempts < self.config.max_rebroadcast_attempts {
                     let now = get_timestamp();
 
-                    match self
-                        .attempt_rebroadcast(txid, &monitored_tx.tx, &monitored_tx.status)
-                        .await
-                    {
-                        Ok(new_status) => {
-                            info!("Successfully rebroadcast tx {txid}");
-                            monitored_tx.status = new_status;
+                    match self.attempt_rebroadcast(txid, &monitored_tx.status).await {
+                        Ok(_) => {
+                            info!("Attempted to rebroadcast tx {txid}");
+                            monitored_tx.status = TxStatus::Evicted {
+                                last_seen: now,
+                                rebroadcast_attempts: rebroadcast_attempts + 1,
+                                last_error: None,
+                            }
                         }
                         Err(e) => {
                             info!("Failed to rebroadcast tx {txid}: {e}");
@@ -824,7 +837,7 @@ impl MonitoringService {
             }
 
             let _ = self
-                .attempt_rebroadcast(&current_tx.0, &current_tx.1.tx, &current_tx.1.status)
+                .attempt_rebroadcast(&current_tx.0, &current_tx.1.status)
                 .await;
 
             let Some(prev_txid) = current_tx.1.prev_txid else {
@@ -845,17 +858,17 @@ impl MonitoringService {
         Ok(())
     }
 
-    async fn attempt_rebroadcast(
-        &self,
-        txid: &Txid,
-        _tx: &Transaction,
-        current_status: &TxStatus,
-    ) -> Result<TxStatus> {
+    async fn attempt_rebroadcast(&self, txid: &Txid, current_status: &TxStatus) -> Result<()> {
         warn!("Rebroadcasting txid: {txid} with current_status {current_status:?}");
-        let raw_tx_hex = self.client.get_raw_transaction_hex(txid, None).await?;
-        self.client.send_raw_transaction(raw_tx_hex).await?;
-        let tx_result = self.client.get_transaction(txid, None).await?;
-        self.determine_tx_status(&tx_result, current_status).await
+        if let Ok(result) = self.client.get_transaction(txid, None).await {
+            self.client.send_raw_transaction(&result.hex).await?;
+        } else if let Ok(result) = self.client.get_raw_transaction_hex(txid, None).await {
+            self.client.send_raw_transaction(result).await?;
+        } else {
+            return Err(anyhow!("Failed to retrieve hex and rebroadcast {txid}").into());
+        }
+
+        Ok(())
     }
 
     /// Get the status of a monitored transaction by its Txid
