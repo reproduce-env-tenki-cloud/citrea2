@@ -78,10 +78,14 @@ pub fn network_to_bitcoin_network(network: &Network) -> bitcoin::Network {
     }
 }
 
+/// Utxo selection mode.
+/// How previous utxo should be chosen when tx queue is not empty
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UtxoSelectionMode {
+    /// Default behaviour, always use latest utxo and keep transactions chained
     Chained,
+    /// Choose the utxo with the highest amount of confirmations
     Oldest,
 }
 
