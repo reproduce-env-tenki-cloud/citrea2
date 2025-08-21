@@ -379,7 +379,7 @@ impl BitcoinService {
                 // If last tx in queue is prev_utxo, that means that prev_utxo is waiting in queue.
                 // In that case, pick an UTXO with the highest amount of confirmation to start a new utxo chain
                 if queue_back_reveal_id == chain_utxo_id {
-                    self.get_oldest_utxo().await
+                    self.get_highest_confirmation_utxo().await
                 } else {
                     Ok(prev_utxo)
                 }
@@ -430,7 +430,7 @@ impl BitcoinService {
 
     /// Returns the UTXO with the highest number of confirmations
     #[instrument(level = "trace", skip_all, ret)]
-    async fn get_oldest_utxo(&self) -> Result<Option<UTXO>> {
+    async fn get_highest_confirmation_utxo(&self) -> Result<Option<UTXO>> {
         let mut utxos = self.get_utxos().await?;
         utxos.sort_by(|a, b| b.confirmations.cmp(&a.confirmations));
         Ok(utxos.into_iter().next())
