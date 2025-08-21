@@ -131,6 +131,7 @@ pub async fn spawn_bitcoin_da_service(
             rebroadcast_delay: 1,
         }),
         mempool_space_url: None,
+        utxo_selection_mode: None,
     };
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();

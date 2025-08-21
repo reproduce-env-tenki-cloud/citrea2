@@ -78,6 +78,19 @@ pub fn network_to_bitcoin_network(network: &Network) -> bitcoin::Network {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UtxoSelectionMode {
+    Chained,
+    Oldest,
+}
+
+impl Default for UtxoSelectionMode {
+    fn default() -> Self {
+        Self::Chained
+    }
+}
+
 /// Runtime configuration for the DA service.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct BitcoinServiceConfig {
@@ -98,6 +111,9 @@ pub struct BitcoinServiceConfig {
     pub monitoring: Option<MonitoringConfig>,
     /// The URL of the mempool.space API.
     pub mempool_space_url: Option<String>,
+
+    /// UTXO selection mode
+    pub utxo_selection_mode: Option<UtxoSelectionMode>,
 }
 
 impl citrea_common::FromEnv for BitcoinServiceConfig {
@@ -110,6 +126,11 @@ impl citrea_common::FromEnv for BitcoinServiceConfig {
             tx_backup_dir: read_env("TX_BACKUP_DIR")?,
             monitoring: MonitoringConfig::from_env().ok(),
             mempool_space_url: read_env("MEMPOOL_SPACE_URL").ok(),
+            utxo_selection_mode: serde_json::from_str(&format!(
+                "\"{}\"",
+                read_env("UTXO_SELECTION_MODE")?
+            ))
+            .ok(),
         })
     }
 }
@@ -130,6 +151,7 @@ pub struct BitcoinService {
     l1_block_hash_to_height: Arc<Mutex<LruCache<BlockHash, usize>>>,
     tx_queue: Arc<Mutex<VecDeque<SignedTxPair>>>,
     pub(crate) tx_signer: TxSigner,
+    utxo_selection_mode: UtxoSelectionMode,
 }
 
 impl BitcoinService {
@@ -144,6 +166,7 @@ impl BitcoinService {
         da_private_key: Option<SecretKey>,
         reveal_tx_prefix: Vec<u8>,
         tx_backup_dir: PathBuf,
+        utxo_selection_mode: UtxoSelectionMode,
     ) -> Self {
         Self {
             tx_signer: TxSigner::new(client.clone()),
@@ -160,6 +183,7 @@ impl BitcoinService {
                 NonZeroUsize::new(100).unwrap(),
             ))),
             tx_queue: Arc::new(Mutex::new(VecDeque::new())),
+            utxo_selection_mode,
         }
     }
 
@@ -199,6 +223,7 @@ impl BitcoinService {
             .transpose()
             .context("Invalid private key")?;
 
+        let utxo_selection_mode = config.utxo_selection_mode.clone().unwrap_or_default();
         Ok(Self::new(
             client,
             network,
@@ -209,6 +234,7 @@ impl BitcoinService {
             da_private_key,
             chain_params.reveal_tx_prefix,
             tx_backup_dir.to_path_buf(),
+            utxo_selection_mode,
         ))
     }
 
@@ -297,14 +323,11 @@ impl BitcoinService {
         fee_sat_per_vbyte: u64,
     ) -> Result<Vec<[TxWithId; 2]>> {
         let now = Instant::now();
-        // Prevent sending tx to DA while transaction queue is not empty
-        // otherwise, the tx that will be built may use the same UTXO as the one in the queue
-        if !self.tx_queue.lock().await.is_empty() {
-            return Err(BitcoinServiceError::QueueNotEmpty);
-        }
+
+        let prev_utxo = self.select_prev_utxo().await?;
 
         let da_txs = self
-            .create_da_transactions_with_fee_rate(tx_request, fee_sat_per_vbyte)
+            .create_da_transactions_with_fee_rate(tx_request, fee_sat_per_vbyte, prev_utxo)
             .await?;
         let signed_txs = self.tx_signer.sign_da_txs(da_txs).await?;
         self.test_mempool_accept_queue_tx(&signed_txs).await?;
@@ -330,6 +353,34 @@ impl BitcoinService {
             .record(Instant::now().saturating_duration_since(now).as_secs_f64());
 
         Ok(txs)
+    }
+
+    async fn select_prev_utxo(&self) -> Result<Option<UTXO>> {
+        let queue = self.tx_queue.lock().await;
+        let prev_utxo = self.get_prev_utxo().await;
+
+        if queue.is_empty() {
+            return Ok(prev_utxo);
+        }
+
+        match self.utxo_selection_mode {
+            UtxoSelectionMode::Chained => {
+                // Prevent UTXO conflicts when queue is not empty and running UtxoSelectionMode::Chained mode
+                Err(BitcoinServiceError::QueueNotEmpty)
+            }
+            UtxoSelectionMode::Oldest => {
+                let queue_back_reveal_id = queue.back().map(|tx_pair| tx_pair.reveal.id);
+                let chain_utxo_id = prev_utxo.as_ref().map(|utxo| utxo.tx_id);
+
+                // If last tx in queue is prev_utxo, that means that prev_utxo is waiting in queue.
+                // In that case, pick an UTXO with the highest amount of confirmation to start a new utxo chain
+                if queue_back_reveal_id == chain_utxo_id {
+                    self.get_oldest_utxo().await
+                } else {
+                    Ok(prev_utxo)
+                }
+            }
+        }
     }
 
     /// Retrieves the most recent spendable UTXO from the transaction chain on startup.
@@ -373,6 +424,14 @@ impl BitcoinService {
         Ok(utxos)
     }
 
+    /// Returns the UTXO with the highest number of confirmations
+    #[instrument(level = "trace", skip_all, ret)]
+    async fn get_oldest_utxo(&self) -> Result<Option<UTXO>> {
+        let mut utxos = self.get_utxos().await?;
+        utxos.sort_by(|a, b| b.confirmations.cmp(&a.confirmations));
+        Ok(utxos.into_iter().next())
+    }
+
     #[instrument(level = "trace", skip_all, ret)]
     async fn get_pending_transactions(&self) -> Vec<Transaction> {
         self.monitoring
@@ -390,6 +449,7 @@ impl BitcoinService {
         &self,
         tx_request: DaTxRequest,
         fee_sat_per_vbyte: u64,
+        prev_utxo: Option<UTXO>,
     ) -> Result<DaTxs> {
         let data = match tx_request {
             DaTxRequest::ZKProof(zkproof) => split_proof(zkproof)?,
@@ -411,7 +471,6 @@ impl BitcoinService {
 
         // get all available utxos
         let utxos = self.get_utxos().await?;
-        let prev_utxo = self.get_prev_utxo().await;
 
         // get address from a utxo
         let address = utxos[0]
@@ -470,8 +529,6 @@ impl BitcoinService {
                 }
                 Err(e) => {
                     error!(?e, "Error sending signed transaction");
-                    // Break on first error and return successfully sent txids
-                    break;
                 }
             }
         }
