@@ -4,13 +4,14 @@
 //! and processing them to maintain the batch prover's state.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use backoff::backoff::Backoff;
 use backoff::ExponentialBackoff;
 use borsh::BorshDeserialize;
 use citrea_common::backup::BackupManager;
 use citrea_common::cache::L1BlockCache;
-use citrea_common::l2::{process_l2_block, sync_l2, ProcessL2BlockResult};
+use citrea_common::l2::{apply_l2_block, commit_l2_block, sync_l2};
 use citrea_primitives::types::L2BlockHash;
 use citrea_stf::runtime::CitreaRuntime;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
@@ -194,8 +195,9 @@ where
         &mut self,
         l2_block_response: &L2BlockResponse,
     ) -> anyhow::Result<()> {
-        // call common l2 block processing logic
-        let l2_block_result = process_l2_block(
+        let start = Instant::now();
+
+        let applied = apply_l2_block(
             l2_block_response,
             &self.storage_manager,
             &mut self.fork_manager,
@@ -209,20 +211,23 @@ where
         )
         .await?;
 
-        let ProcessL2BlockResult {
-            l2_height,
-            l2_block_hash,
-            state_root,
-            state_diff,
-            process_duration,
-            ..
-        } = l2_block_result;
+        // Save state diff BEFORE committing the L2 block
+        // This prevents race conditions where the batch prover might shut down
+        // between committing the L2 block and saving the state diff
+        self.ledger_db
+            .set_l2_state_diff(L2BlockNumber(applied.l2_height), applied.state_diff.clone())?;
+
+        let l2_height = applied.l2_height;
+        let state_root = applied.state_root;
+
+        commit_l2_block(&self.ledger_db, applied)?;
+
+        let process_duration = Instant::now()
+            .saturating_duration_since(start)
+            .as_secs_f64();
 
         self.state_root = state_root;
-        self.l2_block_hash = l2_block_hash;
-
-        self.ledger_db
-            .set_l2_state_diff(L2BlockNumber(l2_height), state_diff)?;
+        self.l2_block_hash = l2_block_response.header.hash;
 
         // Only errors when there are no receivers
         let _ = self.l2_block_tx.send(l2_height);
