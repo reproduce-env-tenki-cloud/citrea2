@@ -268,7 +268,7 @@ where
                     .apply_l2_block_txs(&l2_block_info, &txs, &mut working_set)
                 {
                     // Decrement nonce if the transaction failed
-                    nonce = nonce.wrapping_sub(1);
+                    nonce = nonce.saturating_sub(1);
                     match e {
                         // Since this is the sequencer, it should never get a soft confirmation error or a hook error
                         StateTransitionError::L2BlockError(l2_block_error) => {
@@ -1394,7 +1394,7 @@ where
                 ) && is_deposit
                 {
                     warn!("Deposit transaction failed: {:?}", e);
-                    *nonce = nonce.wrapping_sub(1);
+                    *nonce = nonce.saturating_sub(1);
                     working_set_to_discard = working_set.revert().to_revertable();
                     continue;
                 }
