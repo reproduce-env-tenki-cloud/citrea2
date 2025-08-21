@@ -374,6 +374,8 @@ impl BitcoinService {
             }
             UtxoSelectionMode::Oldest => {
                 let queue_back_reveal_id = queue.back().map(|tx_pair| tx_pair.reveal.id);
+                drop(queue);
+
                 let chain_utxo_id = prev_utxo.as_ref().map(|utxo| utxo.tx_id);
 
                 // If last tx in queue is prev_utxo, that means that prev_utxo is waiting in queue.
@@ -412,15 +414,25 @@ impl BitcoinService {
             return Err(BitcoinServiceError::MissingUTXO);
         }
 
+        let txs = self
+            .tx_queue
+            .lock()
+            .await
+            .iter()
+            .flat_map(|tx| vec![tx.commit_txid(), tx.reveal_txid()])
+            .collect::<Vec<_>>();
+
         let utxos: Vec<UTXO> = utxos
             .into_iter()
             .filter(|utxo| {
                 utxo.spendable
                     && utxo.solvable
                     && utxo.amount > Amount::from_sat(REVEAL_OUTPUT_AMOUNT)
+                    && !txs.contains(&utxo.txid)
             })
             .map(Into::into)
             .collect();
+
         if utxos.is_empty() {
             return Err(BitcoinServiceError::MissingSpendableUTXO);
         }
