@@ -2100,7 +2100,10 @@ fn get_pending_block_env<C: sov_modules_api::Context>(
             )
             .expect("block must exist");
 
-        latest_block.header.timestamp - block_before_latest_block.header.timestamp
+        latest_block
+            .header
+            .timestamp
+            .saturating_sub(block_before_latest_block.header.timestamp)
     };
 
     evm.blockhash_set(
