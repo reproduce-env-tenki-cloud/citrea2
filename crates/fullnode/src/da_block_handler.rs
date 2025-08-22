@@ -6,7 +6,7 @@
 use core::panic;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 use citrea_common::backup::BackupManager;
@@ -29,8 +29,7 @@ use sov_rollup_interface::zk::batch_proof::output::BatchProofCircuitOutput;
 use sov_rollup_interface::zk::{Proof, ZkvmHost};
 use sov_rollup_interface::Network;
 use tokio::select;
-use tokio::sync::Mutex;
-use tokio::time::Duration;
+use tokio::sync::{Mutex, Notify};
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::error::{CommitmentError, HaltingError, ProcessingError, ProofError, SkippableError};
@@ -133,25 +132,27 @@ where
     /// * `shutdown_signal` - Signal to gracefully shut down
     #[instrument(name = "L1BlockHandler", skip_all)]
     pub async fn run(mut self, start_l1_height: u64, mut shutdown_signal: GracefulShutdown) {
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
-        interval.tick().await;
+        let notifier = Arc::new(Notify::new());
 
         let l1_sync_worker = sync_l1(
             start_l1_height,
             self.da_service.clone(),
             self.queued_l1_blocks.clone(),
             self.l1_block_cache.clone(),
+            notifier.clone(),
         );
         tokio::pin!(l1_sync_worker);
 
+        tokio::time::sleep(Duration::from_secs(1)).await; // Gives time for queue to fill up on startup
         loop {
             select! {
                 biased;
                 _ = &mut shutdown_signal => {
+                    info!("Shutting down L1BlockHandler");
                     return;
                 }
                 _ = &mut l1_sync_worker => {},
-                _ = interval.tick() => {
+                _ = notifier.notified() => {
                     if let Err(e) = self.process_queued_l1_blocks().await {
                         error!("{e}");
                         return;
@@ -439,19 +440,19 @@ where
             .get_head_l2_block_height()?
             .unwrap_or_default();
         if end_l2_height > head_l2_height {
+            info!(
+                "Commitment with index: {} L2 blocks not synced yet. Range: {}-{}, merkle root: {} Storing commitment as pending.",
+                sequencer_commitment.index,
+                start_l2_height,
+                end_l2_height,
+                hex::encode(sequencer_commitment.merkle_root)
+            );
             // Store as pending if we haven't synced all needed L2 blocks yet
             if self
                 .ledger_db
                 .get_pending_commitment_by_index(sequencer_commitment.index)?
                 .is_none()
             {
-                info!(
-                    "Commitment with index: {} L2 blocks not synced yet. Range: {}-{}, merkle root: {} Storing commitment as pending.",
-                    sequencer_commitment.index,
-                    start_l2_height,
-                    end_l2_height,
-                    hex::encode(sequencer_commitment.merkle_root)
-                );
                 self.ledger_db.store_pending_commitment(
                     sequencer_commitment.clone(),
                     found_in_l1_block_height,
