@@ -1,13 +1,10 @@
 use std::time::Duration;
 
-use crate::bitcoin::utils::spawn_bitcoin_da_prover_service;
-use crate::bitcoin::utils::spawn_bitcoin_da_prover_service_with_utxo_selection_mode;
 use alloy_primitives::{U32, U64};
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin_da::error::BitcoinServiceError;
-use bitcoin_da::service::BitcoinService;
-use bitcoin_da::service::UtxoSelectionMode;
+use bitcoin_da::service::{BitcoinService, UtxoSelectionMode};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::{BitcoinNode, DEFAULT_FINALITY_DEPTH};
 use citrea_e2e::config::{BitcoinConfig, LightClientProverConfig, TestCaseConfig};
@@ -24,6 +21,9 @@ use sov_rollup_interface::services::da::DaService;
 use super::light_client_test::create_random_state_diff;
 use super::{get_citrea_cli_path, get_citrea_path};
 use crate::bitcoin::full_node::create_serialized_fake_receipt_batch_proof_with_state_roots;
+use crate::bitcoin::utils::{
+    spawn_bitcoin_da_prover_service, spawn_bitcoin_da_prover_service_with_utxo_selection_mode,
+};
 
 struct DaTransactionQueueingTest {
     task_manager: TaskManager,
