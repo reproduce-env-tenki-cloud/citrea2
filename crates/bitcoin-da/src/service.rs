@@ -534,9 +534,14 @@ impl BitcoinService {
         BM.transaction_queue_size.increment(txs_len as f64);
     }
 
-    /// Send transaction out of the queue to DA until the first error.
-    /// Returns the successfully sent txs.
     pub(crate) async fn process_transaction_queue(&self) -> Result<Vec<Txid>> {
+        match self.utxo_selection_mode {
+            UtxoSelectionMode::Chained => self.process_transaction_queue_chained().await,
+            UtxoSelectionMode::Oldest => self.process_transaction_queue_oldest_mode().await,
+        }
+    }
+
+    pub(crate) async fn process_transaction_queue_oldest_mode(&self) -> Result<Vec<Txid>> {
         let mut queue = self.tx_queue.lock().await;
 
         let mut txids = Vec::new();
@@ -566,6 +571,45 @@ impl BitcoinService {
         }
 
         *queue = failed_txs;
+
+        // Update monitored tx status
+        if let Err(e) = self.monitoring.update_txs_status(&txids).await {
+            error!(?e, "Failed to update queued tx status");
+        }
+
+        Ok(txids)
+    }
+
+    /// Send transaction out of the queue to DA until the first error.
+    /// Returns the successfully sent txs.
+    pub(crate) async fn process_transaction_queue_chained(&self) -> Result<Vec<Txid>> {
+        let mut queue = self.tx_queue.lock().await;
+
+        let mut txids = Vec::new();
+        while let Some(tx) = queue.front() {
+            info!(
+                "Processing transaction from queue. Commit: {} Reveal: {}",
+                tx.commit_txid(),
+                tx.reveal_txid()
+            );
+            if let Err(e) = self.test_mempool_accept(&tx.as_raw_txs()).await {
+                warn!(?e, "Rejected by mempool");
+                break;
+            }
+
+            match self.send_signed_transaction(tx).await {
+                Ok(ids) => {
+                    queue.pop_front();
+                    BM.transaction_queue_size.decrement(1);
+                    txids.extend(ids)
+                }
+                Err(e) => {
+                    error!(?e, "Error sending signed transaction");
+                    // Break on first error and return successfully sent txids
+                    break;
+                }
+            }
+        }
 
         // Update monitored tx status
         if let Err(e) = self.monitoring.update_txs_status(&txids).await {
