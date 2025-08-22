@@ -606,12 +606,12 @@ impl BitcoinService {
 
         for result in results {
             if !result.allowed.unwrap_or(false) {
+                debug!("Mempool rejection result {result:?}");
                 let reason = result
                     .reject_reason
                     .or(result.package_error)
                     .unwrap_or_else(|| "[testmempoolaccept] Unknown rejection".to_string());
 
-                debug!("Mempool rejection result {result:?}");
                 return Err(MempoolRejection::from_reason(reason).into());
             }
         }
