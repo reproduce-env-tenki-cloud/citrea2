@@ -360,10 +360,8 @@ impl BitcoinService {
     }
 
     async fn select_prev_utxo(&self) -> Result<Option<UTXO>> {
-        let queue = self.tx_queue.lock().await;
         let prev_utxo = self.get_prev_utxo().await;
-
-        if queue.is_empty() {
+        if self.tx_queue.lock().await.is_empty() {
             return Ok(prev_utxo);
         }
 
@@ -372,20 +370,11 @@ impl BitcoinService {
                 // Prevent UTXO conflicts when queue is not empty and running UtxoSelectionMode::Chained mode
                 Err(BitcoinServiceError::QueueNotEmpty)
             }
-            UtxoSelectionMode::Oldest => {
-                let queue_back_reveal_id = queue.back().map(|tx_pair| tx_pair.reveal.id);
-                drop(queue);
-
-                let chain_utxo_id = prev_utxo.as_ref().map(|utxo| utxo.tx_id);
-
-                // If last tx in queue is prev_utxo, that means that prev_utxo is waiting in queue.
-                // In that case, pick an UTXO with the highest amount of confirmation to start a new utxo chain
-                if queue_back_reveal_id == chain_utxo_id {
-                    self.get_highest_confirmation_utxo().await
-                } else {
-                    Ok(prev_utxo)
-                }
-            }
+            UtxoSelectionMode::Oldest => Ok(if prev_utxo.is_some() {
+                prev_utxo
+            } else {
+                self.get_highest_confirmation_utxo().await?
+            }),
         }
     }
 
@@ -414,12 +403,18 @@ impl BitcoinService {
             return Err(BitcoinServiceError::MissingUTXO);
         }
 
-        let txs = self
+        let txids = self
             .tx_queue
             .lock()
             .await
             .iter()
-            .flat_map(|tx| vec![tx.commit_txid(), tx.reveal_txid()])
+            .flat_map(|tx| {
+                tx.commit
+                    .tx
+                    .input
+                    .iter()
+                    .map(|input| input.previous_output.txid)
+            })
             .collect::<Vec<_>>();
 
         let utxos: Vec<UTXO> = utxos
@@ -428,7 +423,10 @@ impl BitcoinService {
                 utxo.spendable
                     && utxo.solvable
                     && utxo.amount > Amount::from_sat(REVEAL_OUTPUT_AMOUNT)
-                    && !txs.contains(&utxo.txid)
+                    // Remove utxo already in use by queued txs
+                    && !txids.contains(&utxo.txid)
+                    // Only keep finalized change output
+                    && (utxo.vout == 0 || utxo.confirmations as u64 >= self.network_constants.finality_depth)
             })
             .map(Into::into)
             .collect();
@@ -445,7 +443,7 @@ impl BitcoinService {
     async fn get_highest_confirmation_utxo(&self) -> Result<Option<UTXO>> {
         let mut utxos = self.get_utxos().await?;
         utxos.sort_by(|a, b| b.confirmations.cmp(&a.confirmations));
-        Ok(utxos.into_iter().next())
+        Ok(utxos.first().cloned())
     }
 
     #[instrument(level = "trace", skip_all, ret)]
@@ -526,7 +524,8 @@ impl BitcoinService {
         let mut queue = self.tx_queue.lock().await;
 
         let mut txids = Vec::new();
-        while let Some(tx) = queue.front() {
+        let mut failed_txs = VecDeque::new();
+        while let Some(tx) = queue.pop_front() {
             info!(
                 "Processing transaction from queue. Commit: {} Reveal: {}",
                 tx.commit_txid(),
@@ -534,20 +533,23 @@ impl BitcoinService {
             );
             if let Err(e) = self.test_mempool_accept(&tx.as_raw_txs()).await {
                 debug!(?e, "Rejected by mempool");
-                break;
+                failed_txs.push_back(tx);
+                continue;
             }
 
-            match self.send_signed_transaction(tx).await {
+            match self.send_signed_transaction(&tx).await {
                 Ok(ids) => {
-                    queue.pop_front();
                     BM.transaction_queue_size.decrement(1);
                     txids.extend(ids)
                 }
                 Err(e) => {
                     error!(?e, "Error sending signed transaction");
+                    failed_txs.push_back(tx);
                 }
             }
         }
+
+        *queue = failed_txs;
 
         // Update monitored tx status
         if let Err(e) = self.monitoring.update_txs_status(&txids).await {
