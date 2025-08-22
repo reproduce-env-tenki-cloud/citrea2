@@ -403,39 +403,45 @@ impl BitcoinService {
             return Err(BitcoinServiceError::MissingUTXO);
         }
 
-        let txids = self
-            .tx_queue
-            .lock()
-            .await
-            .iter()
-            .flat_map(|tx| {
-                tx.commit
-                    .tx
-                    .input
-                    .iter()
-                    .map(|input| input.previous_output.txid)
-            })
-            .collect::<Vec<_>>();
+        let utxos: Vec<UTXO> = match self.utxo_selection_mode {
+            UtxoSelectionMode::Chained => utxos
+                .into_iter()
+                .filter(|utxo| {
+                    utxo.spendable
+                        && utxo.solvable
+                        && utxo.amount > Amount::from_sat(REVEAL_OUTPUT_AMOUNT)
+                })
+                .map(Into::into)
+                .collect(),
 
-        let utxos: Vec<UTXO> = utxos
-            .into_iter()
-            .filter(|utxo| {
-                utxo.spendable
+            UtxoSelectionMode::Oldest => {
+                let txids = self
+                    .tx_queue
+                    .lock()
+                    .await
+                    .iter()
+                    .flat_map(|tx| {
+                        tx.commit
+                            .tx
+                            .input
+                            .iter()
+                            .map(|input| input.previous_output.txid)
+                    })
+                    .collect::<Vec<_>>();
+
+                utxos.into_iter().filter(|utxo| {
+                    utxo.spendable
                     && utxo.solvable
                     && utxo.amount > Amount::from_sat(REVEAL_OUTPUT_AMOUNT)
-            })
-            .filter(|utxo| {
-                    self.utxo_selection_mode == UtxoSelectionMode::Chained ||
-                    // Additional condition when running as UtxoSelectionMode::Oldest
-                    (
-                        // Remove utxo already in use by queued txs
-                        !txids.contains(&utxo.txid)
-                        // Only keep finalized change output
-                        && (utxo.vout == 0 || utxo.confirmations as u64 >= self.network_constants.finality_depth)
-                    )
-            })
-            .map(Into::into)
-            .collect();
+                    // Remove utxo already in use by queued txs
+                    && txids.contains(&utxo.txid)
+                    // Only keep finalized change output
+                    && (utxo.vout == 0 || utxo.confirmations as u64 >= self.network_constants.finality_depth)
+                })
+                .map(Into::into)
+                .collect()
+            }
+        };
 
         if utxos.is_empty() {
             return Err(BitcoinServiceError::MissingSpendableUTXO);
