@@ -414,6 +414,10 @@ impl BitcoinService {
                 .map(Into::into)
                 .collect(),
 
+            // When running in UtxoSelectionMode::Oldest, we're creating multiple utxos chain in parallel
+            // to be able to send multiple proofs in the same block without hitting mempool policy limits.
+            // To make sure there are no conflicts between parallel utxos chain,
+            // this additional filters out any UTXO used by queued txs and any change UTXO that are not finalized
             UtxoSelectionMode::Oldest => {
                 let txids = self
                     .tx_queue
