@@ -423,10 +423,16 @@ impl BitcoinService {
                 utxo.spendable
                     && utxo.solvable
                     && utxo.amount > Amount::from_sat(REVEAL_OUTPUT_AMOUNT)
-                    // Remove utxo already in use by queued txs
-                    && !txids.contains(&utxo.txid)
-                    // Only keep finalized change output
-                    && (utxo.vout == 0 || utxo.confirmations as u64 >= self.network_constants.finality_depth)
+            })
+            .filter(|utxo| {
+                    self.utxo_selection_mode == UtxoSelectionMode::Chained ||
+                    // Additional condition when running as UtxoSelectionMode::Oldest
+                    (
+                        // Remove utxo already in use by queued txs
+                        !txids.contains(&utxo.txid)
+                        // Only keep finalized change output
+                        && (utxo.vout == 0 || utxo.confirmations as u64 >= self.network_constants.finality_depth)
+                    )
             })
             .map(Into::into)
             .collect();
