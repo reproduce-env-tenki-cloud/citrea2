@@ -611,6 +611,7 @@ impl BitcoinService {
                     .or(result.package_error)
                     .unwrap_or_else(|| "[testmempoolaccept] Unknown rejection".to_string());
 
+                debug!("Mempool rejection result {result:?}");
                 return Err(MempoolRejection::from_reason(reason).into());
             }
         }
