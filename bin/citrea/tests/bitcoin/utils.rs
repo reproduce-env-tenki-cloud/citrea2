@@ -8,7 +8,9 @@ use anyhow::bail;
 use bitcoin_da::fee::FeeService;
 use bitcoin_da::monitoring::{MonitoringConfig, MonitoringService};
 use bitcoin_da::network_constants::get_network_constants;
-use bitcoin_da::service::{network_to_bitcoin_network, BitcoinService, BitcoinServiceConfig};
+use bitcoin_da::service::{
+    network_to_bitcoin_network, BitcoinService, BitcoinServiceConfig, UtxoSelectionMode,
+};
 use bitcoin_da::spec::block::BitcoinBlock;
 use bitcoin_da::spec::RollupParams;
 use bitcoincore_rpc::{Auth, Client, RpcApi};
@@ -66,6 +68,7 @@ pub async fn get_default_service(
         get_tx_backup_dir(),
         DaServiceKeyKind::Sequencer,
         REVEAL_TX_PREFIX.to_vec(),
+        None,
     )
     .await
 }
@@ -81,6 +84,7 @@ pub async fn spawn_bitcoin_da_sequencer_service(
         dir,
         DaServiceKeyKind::Sequencer,
         REVEAL_TX_PREFIX.to_vec(),
+        None,
     )
     .await
 }
@@ -96,6 +100,24 @@ pub async fn spawn_bitcoin_da_prover_service(
         dir,
         DaServiceKeyKind::BatchProver,
         REVEAL_TX_PREFIX.to_vec(),
+        None,
+    )
+    .await
+}
+
+pub async fn spawn_bitcoin_da_prover_service_with_utxo_selection_mode(
+    task_executor: &TaskExecutor,
+    config: &BitcoinConfig,
+    dir: PathBuf,
+    utxo_selection_mode: UtxoSelectionMode,
+) -> Arc<BitcoinService> {
+    spawn_bitcoin_da_service(
+        task_executor,
+        config,
+        dir,
+        DaServiceKeyKind::BatchProver,
+        REVEAL_TX_PREFIX.to_vec(),
+        Some(utxo_selection_mode),
     )
     .await
 }
@@ -106,6 +128,7 @@ pub async fn spawn_bitcoin_da_service(
     test_dir: PathBuf,
     kind: DaServiceKeyKind,
     reveal_tx_prefix: Vec<u8>,
+    utxo_selection_mode: Option<UtxoSelectionMode>,
 ) -> Arc<BitcoinService> {
     let da_private_key = match kind {
         DaServiceKeyKind::Sequencer => SEQUENCER_DA_PRIVATE_KEY.to_string(),
@@ -131,7 +154,7 @@ pub async fn spawn_bitcoin_da_service(
             rebroadcast_delay: 1,
         }),
         mempool_space_url: None,
-        utxo_selection_mode: None,
+        utxo_selection_mode,
     };
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -332,6 +355,7 @@ pub async fn generate_mock_txs(
         wrong_prefix_wallet,
         DaServiceKeyKind::Sequencer,
         vec![6],
+        None,
     )
     .await;
 
@@ -346,6 +370,7 @@ pub async fn generate_mock_txs(
             "E9873D79C6D87DC0FB6A5778633389F4453213303DA61F20BD67FC233AA33263".to_string(),
         ),
         REVEAL_TX_PREFIX.to_vec(),
+        None,
     )
     .await;
 
