@@ -2088,6 +2088,24 @@ fn get_pending_block_env<C: sov_modules_api::Context>(
         .last(&mut working_set.accessory_state())
         .expect("Head block must be set");
 
+    let time_diff = if latest_block.header.number == 0 {
+        // if the first block hasn't been processed yet, just assume 2 secs
+        2
+    } else {
+        let block_before_latest_block = evm
+            .blocks
+            .get(
+                (latest_block.header.number - 1) as usize,
+                &mut working_set.accessory_state(),
+            )
+            .expect("block must exist");
+
+        latest_block
+            .header
+            .timestamp
+            .saturating_sub(block_before_latest_block.header.timestamp)
+    };
+
     evm.blockhash_set(
         latest_block.header.number,
         &latest_block.header.hash(),
@@ -2109,6 +2127,8 @@ fn get_pending_block_env<C: sov_modules_api::Context>(
         latest_block.header.base_fee_per_gas.unwrap_or_default(),
         cfg.base_fee_params,
     );
+    // assume timestamp will increment the same between last block and the one before that
+    block_env.timestamp += time_diff;
     let citrea_spec_id = fork_from_block_number(block_env.number).spec_id;
     let evm_spec_id = citrea_spec_id_to_evm_spec_id(citrea_spec_id);
     block_env.blob_excess_gas_and_price = Some(BlobExcessGasAndPrice::new(
