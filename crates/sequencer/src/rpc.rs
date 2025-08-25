@@ -13,9 +13,9 @@ use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
 use jsonrpsee::types::{ErrorCode, ErrorObject};
 use parking_lot::Mutex;
+use reth_rpc::eth::api::RpcConvert;
 use reth_rpc::eth::EthTxBuilder;
 use reth_rpc_eth_types::error::EthApiError;
-use reth_rpc_types_compat::TransactionCompat;
 use reth_transaction_pool::{
     AllPoolTransactions, EthPooledTransaction, PoolTransaction, ValidPoolTransaction,
 };
