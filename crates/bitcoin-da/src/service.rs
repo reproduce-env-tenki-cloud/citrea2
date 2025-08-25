@@ -371,8 +371,10 @@ impl BitcoinService {
                 Err(BitcoinServiceError::QueueNotEmpty)
             }
             UtxoSelectionMode::Oldest => Ok(if prev_utxo.is_some() {
+                // Latest monitored TX has been succesfully accepted to mempool and can be used as starting point for another utxo chain
                 prev_utxo
             } else {
+                // Latest monitored TX has `Queued` status and internal `get_tx_out` errors.
                 self.get_highest_confirmation_utxo().await?
             }),
         }
