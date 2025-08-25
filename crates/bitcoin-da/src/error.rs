@@ -66,6 +66,9 @@ pub enum MempoolRejection {
     /// Sent package of txs resulted in too many transactions in mempool. (ascendant/descendant limit)
     #[error("Transaction rejected: package-mempool-limits")]
     PackageMempoolLimits,
+    #[error("Transaction rejected: too-long-mempool-chain")]
+    /// Sent package of txs resulted in too long mempool chain. (ascendant/descendant limit)
+    TooLongMempoolChain,
     /// Other mempool rejection reason.
     #[error("Transaction rejected by mempool: {0}")]
     Other(String),
@@ -82,6 +85,8 @@ impl MempoolRejection {
             MempoolRejection::PackageTooManyTransactions
         } else if reason.contains("package-mempool-limits") {
             MempoolRejection::PackageMempoolLimits
+        } else if reason.contains("too-long-mempool-chain") {
+            MempoolRejection::TooLongMempoolChain
         } else {
             MempoolRejection::Other(reason.to_string())
         }
