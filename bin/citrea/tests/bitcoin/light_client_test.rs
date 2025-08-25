@@ -578,6 +578,7 @@ impl TestCase for LightClientBatchProofMethodIdUpdateTest {
                 "79122E48DF1A002FB6584B2E94D0D50F95037416C82DAF280F21CD67D17D9077".to_string(),
             ),
             REVEAL_TX_PREFIX.to_vec(),
+            None,
         )
         .await;
 
@@ -2218,6 +2219,7 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
                 "1212121212121212121212121212121212121212121212121212121212121212".to_string(),
             ),
             REVEAL_TX_PREFIX.to_vec(),
+            None,
         )
         .await;
 
