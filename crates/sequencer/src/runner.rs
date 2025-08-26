@@ -1,11 +1,9 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec;
 
 use alloy_eips::eip2718::Encodable2718;
-use alloy_primitives::{Address, Bytes, TxHash, U256};
-use alloy_rlp::Decodable;
+use alloy_primitives::{Bytes, TxHash, B256, U256};
 use anyhow::{anyhow, bail};
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
@@ -23,10 +21,9 @@ use citrea_primitives::merkle::{compute_tx_hashes, compute_tx_merkle_root};
 use citrea_primitives::types::L2BlockHash;
 use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use parking_lot::Mutex;
-use reth_execution_types::{Chain, ChangedAccount, ExecutionOutcome};
-use reth_primitives::transaction::SignedTransaction;
+use reth_execution_types::{Chain, ExecutionOutcome};
 use reth_primitives::{Receipt, RecoveredBlock, SealedBlock, SealedHeader, TransactionSigned};
-use reth_provider::{AccountReader, BlockReaderIdExt, CanonStateNotification};
+use reth_provider::{BlockReaderIdExt, CanonStateNotification};
 use reth_tasks::shutdown::GracefulShutdown;
 use reth_transaction_pool::error::InvalidPoolTransactionError;
 use reth_transaction_pool::{
@@ -597,36 +594,52 @@ where
             pending_blob_fee: None,
         });
 
-        // Decode the RLP transactions that were executed and create minimal receipts
+        // Get actual transactions and receipts from the saved block
         // This data is used to notify the mempool maintenance task about mined transactions
         let (reth_transactions, senders, reth_receipts) = {
-            let mut transactions = Vec::new();
+            let mut working_set = WorkingSet::new(self.storage_manager.create_final_view_storage());
+            let mut accessory_state = working_set.accessory_state();
+
+            // Get the saved block to find transaction indices
+            let saved_block = self
+                .db_provider
+                .evm
+                .get_block_by_height(l2_height, &mut accessory_state)
+                .ok_or(anyhow!("Block must exist after saving"))?;
+
+            // Get actual executed transactions and receipts using the new accessor methods
+            let evm_txs = self.db_provider.evm.get_block_transactions(
+                saved_block.transactions.start,
+                saved_block.transactions.end,
+                &mut accessory_state,
+            );
+
+            let evm_receipts = self.db_provider.evm.get_block_receipts_range(
+                saved_block.transactions.start,
+                saved_block.transactions.end,
+                &mut accessory_state,
+            );
+
+            // Convert to Reth types for mempool notification
+            let mut reth_transactions = Vec::new();
             let mut senders = Vec::new();
-            let mut receipts = Vec::new();
+            let mut reth_receipts = Vec::new();
 
-            // Decode each RLP transaction that was executed
-            for (idx, tx) in txs_to_run.iter().enumerate() {
-                // Decode the RLP-encoded transaction
-                if let Ok(decoded_tx) = TransactionSigned::decode(&mut tx.rlp.as_slice()) {
-                    // Try to recover the sender
-                    if let Ok(recovered) = decoded_tx.clone().try_into_recovered() {
-                        transactions.push(decoded_tx);
-                        senders.push(recovered.signer());
+            for (tx, receipt) in evm_txs.iter().zip(evm_receipts.iter()) {
+                reth_transactions.push(tx.signed_transaction.clone());
+                senders.push(tx.signer);
 
-                        // Create a minimal successful receipt for each transaction
-                        // The actual receipt details don't matter for mempool maintenance
-                        let receipt = Receipt {
-                            tx_type: recovered.tx_type(),
-                            success: true,
-                            cumulative_gas_used: (idx as u64 + 1) * MIN_TRANSACTION_GAS,
-                            logs: vec![],
-                        };
-                        receipts.push(receipt);
-                    }
-                }
+                // Convert CitreaReceiptWithBloom to Reth Receipt
+                let reth_receipt = Receipt {
+                    tx_type: tx.signed_transaction.tx_type(),
+                    success: receipt.receipt.receipt.success,
+                    cumulative_gas_used: receipt.receipt.receipt.cumulative_gas_used,
+                    logs: receipt.receipt.receipt.logs.clone(),
+                };
+                reth_receipts.push(reth_receipt);
             }
 
-            (transactions, senders, receipts)
+            (reth_transactions, senders, reth_receipts)
         };
 
         // Create the Chain notification with the produced block data
@@ -1280,46 +1293,6 @@ where
             let _ = self.mempool.add_external_transaction(pooled_tx).await?;
         }
         Ok(())
-    }
-
-    /// Gets account updates for mempool maintenance
-    ///
-    /// This method retrieves account updates that occurred in the last block
-    /// to help maintain accurate account states in the mempool.
-    ///
-    /// # Returns
-    /// A vector of changed accounts with their updated states
-    fn get_account_updates(&self) -> Result<Vec<ChangedAccount>, anyhow::Error> {
-        // Get the most recent block
-        let head = self
-            .db_provider
-            .last_block()?
-            .expect("Unrecoverable: Head must exist");
-
-        // Extract unique addresses from block transactions
-        let addresses: HashSet<Address> = match head.transactions {
-            alloy_rpc_types::BlockTransactions::Full(ref txs) => {
-                txs.iter().map(|tx| tx.inner.signer()).collect()
-            }
-            _ => panic!("Block should have full transactions"),
-        };
-
-        let mut updates = vec![];
-
-        // Get updated account state for each address
-        for address in addresses {
-            let account = self
-                .db_provider
-                .basic_account(&address)?
-                .expect("Account must exist");
-            updates.push(ChangedAccount {
-                address,
-                nonce: account.nonce,
-                balance: account.balance,
-            });
-        }
-
-        Ok(updates)
     }
 
     /// Processes missed DA blocks to catch up with L1
