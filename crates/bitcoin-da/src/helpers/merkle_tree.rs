@@ -1,14 +1,18 @@
-/// Code is taken from Clementine
-/// https://github.com/chainwayxyz/clementine/blob/b600ea18df72bdc60015ded01b78131b4c9121d7/operator/src/bitcoin_merkle.rs
-///
+//! Bitcoin merkle tree implementation.
+//! Code is taken from Clementine
+//! https://github.com/chainwayxyz/clementine/blob/b600ea18df72bdc60015ded01b78131b4c9121d7/operator/src/bitcoin_merkle.rs
+
 use super::calculate_double_sha256;
 
+/// Bitcoin merkle tree.
 #[derive(Debug, Clone)]
 pub struct BitcoinMerkleTree {
+    /// Inner nodes.
     nodes: Vec<Vec<[u8; 32]>>,
 }
 
 impl BitcoinMerkleTree {
+    /// Compute merkle tree.
     pub fn new(transactions: Vec<[u8; 32]>) -> Self {
         if transactions.len() == 1 {
             // root is the coinbase txid
@@ -66,12 +70,13 @@ impl BitcoinMerkleTree {
         tree
     }
 
-    // Returns the Merkle root
+    /// Returns the Merkle root
     pub fn root(&self) -> [u8; 32] {
         self.nodes[self.nodes.len() - 1][0]
     }
 
     #[cfg(feature = "native")]
+    /// Get path by the index
     pub fn get_idx_path(&self, index: u32) -> Vec<[u8; 32]> {
         assert!(index < self.nodes[0].len() as u32, "Index out of bounds");
         let mut path = vec![];
@@ -91,6 +96,10 @@ impl BitcoinMerkleTree {
         path
     }
 
+    /// It recomputes the Merkle root using
+    /// - a leaf hash
+    /// - a Merkle proof (list of sibling hashes along the path)
+    /// - an index indicating left/right sibling order at each level
     pub fn calculate_root_with_merkle_proof(
         txid: [u8; 32],
         idx: u32,
@@ -117,6 +126,11 @@ impl BitcoinMerkleTree {
             level += 1;
             index /= 2;
         }
+
+        assert!(
+            index == 0,
+            "Merkle proof is invalid: index should be 0 at the end"
+        );
         combined_hash
     }
 }
@@ -263,5 +277,29 @@ mod tests {
         let f = [6; 32];
 
         BitcoinMerkleTree::new(vec![a, b, c, d, a, b, c, d, e, f]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Merkle proof is invalid: index should be 0 at the end")]
+    fn test_cant_extend_index() {
+        let mut transactions: Vec<[u8; 32]> = vec![];
+        for i in 0u8..100u8 {
+            let tx = [i; 32];
+            transactions.push(tx);
+        }
+        let tree = BitcoinMerkleTree::new(transactions.clone());
+        let root = tree.root();
+        let idx_path = tree.get_idx_path(0);
+        let calculated_root =
+            BitcoinMerkleTree::calculate_root_with_merkle_proof(transactions[0], 0, &idx_path);
+        assert_eq!(root, calculated_root);
+
+        // with a 7 level tree like ours, represent 0 with
+        // 0000000 in bits
+        // without the assert!(index == 0) at the and of the verify function
+        // any index that has its last 7 bits 0 would pass
+        // e.g. 10000000 (128) or 100000000 (256) or even 101110000000 (2944)
+        let _ =
+            BitcoinMerkleTree::calculate_root_with_merkle_proof(transactions[0], 2944, &idx_path);
     }
 }

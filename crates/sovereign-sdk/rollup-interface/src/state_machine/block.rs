@@ -166,4 +166,20 @@ impl L2Block {
     pub fn state_root(&self) -> [u8; 32] {
         self.header.inner.state_root
     }
+
+    /// Calculates the total size of the L2 block in bytes.
+    pub fn calculate_size(&self) -> usize {
+        let header_size = self.header.inner.height.to_le_bytes().len()
+            + self.header.inner.prev_hash.len()
+            + self.header.inner.state_root.len()
+            + self.header.inner.l1_fee_rate.to_le_bytes().len()
+            + self.header.inner.tx_merkle_root.len()
+            + self.header.inner.timestamp.to_le_bytes().len()
+            + self.header.hash.len()
+            + self.header.signature.len();
+
+        let txs_size: usize = self.txs.iter().map(|tx| tx.calculate_size()).sum();
+
+        header_size + txs_size
+    }
 }

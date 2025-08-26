@@ -7,19 +7,18 @@ use citrea_batch_prover::prover::Prover;
 use citrea_batch_prover::L2Syncer as BatchProverL2Syncer;
 use citrea_common::backup::BackupManager;
 use citrea_common::{
-    BatchProverConfig, FullNodeConfig, InitParams, LightClientProverConfig, SequencerConfig,
+    BatchProverConfig, FullNodeConfig, InitParams, LightClientProverConfig, NodeType,
+    SequencerConfig,
 };
 use citrea_fullnode::da_block_handler::L1BlockHandler as FullNodeL1BlockHandler;
 use citrea_fullnode::L2Syncer as FullNodeL2Syncer;
 use citrea_light_client_prover::circuit::initial_values::InitialValueProvider;
 use citrea_light_client_prover::da_block_handler::L1BlockHandler as LightClientProverL1BlockHandler;
-use citrea_light_client_prover::runner::CitreaLightClientProver;
 use citrea_primitives::forks::get_forks;
 use citrea_sequencer::CitreaSequencer;
 use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use citrea_storage_ops::pruning::PrunerService;
 use citrea_storage_ops::rollback::Rollback;
-use citrea_storage_ops::types::StorageNodeType;
 use jsonrpsee::RpcModule;
 use reth_tasks::{TaskExecutor, TaskManager};
 use sov_db::ledger_db::migrations::{LedgerDBMigrator, Migrations};
@@ -136,7 +135,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         &self,
         ledger_db: &LedgerDB,
         storage_manager: &ProverStorageManager,
-        node_type: StorageNodeType,
+        node_type: NodeType,
     ) -> Result<()> {
         let next_version = StateDB::new(storage_manager.get_state_db_handle()).next_version();
         let state_version = if next_version >= 2 {
@@ -243,6 +242,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
     #[allow(clippy::too_many_arguments)]
     async fn create_full_node(
         &self,
+        network: Network,
         genesis_config: GenesisParams<Self>,
         rollup_config: FullNodeConfig<Self::DaConfig>,
         da_service: Arc<<Self as RollupBlueprint>::DaService>,
@@ -261,7 +261,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
 
         let native_stf = StfBlueprint::new();
 
-        self.sync_ledger_and_state_db(&ledger_db, &storage_manager, StorageNodeType::FullNode)
+        self.sync_ledger_and_state_db(&ledger_db, &storage_manager, NodeType::FullNode)
             .await?;
         let init_params =
             self.init_chain(genesis_config, &native_stf, &ledger_db, &storage_manager)?;
@@ -277,6 +277,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         let code_commitments = self.get_batch_proof_code_commitments();
 
         citrea_fullnode::build_services(
+            network,
             runner_config,
             init_params,
             native_stf,
@@ -297,6 +298,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
     #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     async fn create_batch_prover(
         &self,
+        network: Network,
         prover_config: BatchProverConfig,
         genesis_config: GenesisParams<Self>,
         rollup_config: FullNodeConfig<Self::DaConfig>,
@@ -316,7 +318,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
 
         let native_stf = StfBlueprint::new();
 
-        self.sync_ledger_and_state_db(&ledger_db, &storage_manager, StorageNodeType::BatchProver)
+        self.sync_ledger_and_state_db(&ledger_db, &storage_manager, NodeType::BatchProver)
             .await?;
         let init_params =
             self.init_chain(genesis_config, &native_stf, &ledger_db, &storage_manager)?;
@@ -343,6 +345,7 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         let elfs = self.get_batch_proof_elfs();
 
         citrea_batch_prover::build_services(
+            network,
             prover_config,
             runner_config,
             init_params,
@@ -369,22 +372,18 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         &self,
         network: Network,
         prover_config: LightClientProverConfig,
-        rollup_config: FullNodeConfig<Self::DaConfig>,
         da_service: Arc<<Self as RollupBlueprint>::DaService>,
         ledger_db: LedgerDB,
         storage_manager: ProverStorageManager,
         rpc_module: RpcModule<()>,
         backup_manager: Arc<BackupManager>,
     ) -> Result<(
-        CitreaLightClientProver,
         LightClientProverL1BlockHandler<Self::Vm, Self::DaService, LedgerDB>,
         RpcModule<()>,
     )>
     where
         Network: InitialValueProvider<Self::DaSpec>,
     {
-        let runner_config = rollup_config.runner.expect("Runner config is missing");
-
         let prover_service = Arc::new(
             self.create_prover_service(
                 prover_config.proving_mode,
@@ -402,7 +401,6 @@ pub trait CitreaRollupBlueprint: RollupBlueprint {
         citrea_light_client_prover::build_services(
             network,
             prover_config,
-            runner_config,
             storage_manager,
             ledger_db,
             da_service,

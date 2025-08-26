@@ -1,9 +1,10 @@
 //! Consist of types adjacent to the fee history cache and its configs
 use std::fmt::Debug;
 
+use alloy_consensus::Transaction;
 use alloy_network::AnyTransactionReceipt;
 use alloy_primitives::B256;
-use alloy_rpc_types::{Block, BlockTransactions, Transaction, TxGasAndReward};
+use alloy_rpc_types::{Block, BlockTransactions, Transaction as RpcTransaction, TxGasAndReward};
 use alloy_serde::WithOtherFields;
 use reth_rpc_eth_types::EthApiError;
 use schnellru::{ByLength, LruMap};
@@ -11,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sov_modules_api::WorkingSet;
 
 use super::cache::BlockCache;
-use super::gas_oracle::{effective_gas_tip, MAX_HEADER_HISTORY};
+use super::gas_oracle::MAX_HEADER_HISTORY;
 
 /// Settings for the [FeeHistoryCache].
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -169,7 +170,7 @@ pub(crate) fn calculate_reward_percentiles_for_block(
     percentiles: &[f64],
     gas_used: u64,
     base_fee_per_gas: u64,
-    transactions: &[Transaction],
+    transactions: &[RpcTransaction],
     receipts: &[AnyTransactionReceipt],
 ) -> Result<Vec<u128>, EthApiError> {
     let mut transactions = transactions
@@ -188,7 +189,9 @@ pub(crate) fn calculate_reward_percentiles_for_block(
 
             Some(TxGasAndReward {
                 gas_used,
-                reward: effective_gas_tip(tx, Some(base_fee_per_gas as u128)).unwrap_or_default(),
+                reward: tx
+                    .effective_tip_per_gas(base_fee_per_gas)
+                    .unwrap_or_default(),
             })
         })
         .collect::<Vec<_>>();

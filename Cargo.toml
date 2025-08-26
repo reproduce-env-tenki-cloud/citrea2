@@ -82,19 +82,15 @@ jsonrpsee = { version = "0.24.8", features = ["jsonrpsee-types"] }
 k256 = { version = "0.13.4" }
 lru = "0.13"
 hex = { version = "0.4.3", default-features = false, features = ["alloc", "serde"] }
-lazy_static = "1.5.0"
 log-panics = { version = "2", features = ["with-backtrace"] }
-once_cell = { version = "1.19.0", default-features = false, features = ["alloc"] }
 metrics = "0.23.0"
 metrics-derive = "0.1.0"
 metrics-exporter-prometheus = "0.15.3"
 metrics-util = "0.17.0"
-num_cpus = "1.0"
 # 1.13 uses getrandom 0.3
 uuid = { version = "=1.12.1", default-features = false, features = ["serde", "borsh", "v7"] }
 parking_lot = "0.12.3"
 proptest = { version = "1.6.0", default-features = false, features = ["alloc"] }
-pin-project = "1.1.9"
 rand = "0.8"
 rayon = "1.8.0"
 rlimit = "0.10.2"
@@ -121,12 +117,12 @@ url = { version = "2.5.4" }
 # Risc0 dependencies
 bonsai-sdk = { version = "1.4" }
 boundless-market = { version = "0.10.0", default-features = false }
-risc0-binfmt = "2.0.1"
-risc0-zkvm = { version = "2.1.0", default-features = false }
-risc0-zkvm-platform = "2.0.2"
-risc0-zkp = "2.0.1"
-risc0-circuit-rv32im = "2.0.4"
-risc0-build = "2.1.2"
+risc0-binfmt = "2.0.2"
+risc0-zkvm = { version = "2.3.1", default-features = false }
+risc0-zkvm-platform = "2.0.3"
+risc0-zkp = "2.0.2"
+risc0-circuit-rv32im = "3.0.0"
+risc0-build = "2.3.1"
 rzup = "0.4.1"
 
 # EVM dependencies
@@ -159,6 +155,7 @@ alloy-rlp = { version = "0.3.10", default-features = false }
 alloy-rpc-types = { version = "0.13", features = ["eth"], default-features = false }
 alloy-rpc-types-eth = { version = "0.13", default-features = false }
 alloy-rpc-types-trace = { version = "0.13", default-features = false }
+alloy-rpc-types-txpool = { version = "0.13", default-features = false }
 alloy-primitives = { version = "0.8.25", default-features = false, features = ["rand", "serde", "tiny-keccak", "k256"] }
 alloy-serde = { version = "0.13", default-features = false }
 alloy-sol-types = { version = "0.8.25", default-features = false, features = ["json"] }
@@ -167,7 +164,7 @@ alloy-eips = { version = "0.13", default-features = false }
 alloy-consensus = { version = "0.13", default-features = false, features = ["serde", "serde-bincode-compat"] }
 alloy-network = { version = "0.13", default-features = false }
 
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "34c6d80" }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "859cddf" }
 
 [patch.crates-io]
 bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "0fe8a8b" }

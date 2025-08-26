@@ -6,7 +6,7 @@ use alloy_primitives::{U32, U64};
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::Txid;
-use bitcoin_da::helpers::parsers::{parse_relevant_transaction, ParsedTransaction};
+use bitcoin_da::helpers::parsers::{parse_relevant_transaction, ParsedTransaction, VerifyParsed};
 use bitcoin_da::spec::RollupParams;
 use bitcoin_da::verifier::BitcoinVerifier;
 use bitcoincore_rpc::{Client, RpcApi};
@@ -143,7 +143,7 @@ impl TestCase for LightClientProvingTest {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height))
             .await?;
         assert!(lcp.is_some());
 
@@ -299,7 +299,7 @@ impl TestCase for LightClientProvingTestMultipleProofs {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height))
             .await
             .unwrap();
         assert!(lcp.is_some());
@@ -350,7 +350,7 @@ impl TestCase for LightClientProvingTestMultipleProofs {
         let lcp2 = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(last_finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(last_finalized_height))
             .await
             .unwrap();
         assert!(lcp2.is_some());
@@ -454,7 +454,7 @@ impl TestCase for LightClientProvingTestMultipleProofs {
         let lcp3 = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height))
             .await
             .unwrap();
         assert!(lcp3.is_some());
@@ -578,6 +578,7 @@ impl TestCase for LightClientBatchProofMethodIdUpdateTest {
                 "79122E48DF1A002FB6584B2E94D0D50F95037416C82DAF280F21CD67D17D9077".to_string(),
             ),
             REVEAL_TX_PREFIX.to_vec(),
+            None,
         )
         .await;
 
@@ -633,7 +634,7 @@ impl TestCase for LightClientBatchProofMethodIdUpdateTest {
         let _lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height))
             .await?;
 
         let batch_proof_method_ids_before = light_client_prover
@@ -681,7 +682,7 @@ impl TestCase for LightClientBatchProofMethodIdUpdateTest {
         let _lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(method_id_l1_height - 1)
+            .get_light_client_proof_by_l1_height(U64::from(method_id_l1_height - 1))
             .await?;
 
         // Assert that method ids are updated
@@ -806,7 +807,7 @@ impl TestCase for LightClientUnverifiableBatchProofTest {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?;
         let lcp_output = lcp.unwrap().light_client_proof_output;
 
@@ -980,7 +981,7 @@ impl TestCase for LightClientUnverifiableBatchProofTest {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height))
             .await?;
 
         let lcp_output = lcp.unwrap().light_client_proof_output;
@@ -1117,7 +1118,7 @@ impl TestCase for VerifyChunkedTxsInLightClient {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?;
         let lcp_output = lcp.unwrap().light_client_proof_output;
 
@@ -1176,7 +1177,7 @@ impl TestCase for VerifyChunkedTxsInLightClient {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height))
             .await?;
 
         let lcp_output = lcp.unwrap().light_client_proof_output;
@@ -1269,7 +1270,7 @@ impl TestCase for VerifyChunkedTxsInLightClient {
         let lcp_first_chunks = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height - 2)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height - 2))
             .await?;
 
         let lcp_output = lcp_first_chunks.unwrap().light_client_proof_output;
@@ -1282,7 +1283,7 @@ impl TestCase for VerifyChunkedTxsInLightClient {
         let lcp_last_chunks = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height - 1)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height - 1))
             .await?;
 
         let lcp_output = lcp_last_chunks.unwrap().light_client_proof_output;
@@ -1296,7 +1297,7 @@ impl TestCase for VerifyChunkedTxsInLightClient {
         let lcp_aggregate = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height))
             .await?;
 
         let lcp_output = lcp_aggregate.unwrap().light_client_proof_output;
@@ -1347,7 +1348,7 @@ impl TestCase for VerifyChunkedTxsInLightClient {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height))
             .await?;
 
         let lcp_output = lcp.unwrap().light_client_proof_output;
@@ -1401,6 +1402,10 @@ impl TestCase for UnchainedBatchProofsTest {
             max_l2_blocks_per_commitment: 10000,
             ..Default::default()
         }
+    }
+
+    fn scan_l1_start_height() -> Option<u64> {
+        Some(164)
     }
 
     async fn cleanup(self) -> Result<()> {
@@ -1494,7 +1499,7 @@ impl TestCase for UnchainedBatchProofsTest {
         let initial_lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(170)
+            .get_light_client_proof_by_l1_height(U64::from(170))
             .await?
             .unwrap();
 
@@ -1557,24 +1562,25 @@ impl TestCase for UnchainedBatchProofsTest {
             Some(fake_sequencer_commitment.serialize_and_calculate_sha_256()),
         );
 
-        let mut txids = bitcoin_da_service
+        let mut txs = bitcoin_da_service
             .send_transaction_with_fee_rate(DaTxRequest::ZKProof(bp1), 1)
             .await
             .unwrap();
 
-        txids.extend(
+        txs.extend(
             bitcoin_da_service
                 .send_transaction_with_fee_rate(DaTxRequest::ZKProof(bp2), 1)
                 .await
                 .unwrap(),
         );
 
-        txids.extend(
+        txs.extend(
             bitcoin_da_service
                 .send_transaction_with_fee_rate(DaTxRequest::ZKProof(bp3), 1)
                 .await
                 .unwrap(),
         );
+
         da.wait_mempool_len(6, None).await?;
 
         da.generate_block(
@@ -1582,7 +1588,9 @@ impl TestCase for UnchainedBatchProofsTest {
                 .await?
                 .assume_checked()
                 .to_string(),
-            txids.into_iter().map(|txid| txid.to_string()).collect(),
+            txs.into_iter()
+                .flat_map(|tx| [tx[0].id.to_string(), tx[1].id.to_string()])
+                .collect(),
         )
         .await?;
 
@@ -1595,7 +1603,9 @@ impl TestCase for UnchainedBatchProofsTest {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(start_l1_height + DEFAULT_FINALITY_DEPTH)
+            .get_light_client_proof_by_l1_height(U64::from(
+                start_l1_height + DEFAULT_FINALITY_DEPTH,
+            ))
             .await?
             .unwrap();
 
@@ -1621,7 +1631,9 @@ impl TestCase for UnchainedBatchProofsTest {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(start_l1_height + 2 * DEFAULT_FINALITY_DEPTH)
+            .get_light_client_proof_by_l1_height(U64::from(
+                start_l1_height + 2 * DEFAULT_FINALITY_DEPTH,
+            ))
             .await?
             .unwrap();
 
@@ -1719,7 +1731,7 @@ impl TestCase for UnknownL1HashBatchProofTest {
         let initial_lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(170)
+            .get_light_client_proof_by_l1_height(U64::from(170))
             .await?
             .unwrap();
 
@@ -1763,7 +1775,9 @@ impl TestCase for UnknownL1HashBatchProofTest {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(start_l1_height + DEFAULT_FINALITY_DEPTH)
+            .get_light_client_proof_by_l1_height(U64::from(
+                start_l1_height + DEFAULT_FINALITY_DEPTH,
+            ))
             .await?
             .unwrap();
 
@@ -1900,7 +1914,7 @@ impl TestCase for ChainProofByCommitmentIndex {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?;
         let lcp_output = lcp.unwrap().light_client_proof_output;
 
@@ -1976,7 +1990,7 @@ impl TestCase for ChainProofByCommitmentIndex {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height))
             .await?;
 
         let lcp_output = lcp.unwrap().light_client_proof_output;
@@ -2067,7 +2081,7 @@ impl TestCase for ProofWithMissingCommitment {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?;
         let lcp_output = lcp.unwrap().light_client_proof_output;
 
@@ -2121,7 +2135,7 @@ impl TestCase for ProofWithMissingCommitment {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height))
             .await?;
 
         let lcp_output = lcp.unwrap().light_client_proof_output;
@@ -2205,6 +2219,7 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
                 "1212121212121212121212121212121212121212121212121212121212121212".to_string(),
             ),
             REVEAL_TX_PREFIX.to_vec(),
+            None,
         )
         .await;
 
@@ -2233,7 +2248,7 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
         let initial_lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(170)
+            .get_light_client_proof_by_l1_height(U64::from(170))
             .await?
             .unwrap();
 
@@ -2259,7 +2274,7 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
             None,
         );
 
-        let txids = batch_prover_bitcoin_da_service
+        let txs = batch_prover_bitcoin_da_service
             .send_transaction_with_fee_rate(DaTxRequest::ZKProof(bp1), 1)
             .await
             .unwrap();
@@ -2271,7 +2286,9 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
                 .await?
                 .assume_checked()
                 .to_string(),
-            txids.into_iter().map(|txid| txid.to_string()).collect(),
+            txs.into_iter()
+                .flat_map(|tx| [tx[0].id.to_string(), tx[1].id.to_string()])
+                .collect(),
         )
         .await?;
 
@@ -2284,7 +2301,9 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(start_l1_height + DEFAULT_FINALITY_DEPTH)
+            .get_light_client_proof_by_l1_height(U64::from(
+                start_l1_height + DEFAULT_FINALITY_DEPTH,
+            ))
             .await?
             .unwrap();
 
@@ -2326,7 +2345,7 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
             None,
         );
 
-        let txids = batch_prover_bitcoin_da_service
+        let txs = batch_prover_bitcoin_da_service
             .send_transaction_with_fee_rate(DaTxRequest::ZKProof(bp1), 1)
             .await
             .unwrap();
@@ -2338,7 +2357,9 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
                 .await?
                 .assume_checked()
                 .to_string(),
-            txids.into_iter().map(|txid| txid.to_string()).collect(),
+            txs.into_iter()
+                .flat_map(|tx| [tx[0].id.to_string(), tx[1].id.to_string()])
+                .collect(),
         )
         .await?;
 
@@ -2351,7 +2372,9 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height + DEFAULT_FINALITY_DEPTH)
+            .get_light_client_proof_by_l1_height(U64::from(
+                finalized_height + DEFAULT_FINALITY_DEPTH,
+            ))
             .await?
             .unwrap();
 
@@ -2400,7 +2423,7 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
             Some(fake_sequencer_commitment.serialize_and_calculate_sha_256()),
         );
 
-        let txids = malicious_bitcoin_da_service
+        let txs = malicious_bitcoin_da_service
             .send_transaction_with_fee_rate(DaTxRequest::ZKProof(bp2.clone()), 1)
             .await
             .unwrap();
@@ -2412,7 +2435,9 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
                 .await?
                 .assume_checked()
                 .to_string(),
-            txids.into_iter().map(|txid| txid.to_string()).collect(),
+            txs.into_iter()
+                .flat_map(|tx| [tx[0].id.to_string(), tx[1].id.to_string()])
+                .collect(),
         )
         .await?;
 
@@ -2425,7 +2450,9 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height + DEFAULT_FINALITY_DEPTH)
+            .get_light_client_proof_by_l1_height(U64::from(
+                finalized_height + DEFAULT_FINALITY_DEPTH,
+            ))
             .await?
             .unwrap();
 
@@ -2437,7 +2464,7 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
         assert_eq!(lcp_output.last_sequencer_commitment_index, U32::from(1));
 
         // Now send batch proof with the correct da pub key and expect it to transition
-        let txids = batch_prover_bitcoin_da_service
+        let txs = batch_prover_bitcoin_da_service
             .send_transaction_with_fee_rate(DaTxRequest::ZKProof(bp2.clone()), 1)
             .await
             .unwrap();
@@ -2449,7 +2476,9 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
                 .await?
                 .assume_checked()
                 .to_string(),
-            txids.into_iter().map(|txid| txid.to_string()).collect(),
+            txs.into_iter()
+                .flat_map(|tx| [tx[0].id.to_string(), tx[1].id.to_string()])
+                .collect(),
         )
         .await?;
 
@@ -2463,7 +2492,7 @@ impl TestCase for ProofAndCommitmentWithWrongDaPubkey {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?
             .unwrap();
 
@@ -2553,7 +2582,7 @@ impl TestCase for ProofWithWrongPreviousCommitmentHash {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?;
         let lcp_output = lcp.unwrap().light_client_proof_output;
 
@@ -2628,7 +2657,7 @@ impl TestCase for ProofWithWrongPreviousCommitmentHash {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?;
 
         let lcp_output = lcp.unwrap().light_client_proof_output;
@@ -2667,7 +2696,7 @@ impl TestCase for ProofWithWrongPreviousCommitmentHash {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?;
         let lcp_output = lcp.unwrap().light_client_proof_output;
         // The batch proof should not have updated the state root and the last l2 height
@@ -2701,7 +2730,7 @@ impl TestCase for ProofWithWrongPreviousCommitmentHash {
         let lcp = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?;
         let lcp_output = lcp.unwrap().light_client_proof_output;
         // The batch proof should have updated the state root and the last l2 height
@@ -2823,7 +2852,7 @@ struct UndecompressableBlobTest {
 impl UndecompressableBlobTest {
     fn verify_complete_is_non_decompressable(tx: &bitcoin::Transaction) -> bool {
         if let Ok(ParsedTransaction::Complete(complete)) = parse_relevant_transaction(tx) {
-            let Ok(data) = DataOnDa::try_from_slice(&complete.body) else {
+            let Ok(data) = DataOnDa::try_from_slice(complete.body()) else {
                 panic!("Failed to parse complete data");
             };
 
@@ -2841,7 +2870,7 @@ impl UndecompressableBlobTest {
 
         for tx in &block.txdata {
             if let Ok(ParsedTransaction::Aggregate(aggregate)) = parse_relevant_transaction(tx) {
-                complete_proof.extend_from_slice(&aggregate.body);
+                complete_proof.extend_from_slice(aggregate.body());
             }
         }
 
@@ -3109,7 +3138,7 @@ impl TestCase for UndecompressableBlobTest {
         let lcp_output = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?
             .unwrap()
             .light_client_proof_output;
@@ -3174,7 +3203,7 @@ impl TestCase for UndecompressableBlobTest {
         let lcp_output = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?
             .unwrap()
             .light_client_proof_output;

@@ -1,5 +1,6 @@
 //! A JSON-RPC server implementation for any [`LedgerRpcProvider`].
 
+use alloy_primitives::ruint::UintTryTo;
 use alloy_primitives::{U32, U64};
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::types::ErrorObjectOwned;
@@ -7,8 +8,8 @@ use jsonrpsee::RpcModule;
 use sov_modules_api::utils::to_jsonrpsee_error_object;
 use sov_rollup_interface::rpc::block::L2BlockResponse;
 use sov_rollup_interface::rpc::{
-    BatchProofResponse, LastVerifiedBatchProofResponse, LedgerRpcProvider,
-    SequencerCommitmentResponse, VerifiedBatchProofResponse,
+    LastVerifiedBatchProofResponse, LedgerRpcProvider, SequencerCommitmentResponse,
+    VerifiedBatchProofResponse,
 };
 
 use crate::{HexHash, HexStateRoot, LedgerRpcServer};
@@ -61,7 +62,12 @@ where
     }
 
     fn get_l2_block_range(&self, start: U64, end: U64) -> RpcResult<Vec<Option<L2BlockResponse>>> {
-        if (end - start).to::<u32>() > self.config.max_l2_blocks_per_request {
+        let diff: u32 = (end - start).uint_try_to().map_err(|_| {
+            to_ledger_rpc_error(
+                "Invalid range: start must be less than end or the difference is too large",
+            )
+        })?;
+        if diff > self.config.max_l2_blocks_per_request {
             return Err(to_ledger_rpc_error(format!(
                 "requested batch range too large. Max: {}",
                 self.config.max_l2_blocks_per_request
@@ -110,32 +116,6 @@ where
 
         self.ledger
             .get_sequencer_commitments_on_slot_by_number(height)
-            .map_err(to_ledger_rpc_error)
-    }
-
-    fn get_batch_proofs_by_slot_height(
-        &self,
-        height: U64,
-    ) -> RpcResult<Option<Vec<BatchProofResponse>>> {
-        self.ledger
-            .get_batch_proof_data_by_l1_height(height.to())
-            .map_err(to_ledger_rpc_error)
-    }
-
-    fn get_batch_proofs_by_slot_hash(
-        &self,
-        hash: HexHash,
-    ) -> RpcResult<Option<Vec<BatchProofResponse>>> {
-        let Some(height) = self
-            .ledger
-            .get_slot_number_by_hash(hash.0)
-            .map_err(to_ledger_rpc_error)?
-        else {
-            return Ok(None);
-        };
-
-        self.ledger
-            .get_batch_proof_data_by_l1_height(height)
             .map_err(to_ledger_rpc_error)
     }
 

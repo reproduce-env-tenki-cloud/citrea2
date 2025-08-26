@@ -107,6 +107,7 @@ pub trait Zkvm: Send + Sync {
     fn verify(
         serialized_proof: &[u8],
         code_commitment: &Self::CodeCommitment,
+        allow_dev_mode: bool,
     ) -> Result<(), Self::Error>;
 
     /// Extracts the raw output without doing any verification.
@@ -123,6 +124,7 @@ pub trait Zkvm: Send + Sync {
     fn verify_and_deserialize_output<T: BorshDeserialize>(
         serialized_proof: &[u8],
         code_commitment: &Self::CodeCommitment,
+        allow_dev_mode: bool,
     ) -> Result<T, Self::Error>;
 }
 

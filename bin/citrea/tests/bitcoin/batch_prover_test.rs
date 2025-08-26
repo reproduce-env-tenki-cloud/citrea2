@@ -480,7 +480,7 @@ struct ParallelProvingTest;
 impl TestCase for ParallelProvingTest {
     fn test_env() -> TestCaseEnv {
         TestCaseEnv {
-            test: vec![("RISC0_DEV_MODE", "1"), ("PARALLEL_PROOF_LIMIT", "2")],
+            test: vec![("PARALLEL_PROOF_LIMIT", "2")],
             ..Default::default()
         }
     }
@@ -1060,7 +1060,7 @@ impl TestCase for SubmitFakeProofRpcTest {
         let lcp_output = light_client
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?
             .unwrap()
             .light_client_proof_output;
@@ -1110,7 +1110,7 @@ impl TestCase for SubmitFakeProofRpcTest {
         let lcp_output = light_client
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?
             .unwrap()
             .light_client_proof_output;
@@ -1141,7 +1141,7 @@ impl TestCase for SubmitFakeProofRpcTest {
         let lcp_output = light_client
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(finalized_height)
+            .get_light_client_proof_by_l1_height(U64::from(finalized_height))
             .await?
             .unwrap()
             .light_client_proof_output;
@@ -1292,7 +1292,7 @@ impl TestCase for BatchProverCreateInputTest {
             let output: BatchProofCircuitOutput = Risc0Host::extract_output(&proof).unwrap();
 
             // Verify the proof
-            Risc0Host::verify(proof.as_slice(), &code_commitment)
+            Risc0Host::verify(proof.as_slice(), &code_commitment, true)
                 .expect("Proof verification failed");
 
             assert_eq!(output.last_l2_height(), max_l2_blocks_per_commitment);
@@ -1313,6 +1313,21 @@ impl TestCase for BatchProverCreateInputTest {
             let state_roots = output.state_roots().clone();
             assert_eq!(state_roots[1], l2_block.header.state_root);
         }
+
+        // Test that non-existent commitment ranges are properly rejected
+        let result = batch_prover
+            .client
+            .http_client()
+            .create_circuit_input(100, 200, PartitionMode::Normal)
+            .await;
+
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(
+            error_msg.contains("No commitments found"),
+            "Expected error about no commitments found, got: {}",
+            error_msg
+        );
 
         sequencer.wait_until_stopped().await?;
         batch_prover.wait_until_stopped().await?;

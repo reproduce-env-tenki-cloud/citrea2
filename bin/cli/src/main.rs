@@ -1,44 +1,12 @@
 use std::path::PathBuf;
 
-use citrea_storage_ops::types::NodeKind;
-use clap::{Parser, Subcommand, ValueEnum};
-use commands::StorageNodeTypeArg;
+use clap::{Parser, Subcommand};
+use commands::NodeTypeArg;
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 mod commands;
-
-#[derive(Clone, Debug, ValueEnum)]
-#[value(rename_all = "kebab-case")]
-enum NodeKindArg {
-    BatchProver,
-    Sequencer,
-    FullNode,
-    LightClientProver,
-}
-
-impl std::fmt::Display for NodeKindArg {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            NodeKindArg::BatchProver => write!(f, "batch-prover"),
-            NodeKindArg::Sequencer => write!(f, "sequencer"),
-            NodeKindArg::FullNode => write!(f, "full-node"),
-            NodeKindArg::LightClientProver => write!(f, "light-client-prover"),
-        }
-    }
-}
-
-impl From<NodeKindArg> for NodeKind {
-    fn from(value: NodeKindArg) -> Self {
-        match value {
-            NodeKindArg::Sequencer => NodeKind::Sequencer,
-            NodeKindArg::FullNode => NodeKind::FullNode,
-            NodeKindArg::BatchProver => NodeKind::BatchProver,
-            NodeKindArg::LightClientProver => NodeKind::LightClientProver,
-        }
-    }
-}
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -53,7 +21,7 @@ enum Commands {
     /// Prune old DB entries
     Prune {
         #[arg(long)]
-        node_type: StorageNodeTypeArg,
+        node_type: NodeTypeArg,
         /// The path of the database to prune
         #[arg(long)]
         db_path: PathBuf,
@@ -64,7 +32,7 @@ enum Commands {
     /// Rollback the most recent N blocks
     Rollback {
         #[arg(long)]
-        node_type: StorageNodeTypeArg,
+        node_type: NodeTypeArg,
         /// The path of the database to prune
         #[arg(long)]
         db_path: PathBuf,
@@ -78,11 +46,11 @@ enum Commands {
         #[arg(long)]
         sequencer_commitment_index: Option<u32>,
     },
-    /// Backup DBs
+    /// Restore DBs from backup
     RestoreBackup {
         /// The node kind
         #[arg(long)]
-        node_kind: NodeKindArg,
+        node_type: NodeTypeArg,
         /// The path of the databases to restore to
         #[arg(long)]
         db_path: PathBuf,
@@ -92,6 +60,27 @@ enum Commands {
         /// The backup ID
         #[arg(long)]
         backup_id: u32,
+    },
+    /// Purge backups up to backup ID
+    PurgeBackup {
+        /// The backup path
+        #[arg(long)]
+        backup_path: PathBuf,
+        /// The backup ID to purge up to (exclusive)
+        #[arg(
+            long,
+            conflicts_with = "num_to_keep",
+            required_unless_present = "num_to_keep"
+        )]
+        backup_id: Option<u32>,
+
+        /// Number of most recent backups to keep
+        #[arg(
+            long,
+            conflicts_with = "backup_id",
+            required_unless_present = "backup_id"
+        )]
+        num_to_keep: Option<u32>,
     },
 }
 
@@ -134,10 +123,17 @@ async fn main() -> anyhow::Result<()> {
         Commands::RestoreBackup {
             db_path,
             backup_path,
-            node_kind,
+            node_type,
             backup_id,
         } => {
-            commands::restore_backup(node_kind.into(), db_path, backup_path, backup_id).await?;
+            commands::restore_backup(node_type.into(), db_path, backup_path, backup_id).await?;
+        }
+        Commands::PurgeBackup {
+            backup_path,
+            backup_id,
+            num_to_keep,
+        } => {
+            commands::purge_backup(backup_path, num_to_keep, backup_id).await?;
         }
     }
 

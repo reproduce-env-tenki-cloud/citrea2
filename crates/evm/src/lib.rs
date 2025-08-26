@@ -4,6 +4,8 @@ mod call;
 mod evm;
 mod genesis;
 mod hooks;
+#[cfg(feature = "native")]
+mod metrics;
 mod provider_functions;
 
 use alloy_consensus::TxReceipt;
@@ -16,6 +18,8 @@ pub use genesis::*;
 pub use hooks::{
     create_initial_system_events, populate_deposit_system_events, populate_set_block_info_event,
 };
+#[cfg(feature = "native")]
+pub use metrics::EVM_METRICS;
 use revm::context::BlockEnv;
 use revm::primitives::hardfork::SpecId as EvmSpecId;
 #[cfg(feature = "native")]
@@ -102,8 +106,7 @@ pub struct Evm<C: sov_modules_api::Context> {
 
     /// Mapping from code hash to code. Used for lazy-loading code into a contract account.
     #[state(rename = "c")]
-    pub(crate) offchain_code:
-        sov_modules_api::OffchainStateMap<B256, revm::state::Bytecode, BcsCodec>,
+    pub offchain_code: sov_modules_api::OffchainStateMap<B256, revm::state::Bytecode, BcsCodec>,
 
     /// Chain configuration. This field is set in genesis.
     #[state(rename = "S")]

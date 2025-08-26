@@ -4,13 +4,14 @@
 //! and maintaining the light client state.
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use citrea_common::backup::BackupManager;
 use citrea_common::cache::L1BlockCache;
 use citrea_common::da::sync_l1;
 use citrea_common::LightClientProverConfig;
 use citrea_primitives::forks::fork_from_block_number;
-use prover_services::{ParallelProverService, ProofData};
+use prover_services::{ParallelProverService, ProofData, ProofWithDuration};
 use reth_tasks::shutdown::GracefulShutdown;
 use sov_db::ledger_db::{LightClientProverLedgerOps, SharedLedgerOps};
 use sov_db::schema::types::light_client_proof::StoredLightClientProofOutput;
@@ -22,16 +23,15 @@ use sov_rollup_interface::services::da::{DaService, SlotData};
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::zk::light_client_proof::input::LightClientCircuitInput;
 use sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
-use sov_rollup_interface::zk::{Proof, ReceiptType, ZkvmHost};
+use sov_rollup_interface::zk::{ReceiptType, ZkvmHost};
 use sov_rollup_interface::Network;
 use tokio::select;
-use tokio::sync::Mutex;
-use tokio::time::Duration;
+use tokio::sync::{Mutex, Notify};
 use tracing::{error, instrument};
 
 use crate::circuit::initial_values::InitialValueProvider;
 use crate::circuit::LightClientProofCircuit;
-use crate::metrics::LIGHT_CLIENT_METRICS;
+use crate::metrics::LIGHT_CLIENT_METRICS as LPM;
 
 /// Variant to specify how to start processing L1 blocks
 pub enum StartVariant {
@@ -153,19 +153,20 @@ where
             StartVariant::LastScanned(height) => height + 1, // last scanned block + 1
             StartVariant::FromBlock(height) => height,       // first block to scan
         };
+
+        let notifier = Arc::new(Notify::new());
+
         let l1_sync_worker = sync_l1(
             start_l1_height,
             self.da_service.clone(),
             self.queued_l1_blocks.clone(),
             self.l1_block_cache.clone(),
-            LIGHT_CLIENT_METRICS.scan_l1_block.clone(),
+            notifier.clone(),
         );
         tokio::pin!(l1_sync_worker);
 
         let backup_manager = self.backup_manager.clone();
-
-        let mut interval = tokio::time::interval(Duration::from_secs(2));
-        interval.tick().await;
+        tokio::time::sleep(Duration::from_secs(1)).await; // Gives time for queue to fill up on startup
         loop {
             select! {
                 biased;
@@ -173,7 +174,7 @@ where
                     return;
                 }
                 _ = &mut l1_sync_worker => {},
-                _ = interval.tick() => {
+                _ = notifier.notified() => {
                     let _l1_guard = backup_manager.start_l1_processing().await;
                     if let Err(e) = self.process_queued_l1_blocks().await {
                         error!("Could not process queued L1 blocks and generate proof: {:?}", e);
@@ -206,6 +207,7 @@ where
     /// 2. Prepares the light client circuit input and calls `Self::prove` to generate a proof for the L1 block.
     /// 3. Asserts that the state update's state root matches the one in the circuit output, and finalizes the storage.
     async fn process_l1_block(&mut self, l1_block: Da::FilteredBlock) -> anyhow::Result<()> {
+        let start_l1_block_processing = Instant::now();
         let l1_hash = l1_block.header().hash().into();
         let l1_height = l1_block.header().height();
 
@@ -238,15 +240,15 @@ where
 
         let storage = self.storage_manager.create_storage_for_next_l2_height();
 
-        // TODO: might need to iterate over da_data and call .full_data() on each
         let result = self.circuit.run_l1_block(
+            self.network,
             storage,
             Default::default(),
             da_data,
             l1_block.header().clone(),
             previous_lcp_output,
             self.network.get_l2_genesis_root(),
-            self.network.initial_batch_proof_method_ids(),
+            self.network.initial_batch_proof_method_ids().to_vec(),
             &self.network.batch_prover_da_public_key(),
             &self.network.sequencer_da_public_key(),
             &self.network.method_id_upgrade_authority_da_public_key(),
@@ -274,7 +276,8 @@ where
             witness: result.witness,
         };
 
-        let proof = self.prove(light_client_elf, circuit_input, vec![]).await?;
+        let proof_with_duration = self.prove(light_client_elf, circuit_input, vec![]).await?;
+        let proof = proof_with_duration.proof;
 
         let circuit_output = Vm::extract_output::<LightClientCircuitOutput>(&proof)
             .expect("Should deserialize valid proof");
@@ -297,11 +300,18 @@ where
             stored_proof_output,
         )?;
 
+        LPM.set_lcp_proving_time(proof_with_duration.duration);
+
         self.ledger_db
             .set_last_scanned_l1_height(SlotNumber(l1_block.header().height()))
             .expect("Saving last scanned l1 height to ledger db");
 
-        LIGHT_CLIENT_METRICS.current_l1_block.set(l1_height as f64);
+        LPM.current_l1_block.set(l1_height as f64);
+        LPM.set_scan_l1_block_duration(
+            Instant::now()
+                .saturating_duration_since(start_l1_block_processing)
+                .as_secs_f64(),
+        );
 
         Ok(())
     }
@@ -320,7 +330,7 @@ where
         light_client_elf: Vec<u8>,
         circuit_input: LightClientCircuitInput<<Da as DaService>::Spec>,
         assumptions: Vec<Vec<u8>>,
-    ) -> Result<Proof, anyhow::Error> {
+    ) -> Result<ProofWithDuration, anyhow::Error> {
         let data = ProofData {
             input: borsh::to_vec(&circuit_input)?,
             assumptions,

@@ -16,6 +16,8 @@ use tracing::instrument;
 use crate::evm::primitive_types::Block;
 #[cfg(feature = "native")]
 use crate::evm::system_events::SystemEvent;
+#[cfg(feature = "native")]
+use crate::metrics::EVM_METRICS as EM;
 use crate::{citrea_spec_id_to_evm_spec_id, Evm};
 
 impl<C: sov_modules_api::Context> Evm<C> {
@@ -252,6 +254,13 @@ impl<C: sov_modules_api::Context> Evm<C> {
             let sealed_block = block.seal();
 
             self.blocks.push(&sealed_block, accessory_working_set);
+
+            let base_fee_gwei =
+                sealed_block.header.base_fee_per_gas.unwrap_or_default() as f64 / 1_000_000_000.0; // Convert to Gwei
+                                                                                                   // Update the metrics with the new block count
+            EM.block_gas_usage.set(sealed_block.header.gas_used as f64);
+            EM.block_base_fee.set(base_fee_gwei);
+
             self.block_hashes.set(
                 &sealed_block.header.hash(),
                 &sealed_block.header.number,

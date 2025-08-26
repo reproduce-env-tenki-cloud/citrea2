@@ -1,15 +1,17 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Context;
 use rand::Rng;
 use sov_rollup_interface::da::DaTxRequest;
 use sov_rollup_interface::services::da::DaService;
 use sov_rollup_interface::zk::{Proof, ProofWithJob, ReceiptType, ZkvmHost};
-use tokio::sync::{oneshot, Mutex, Notify};
+use tokio::sync::{oneshot, OwnedSemaphorePermit, Semaphore};
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
-use crate::{ProofData, ProofGenMode};
+use crate::metrics::PARALLEL_PROVER_METRICS;
+use crate::{ProofData, ProofGenMode, ProofWithDuration};
 
 /// Prover service capable of invoking the zkVM proving sessions in parallel.
 pub struct ParallelProverService<Da, Vm>
@@ -17,9 +19,7 @@ where
     Da: DaService,
     Vm: ZkvmHost + 'static,
 {
-    parallel_proof_limit: usize,
-    ongoing_proof_count: Arc<Mutex<usize>>,
-    proof_done_notifier: Arc<Notify>,
+    proof_semaphore: Arc<Semaphore>,
     proof_mode: ProofGenMode,
     da_service: Arc<Da>,
     vm: Vm,
@@ -64,9 +64,7 @@ where
         };
 
         Ok(Self {
-            parallel_proof_limit,
-            ongoing_proof_count: Default::default(),
-            proof_done_notifier: Default::default(),
+            proof_semaphore: Arc::new(Semaphore::new(parallel_proof_limit)),
             proof_mode,
             da_service,
             vm,
@@ -92,7 +90,11 @@ where
     ///
     /// * `data` - the proof data to be used for generating a proof
     /// * `receipt_type` - the expected receipt type of the proof
-    pub async fn prove(&self, data: ProofData, receipt_type: ReceiptType) -> anyhow::Result<Proof> {
+    pub async fn prove(
+        &self,
+        data: ProofData,
+        receipt_type: ReceiptType,
+    ) -> anyhow::Result<ProofWithDuration> {
         let job_id = Uuid::nil();
         let rx = self.start_proving(data, receipt_type, job_id).await?;
         Ok(rx.await.expect("Proof channel should not close"))
@@ -117,8 +119,8 @@ where
         data: ProofData,
         receipt_type: ReceiptType,
         job_id: Uuid,
-    ) -> anyhow::Result<oneshot::Receiver<Proof>> {
-        self.reserve_proof_slot().await;
+    ) -> anyhow::Result<oneshot::Receiver<ProofWithDuration>> {
+        let permit = self.reserve_proof_slot().await?;
 
         let ProofData {
             input,
@@ -134,24 +136,31 @@ where
         }
 
         // start proof immediately in the background
+        let proof_start_time = std::time::Instant::now();
         let proof_rx = make_proof(vm, job_id, elf, self.proof_mode, receipt_type)
             .await
             .context("Failed to start proving")?;
         debug!("Started proving job");
 
-        let ongoing_proof_count = self.ongoing_proof_count.clone();
-        let notifier = self.proof_done_notifier.clone();
         let (tx, rx) = oneshot::channel();
         // the reason we pipe the proof_rx to a new channel is because we need to
         // keep track of the number of ongoing proofs and notify the caller when the proof is done
         tokio::spawn(async move {
+            let _permit = permit; // Hold permit until task completion
             let proof = proof_rx.await;
 
-            *ongoing_proof_count.lock().await -= 1;
+            PARALLEL_PROVER_METRICS.ongoing_proving_jobs.decrement(1);
 
             match proof {
                 Ok(proof) => {
-                    tx.send(proof.proof)
+                    let duration = Instant::now()
+                        .saturating_duration_since(proof_start_time)
+                        .as_secs_f64();
+                    let proof_with_duration = ProofWithDuration {
+                        proof: proof.proof,
+                        duration,
+                    };
+                    tx.send(proof_with_duration)
                         .expect("Proof channel should not close");
                 }
                 Err(e) => {
@@ -162,37 +171,33 @@ where
             }
 
             debug!("Finished proving job");
-            notifier.notify_one();
         });
 
         Ok(rx)
     }
 
     /// Reserves a proof slot. If the limit is reached, it will wait for a proof to finish.
-    async fn reserve_proof_slot(&self) {
-        let mut ongoing_proof_count = self.ongoing_proof_count.lock().await;
-        // try to reserve a slot if there is one available
-        if *ongoing_proof_count < self.parallel_proof_limit {
-            *ongoing_proof_count += 1;
-            return;
+    async fn reserve_proof_slot(&self) -> anyhow::Result<OwnedSemaphorePermit> {
+        let available_permits = self.proof_semaphore.available_permits();
+
+        if available_permits == 0 {
+            PARALLEL_PROVER_METRICS
+                .proof_count_waiting_in_queue
+                .increment(1);
+            warn!("Reached parallel proof limit, waiting for one of the proving tasks to finish");
         }
-        // release the lock manually just in case
-        drop(ongoing_proof_count);
 
-        warn!("Reached parallel proof limit, waiting for one of the proving tasks to finish");
+        let permit = self.proof_semaphore.clone().acquire_owned().await?;
 
-        loop {
-            // wait for a proof job to send a finish notification
-            self.proof_done_notifier.notified().await;
+        PARALLEL_PROVER_METRICS.ongoing_proving_jobs.increment(1);
 
-            // try to reserve a slot again, it is possible that there were multiple awaiters,
-            // hence, whoever gets the lock first will be able to reserve a slot
-            let mut ongoing_proof_count = self.ongoing_proof_count.lock().await;
-            if *ongoing_proof_count < self.parallel_proof_limit {
-                *ongoing_proof_count += 1;
-                return;
-            }
+        if available_permits == 0 {
+            PARALLEL_PROVER_METRICS
+                .proof_count_waiting_in_queue
+                .decrement(1);
         }
+
+        Ok(permit)
     }
 
     /// Submits the zk proof to the DA service, returning transaction id.

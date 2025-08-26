@@ -37,7 +37,7 @@ use sov_db::schema::types::L2BlockNumber;
 use sov_keys::default_signature::k256_private_key::K256PrivateKey;
 use sov_modules_api::hooks::HookL2BlockInfo;
 use sov_modules_api::{
-    EncodeCall, L2Block, L2BlockModuleCallError, PrivateKey, SlotData, Spec, SpecId, StateDiff,
+    EncodeCall, L2Block, L2BlockModuleCallError, PrivateKey, SlotData, Spec, SpecId,
     StateValueAccessor, WorkingSet,
 };
 use sov_modules_stf_blueprint::StfBlueprint;
@@ -62,7 +62,7 @@ use crate::da::{da_block_monitor, get_da_block_data};
 use crate::db_provider::DbProvider;
 use crate::deposit_data_mempool::DepositDataMempool;
 use crate::mempool::CitreaMempool;
-use crate::metrics::SEQUENCER_METRICS;
+use crate::metrics::SEQUENCER_METRICS as SM;
 use crate::types::SequencerRpcMessage;
 use crate::utils::recover_raw_transaction;
 
@@ -221,6 +221,7 @@ where
             }
 
             let evm = citrea_evm::Evm::<DefaultContext>::default();
+            let start_dry_run_system_txs = Instant::now();
             // Initially fill with system transactions if any
             let (mut all_txs, mut working_set_to_discard) = self
                 .produce_and_run_system_transactions(
@@ -231,6 +232,11 @@ where
                     da_blocks,
                     &mut nonce,
                 )?;
+            SM.dry_run_system_txs_duration_secs.set(
+                Instant::now()
+                    .saturating_duration_since(start_dry_run_system_txs)
+                    .as_secs_f64(),
+            );
 
             // Track transactions that failed due to insufficient L1 fee balance
             let mut l1_fee_failed_txs = vec![];
@@ -240,6 +246,7 @@ where
             // when we update reth we'll need to call transactions.mark_invalid()
             #[allow(clippy::while_let_on_iterator)]
             while let Some(evm_tx) = transactions.next() {
+                let start_tx = Instant::now();
                 let buf = evm_tx.to_consensus().into_inner().encoded_2718();
                 let rlp_tx = RlpEvmTransaction { rlp: buf };
                 let call_txs = CallMessage {
@@ -261,7 +268,7 @@ where
                     .apply_l2_block_txs(&l2_block_info, &txs, &mut working_set)
                 {
                     // Decrement nonce if the transaction failed
-                    nonce -= 1;
+                    nonce = nonce.saturating_sub(1);
                     match e {
                         // Since this is the sequencer, it should never get a soft confirmation error or a hook error
                         StateTransitionError::L2BlockError(l2_block_error) => {
@@ -354,12 +361,19 @@ where
                 // we can include the transaction in the block
                 working_set_to_discard = working_set.checkpoint().to_revertable();
                 all_txs.push(rlp_tx);
+                SM.dry_run_single_tx_time.record(
+                    Instant::now()
+                        .saturating_duration_since(start_tx)
+                        .as_secs_f64(),
+                );
             }
-            SEQUENCER_METRICS.dry_run_execution.record(
-                Instant::now()
-                    .saturating_duration_since(start)
-                    .as_secs_f64(),
-            );
+            let dry_run_execution_duration = Instant::now()
+                .saturating_duration_since(start)
+                .as_secs_f64();
+            SM.dry_run_execution.record(dry_run_execution_duration);
+            SM.dry_run_execution_gauge.set(dry_run_execution_duration);
+            SM.l1_fee_failed_txs_count
+                .set(l1_fee_failed_txs.len() as f64);
 
             Ok((all_txs, l1_fee_failed_txs))
         })
@@ -413,12 +427,14 @@ where
                 .await
         };
 
-        SEQUENCER_METRICS.block_production_execution.record(
-            Instant::now()
-                .saturating_duration_since(start)
-                .as_secs_f64(),
-        );
-        SEQUENCER_METRICS.current_l2_block.set(l2_height as f64);
+        let block_production_time = Instant::now()
+            .saturating_duration_since(start)
+            .as_secs_f64();
+        SM.block_production_execution.record(block_production_time);
+        SM.entire_block_production_duration_gauge
+            .set(block_production_time);
+        SM.l1_fee_rate.set(l1_fee_rate as f64);
+        SM.current_l2_block.set(l2_height as f64);
 
         result
     }
@@ -440,6 +456,7 @@ where
         l2_height: u64,
         last_used_l1_height: &mut u64,
     ) -> anyhow::Result<u64> {
+        let start_dry_run_preparation = Instant::now();
         let active_fork_spec = self.fork_manager.active_fork().spec_id;
 
         // TODO: after L2Block refactor PR, we'll need to change native provider
@@ -472,6 +489,11 @@ where
         let evm_txs = self.get_best_transactions()?;
 
         let last_da_block_height = da_blocks.last().map(|b| b.header().height());
+        SM.dry_run_preparation_time.set(
+            Instant::now()
+                .saturating_duration_since(start_dry_run_preparation)
+                .as_secs_f64(),
+        );
 
         // Dry running transactions would basically allow for figuring out a list of
         // all transactions that would fit into the current block and the list of transactions
@@ -486,6 +508,7 @@ where
             )
             .await?;
 
+        let block_production_start = Instant::now();
         let prestate = self.storage_manager.create_storage_for_next_l2_height();
         assert_eq!(
             prestate.version(),
@@ -493,50 +516,26 @@ where
             "Prover storage version is corrupted"
         );
 
+        let evm_txs_count = txs_to_run.len();
+
         let mut working_set = WorkingSet::new(prestate.clone());
 
-        if let Err(err) = self.stf.begin_l2_block(&mut working_set, &l2_block_info) {
-            warn!(
-                "Failed to apply l2 block hook: {:?} \n reverting batch workspace",
-                err
-            );
-            bail!("Failed to apply begin l2 block hook: {:?}", err)
-        }
+        self.instrumented_begin_l2_block(&mut working_set, &l2_block_info)?;
 
-        let mut blobs = vec![];
-        let mut txs = vec![];
+        let (signed_txs, blobs) = self.encode_and_sign_evm_txs_into_sov_txs(
+            &mut working_set,
+            &l2_block_info,
+            txs_to_run,
+        )?;
 
-        // if a batch failed need to refetch nonce
-        // so sticking to fetching from state makes sense
-        let nonce = self.get_nonce(&mut working_set)?;
+        self.instrumented_apply_l2_block_txs(&l2_block_info, &signed_txs, &mut working_set)?;
+        self.instrumented_end_l2_block(l2_block_info, &mut working_set)?;
+        let l2_block_result =
+            self.instrumented_finalize_l2_block(active_fork_spec, working_set, prestate);
 
-        let evm_txs_count = txs_to_run.len();
-        if evm_txs_count > 0 {
-            let call_txs = CallMessage { txs: txs_to_run };
-            let raw_message = <CitreaRuntime<DefaultContext, Da::Spec> as EncodeCall<
-                citrea_evm::Evm<DefaultContext>,
-            >>::encode_call(call_txs);
-
-            let signed_tx = self.sign_tx(active_fork_spec, raw_message, nonce)?;
-
-            blobs.push(signed_tx.to_blob()?);
-            txs.push(signed_tx);
-        }
-
-        self.stf
-            .apply_l2_block_txs(&l2_block_info, &txs, &mut working_set)
-            .expect("dry_run_transactions should have already checked this");
-
-        self.stf.end_l2_block(l2_block_info, &mut working_set)?;
-
-        // Finalize l2 block
-        let l2_block_result = self
-            .stf
-            .finalize_l2_block(active_fork_spec, working_set, prestate);
-
-        // Calculate tx hashes for merkle root
-        let tx_hashes = compute_tx_hashes(&txs, active_fork_spec);
-        let tx_merkle_root = compute_tx_merkle_root(&tx_hashes, active_fork_spec);
+        // Calculate tx hashes and merkle root
+        let (tx_merkle_root, tx_hashes) =
+            self.calculate_txs_merkle_root(&signed_txs, active_fork_spec);
 
         // create the l2 block header
         let header = L2Header::new(
@@ -550,7 +549,7 @@ where
 
         let signed_header = self.sign_l2_block_header(header)?;
         // TODO: cleanup l2 block structure once we decide how to pull data from the running sequencer in the existing form
-        let l2_block = L2Block::new(signed_header, txs);
+        let l2_block = L2Block::new(signed_header, signed_txs);
 
         info!(
             "New block #{}, Tx count: #{}",
@@ -558,12 +557,22 @@ where
             evm_txs_count
         );
 
-        let state_diff = self.save_l2_block(l2_block, l2_block_result, tx_hashes, blobs)?;
-
+        // First set the state diff before committing the L2 block
+        // This prevents race conditions where the sequencer might shut down
+        // between committing the L2 block and saving the state diff
         self.ledger_db
-            .set_state_diff(L2BlockNumber(l2_height), &state_diff)?;
+            .set_state_diff(L2BlockNumber(l2_height), &l2_block_result.state_diff)?;
+
+        self.save_l2_block(l2_block, l2_block_result, tx_hashes, blobs)?;
 
         self.maintain_mempool(l1_fee_failed_txs)?;
+
+        SM.no_dry_run_block_production_duration_secs.set(
+            Instant::now()
+                .saturating_duration_since(block_production_start)
+                .as_secs_f64(),
+        );
+        SM.l2_block_tx_count.set(evm_txs_count as f64);
 
         // Update last used l1 height if this is a new da block
         if let Some(l1_height) = last_da_block_height {
@@ -573,6 +582,132 @@ where
         Ok(l2_height)
     }
 
+    /// Calculates the transaction merkle root and records the time taken
+    fn calculate_txs_merkle_root(
+        &self,
+        txs: &[Transaction],
+        active_fork_spec: SpecId,
+    ) -> ([u8; 32], Vec<[u8; 32]>) {
+        let start = Instant::now();
+        let tx_hashes = compute_tx_hashes(txs, active_fork_spec);
+        let merkle_root = compute_tx_merkle_root(&tx_hashes, active_fork_spec);
+        SM.calculate_tx_merkle_root_time.set(
+            Instant::now()
+                .saturating_duration_since(start)
+                .as_secs_f64(),
+        );
+        (merkle_root, tx_hashes)
+    }
+
+    /// Begins an L2 block and records the time taken
+    fn instrumented_begin_l2_block(
+        &mut self,
+        working_set: &mut WorkingSet<ProverStorage>,
+        l2_block_info: &HookL2BlockInfo,
+    ) -> anyhow::Result<()> {
+        let start = Instant::now();
+        if let Err(err) = self.stf.begin_l2_block(working_set, l2_block_info) {
+            warn!(
+                "Failed to apply l2 block hook: {:?} \n reverting batch workspace",
+                err
+            );
+            bail!("Failed to apply begin l2 block hook: {:?}", err)
+        }
+        SM.begin_l2_block_time.set(
+            Instant::now()
+                .saturating_duration_since(start)
+                .as_secs_f64(),
+        );
+        Ok(())
+    }
+
+    /// Encodes and signs EVM transactions into Sov txs, and records the time taken
+    fn encode_and_sign_evm_txs_into_sov_txs(
+        &self,
+        working_set: &mut WorkingSet<<DefaultContext as Spec>::Storage>,
+        l2_block_info: &HookL2BlockInfo,
+        txs: Vec<RlpEvmTransaction>,
+    ) -> anyhow::Result<(Vec<Transaction>, Vec<Vec<u8>>)> {
+        let start_encode_and_sign_sov_tx = Instant::now();
+        let mut blobs = vec![];
+        let mut signed_txs = vec![];
+
+        // if a batch failed need to refetch nonce
+        // so sticking to fetching from state makes sense
+        let nonce = self.get_nonce(working_set)?;
+
+        if !txs.is_empty() {
+            let call_txs = CallMessage { txs };
+            let raw_message = <CitreaRuntime<DefaultContext, Da::Spec> as EncodeCall<
+                citrea_evm::Evm<DefaultContext>,
+            >>::encode_call(call_txs);
+
+            let signed_tx = self.sign_tx(l2_block_info.current_spec, raw_message, nonce)?;
+            blobs.push(signed_tx.to_blob()?);
+            signed_txs.push(signed_tx);
+        }
+        SM.encode_and_sign_sov_tx_time.set(
+            Instant::now()
+                .saturating_duration_since(start_encode_and_sign_sov_tx)
+                .as_secs_f64(),
+        );
+
+        Ok((signed_txs, blobs))
+    }
+
+    /// Applies the L2 block transactions and records the time taken
+    fn instrumented_apply_l2_block_txs(
+        &mut self,
+        l2_block_info: &HookL2BlockInfo,
+        txs: &[Transaction],
+        working_set: &mut WorkingSet<ProverStorage>,
+    ) -> anyhow::Result<()> {
+        let start = Instant::now();
+        self.stf
+            .apply_l2_block_txs(l2_block_info, txs, working_set)?;
+        SM.apply_l2_block_txs_time.set(
+            Instant::now()
+                .saturating_duration_since(start)
+                .as_secs_f64(),
+        );
+        Ok(())
+    }
+
+    /// Ends the L2 block and records the time taken
+    fn instrumented_end_l2_block(
+        &mut self,
+        l2_block_info: HookL2BlockInfo,
+        working_set: &mut WorkingSet<ProverStorage>,
+    ) -> anyhow::Result<()> {
+        let start = Instant::now();
+        self.stf.end_l2_block(l2_block_info, working_set)?;
+        SM.end_l2_block_time.set(
+            Instant::now()
+                .saturating_duration_since(start)
+                .as_secs_f64(),
+        );
+        Ok(())
+    }
+
+    /// Finalizes the L2 block and records the time taken
+    fn instrumented_finalize_l2_block(
+        &mut self,
+        active_fork_spec: SpecId,
+        working_set: WorkingSet<ProverStorage>,
+        prestate: ProverStorage,
+    ) -> L2BlockResult<ProverStorage, sov_state::Witness, sov_state::ReadWriteLog> {
+        let start = Instant::now();
+        let result = self
+            .stf
+            .finalize_l2_block(active_fork_spec, working_set, prestate);
+        SM.finalize_l2_block_time.set(
+            Instant::now()
+                .saturating_duration_since(start)
+                .as_secs_f64(),
+        );
+        result
+    }
+
     /// Saves an L2 block and its associated data to storage
     ///
     /// # Arguments
@@ -580,16 +715,15 @@ where
     /// * `l2_block_result` - Result of block execution
     /// * `tx_hashes` - Transaction hashes in the block
     /// * `blobs` - Associated blob data
-    ///
-    /// # Returns
-    /// The state diff resulting from the block
     pub(crate) fn save_l2_block(
         &mut self,
         l2_block: L2Block,
         l2_block_result: L2BlockResult<ProverStorage, sov_state::Witness, sov_state::ReadWriteLog>,
         tx_hashes: Vec<[u8; 32]>,
         blobs: Vec<Vec<u8>>,
-    ) -> anyhow::Result<StateDiff> {
+    ) -> anyhow::Result<()> {
+        let save_l2_block_start = Instant::now();
+
         debug!("New L2 block with hash: {:?}", hex::encode(l2_block.hash()));
 
         let state_root_transition = l2_block_result.state_root_transition;
@@ -626,7 +760,13 @@ where
         self.state_root = next_state_root;
         self.l2_block_hash = l2_block_hash;
 
-        Ok(l2_block_result.state_diff)
+        SM.save_l2_block_time.set(
+            Instant::now()
+                .saturating_duration_since(save_l2_block_start)
+                .as_secs_f64(),
+        );
+
+        Ok(())
     }
 
     /// Maintains the mempool by removing failed transactions
@@ -634,13 +774,13 @@ where
     /// # Arguments
     /// * `l1_fee_failed_txs` - Transactions that failed due to L1 fee issues
     pub(crate) fn maintain_mempool(&self, l1_fee_failed_txs: Vec<TxHash>) -> anyhow::Result<()> {
+        let start_maintain_mempool = Instant::now();
         // Combine transactions from last block and those that failed L1 fee check
         let mut txs_to_remove = self.db_provider.last_block_tx_hashes()?;
         txs_to_remove.extend(l1_fee_failed_txs);
 
         // Remove processed/failed transactions from mempool
         self.mempool.remove_transactions(txs_to_remove.clone());
-        SEQUENCER_METRICS.mempool_txs.set(self.mempool.len() as f64);
 
         // Update account states in mempool
         let account_updates = self.get_account_updates()?;
@@ -656,6 +796,12 @@ where
             warn!("Failed to remove txs from mempool: {:?}", e);
         }
 
+        SM.mempool_txs.set(self.mempool.len() as f64);
+        SM.maintain_mempool_time.set(
+            Instant::now()
+                .saturating_duration_since(start_maintain_mempool)
+                .as_secs_f64(),
+        );
         Ok(())
     }
 
@@ -763,7 +909,7 @@ where
 
                         missed_da_blocks_count = self.da_blocks_missed(last_finalized_l1_height, last_used_l1_height);
                     }
-                    SEQUENCER_METRICS.current_l1_block.set(last_finalized_l1_height as f64);
+                    SM.current_l1_block.set(last_finalized_l1_height as f64);
                 },
                 // Handle RPC messages (both test mode and halt signals)
                 rpc_message = self.rpc_message_rx.recv() => {
@@ -923,10 +1069,16 @@ where
     /// # Returns
     /// A signed L2 block header
     fn sign_l2_block_header(&mut self, header: L2Header) -> anyhow::Result<SignedL2Header> {
+        let start = Instant::now();
         let hash = header.compute_digest();
 
         let signature = self.sov_tx_signer_priv_key.sign(&hash);
         let signature = borsh::to_vec(&signature)?;
+        SM.sign_l2_block_header_time.set(
+            Instant::now()
+                .saturating_duration_since(start)
+                .as_secs_f64(),
+        );
         Ok(SignedL2Header::new(header, hash, signature))
     }
 
@@ -1233,6 +1385,7 @@ where
             {
                 // If a deposit failed, revert back the working set and continue,
                 // as deposits to non-EOA addresses can revert
+                // Decrement nonce to be able to process other system and non-system transactions
                 if matches!(
                     e,
                     StateTransitionError::ModuleCallError(
@@ -1241,6 +1394,7 @@ where
                 ) && is_deposit
                 {
                     warn!("Deposit transaction failed: {:?}", e);
+                    *nonce = nonce.saturating_sub(1);
                     working_set_to_discard = working_set.revert().to_revertable();
                     continue;
                 }

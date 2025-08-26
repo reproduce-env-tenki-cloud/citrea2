@@ -5,6 +5,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::Instant;
 
 use citrea_common::backup::BackupManager;
 use citrea_common::cache::L1BlockCache;
@@ -18,11 +19,10 @@ use sov_rollup_interface::da::BlockHeaderTrait;
 use sov_rollup_interface::services::da::{DaService, SlotData};
 use tokio::select;
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::{mpsc, Mutex};
-use tokio::time::Duration;
+use tokio::sync::{mpsc, Mutex, Notify};
 use tracing::{error, info, instrument, warn};
 
-use crate::metrics::BATCH_PROVER_METRICS;
+use crate::metrics::BATCH_PROVER_METRICS as BPM;
 
 /// Handles L1 sync operations by tracking the finalized L1 blocks and
 /// extracting the sequencer commitments from them.
@@ -61,7 +61,7 @@ where
     DB: BatchProverLedgerOps + Clone + 'static,
 {
     /// Creates a new instance of `L1Syncer`
-    ///     
+    ///
     /// # Arguments
     /// * `ledger_db` - The database instance to store L1 block data.
     /// * `da_service` - The DA service instance to fetch L1 blocks.
@@ -108,18 +108,17 @@ where
             .map(|h| h.0)
             .unwrap_or(self.scan_l1_start_height);
 
+        let notifier = Arc::new(Notify::new());
         let l1_sync_worker = sync_l1(
             l1_start_height,
             self.da_service.clone(),
             self.pending_l1_blocks.clone(),
             self.l1_block_cache.clone(),
-            BATCH_PROVER_METRICS.scan_l1_block.clone(),
+            notifier.clone(),
         );
         tokio::pin!(l1_sync_worker);
 
         let backup_manager = self.backup_manager.clone();
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
-        interval.tick().await;
         loop {
             select! {
                 biased;
@@ -127,7 +126,7 @@ where
                     info!("Shutting down L1 syncer");
                     return;
                 }
-                _ = interval.tick() => {
+                _ = notifier.notified() => {
                     let _l1_guard = backup_manager.start_l1_processing().await;
                     if let Err(e) = self.process_l1_blocks().await {
                         error!("Could not process L1 blocks: {:?}", e);
@@ -156,6 +155,7 @@ where
             let l1_block = pending_l1_blocks
                 .front()
                 .expect("Pending l1 blocks cannot be empty");
+            let start_l1_block_processing = Instant::now();
             let l1_height = l1_block.header().height();
             let l1_hash = l1_block.header().hash().into();
 
@@ -222,7 +222,12 @@ where
                 .set_last_scanned_l1_height(SlotNumber(l1_height))
                 .expect("Should put prover last scanned l1 height");
 
-            BATCH_PROVER_METRICS.current_l1_block.set(l1_height as f64);
+            BPM.current_l1_block.set(l1_height as f64);
+            BPM.set_scan_l1_block_duration(
+                Instant::now()
+                    .saturating_duration_since(start_l1_block_processing)
+                    .as_secs_f64(),
+            );
 
             pending_l1_blocks.pop_front();
 

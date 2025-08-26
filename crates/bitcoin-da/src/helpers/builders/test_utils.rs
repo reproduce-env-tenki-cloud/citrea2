@@ -1,3 +1,5 @@
+//! This module provides utility functions for testing Bitcoin DA.
+
 use core::result::Result::Ok;
 
 use bitcoin::blockdata::opcodes::all::{OP_ENDIF, OP_IF};
@@ -8,18 +10,22 @@ use bitcoin::key::{TapTweak, TweakedPublicKey, UntweakedKeypair};
 use bitcoin::opcodes::all::{OP_CHECKSIGVERIFY, OP_NIP};
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::{SecretKey, XOnlyPublicKey};
-use bitcoin::{Address, Amount, Network, Transaction};
+use bitcoin::{Address, Amount, Network};
 use secp256k1::SECP256K1;
 use tracing::{trace, warn};
 
 use super::{
-    build_commit_transaction, build_reveal_transaction, build_taproot, build_witness,
+    build_commit_transaction, build_control_block, build_reveal_transaction, build_witness,
     get_size_reveal, sign_blob_with_private_key, update_witness, TransactionKind,
 };
+use crate::helpers::builders::body_builders::DaTxs;
+use crate::helpers::builders::TxWithId;
 use crate::spec::utxo::UTXO;
 use crate::{REVEAL_OUTPUT_AMOUNT, REVEAL_OUTPUT_THRESHOLD};
 
-// Returns (chunk commit tx, chunk reveal tx)
+/// Creates a single chunk transaction for testing purposes as if
+/// it was of a Complete kind.
+/// Returns (chunk commit tx, chunk reveal tx)
 #[allow(clippy::too_many_arguments)]
 pub fn test_create_single_chunk(
     body: Vec<u8>,
@@ -31,18 +37,18 @@ pub fn test_create_single_chunk(
     reveal_fee_rate: u64,
     network: Network,
     reveal_tx_prefix: &[u8],
-) -> Result<(Transaction, Transaction), anyhow::Error> {
+) -> Result<DaTxs, anyhow::Error> {
     let key_pair = UntweakedKeypair::from_secret_key(SECP256K1, da_private_key);
     let (public_key, _parity) = XOnlyPublicKey::from_keypair(&key_pair);
 
-    let kind = TransactionKind::ChunkedPart;
+    let kind = TransactionKind::Chunks;
     let kind_bytes = kind.to_bytes();
 
     // start creating inscription content
     let mut reveal_script_builder = script::Builder::new()
         .push_x_only_key(&public_key)
         .push_opcode(OP_CHECKSIGVERIFY)
-        .push_slice(PushBytesBuf::try_from(kind_bytes).expect("Cannot push header"))
+        .push_slice(PushBytesBuf::from(kind_bytes))
         .push_opcode(OP_FALSE)
         .push_opcode(OP_IF);
     // push body in chunks of 520 bytes
@@ -76,7 +82,7 @@ pub fn test_create_single_chunk(
         let reveal_script = reveal_script_builder.into_script();
 
         let (control_block, merkle_root, tapscript_hash) =
-            build_taproot(&reveal_script, public_key, SECP256K1);
+            build_control_block(&reveal_script, public_key, SECP256K1);
 
         // create commit tx address
         let commit_tx_address = Address::p2tr(SECP256K1, public_key, merkle_root, network);
@@ -144,7 +150,13 @@ pub fn test_create_single_chunk(
                     commit_tx_address
                 );
 
-                return Ok((unsigned_commit_tx, reveal_tx));
+                return Ok(DaTxs::Complete {
+                    commit: unsigned_commit_tx,
+                    reveal: TxWithId {
+                        id: reveal_tx.compute_txid(),
+                        tx: reveal_tx,
+                    },
+                });
             } else {
                 unsigned_commit_tx.output[0].value -= Amount::ONE_SAT;
                 unsigned_commit_tx.output[1].value += Amount::ONE_SAT;
@@ -162,6 +174,8 @@ pub fn test_create_single_chunk(
     }
 }
 
+/// Creates a single aggregate transaction for testing purposes as if
+/// it was of a Complete kind.
 #[allow(clippy::too_many_arguments)]
 pub fn test_create_single_aggregate(
     reveal_body: Vec<u8>,
@@ -173,20 +187,20 @@ pub fn test_create_single_aggregate(
     commit_fee_rate: u64,
     prev_utxo: Option<UTXO>,
     reveal_tx_prefix: &[u8],
-) -> Result<(Transaction, Transaction), anyhow::Error> {
+) -> Result<DaTxs, anyhow::Error> {
     // sign the body for authentication of the sequencer
     let key_pair = UntweakedKeypair::from_secret_key(SECP256K1, da_private_key);
     let (public_key, _parity) = XOnlyPublicKey::from_keypair(&key_pair);
     let (signature, signer_public_key) = sign_blob_with_private_key(&reveal_body, da_private_key);
 
-    let kind = TransactionKind::Chunked;
+    let kind = TransactionKind::Aggregate;
     let kind_bytes = kind.to_bytes();
 
     // start creating inscription content
     let mut reveal_script_builder = script::Builder::new()
         .push_x_only_key(&public_key)
         .push_opcode(OP_CHECKSIGVERIFY)
-        .push_slice(PushBytesBuf::try_from(kind_bytes).expect("Cannot push header"))
+        .push_slice(PushBytesBuf::from(kind_bytes))
         .push_opcode(OP_FALSE)
         .push_opcode(OP_IF)
         .push_slice(PushBytesBuf::try_from(signature).expect("Cannot push signature"))
@@ -228,7 +242,7 @@ pub fn test_create_single_aggregate(
         let reveal_script = reveal_script_builder.into_script();
 
         let (control_block, merkle_root, tapscript_hash) =
-            build_taproot(&reveal_script, public_key, SECP256K1);
+            build_control_block(&reveal_script, public_key, SECP256K1);
 
         // create commit tx address
         let commit_tx_address = Address::p2tr(SECP256K1, public_key, merkle_root, network);
@@ -296,7 +310,13 @@ pub fn test_create_single_aggregate(
                     commit_tx_address
                 );
 
-                return Ok((unsigned_commit_tx, reveal_tx));
+                return Ok(DaTxs::Complete {
+                    commit: unsigned_commit_tx,
+                    reveal: TxWithId {
+                        id: reveal_tx.compute_txid(),
+                        tx: reveal_tx,
+                    },
+                });
             } else {
                 unsigned_commit_tx.output[0].value -= Amount::ONE_SAT;
                 unsigned_commit_tx.output[1].value += Amount::ONE_SAT;

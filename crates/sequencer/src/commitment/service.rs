@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
+use citrea_common::utils::get_tangerine_activation_height_non_zero;
 use citrea_evm::{get_last_l1_height_in_light_client, Evm};
-use citrea_primitives::forks::get_tangerine_activation_height_non_zero;
 use citrea_primitives::types::L2BlockHash;
 use citrea_stf::runtime::DefaultContext;
 use reth_tasks::shutdown::GracefulShutdown;
@@ -22,7 +22,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, instrument, warn};
 
 use super::controller::CommitmentController;
-use crate::metrics::SEQUENCER_METRICS;
+use crate::metrics::SEQUENCER_METRICS as SM;
 
 /// L2 heights to commit
 pub(crate) type CommitmentRange = RangeInclusive<L2BlockNumber>;
@@ -108,6 +108,7 @@ where
         check_new_block_tick.tick().await;
 
         loop {
+            let mut start_commitment_processing = Instant::now();
             select! {
                 biased;
                 _ = &mut shutdown_signal => {
@@ -163,11 +164,20 @@ where
                             .expect("Commit check tokio blocking task failed")
                             .expect("Commitment criteria check failed")
                         {
-                            if let Err(e) = self.commit(index, commitment_range).await {
+                            if let Err(e) = self.commit(index, commitment_range.clone()).await {
                                 // We just log error and continue here as the controller updated its internal state and it can
                                 // continue functioning correctly. We just need to resubmit the failed commitment to DA.
                                 error!("Failed to submit commitment: {:?}", e);
                             }
+
+                            record_commitment_process_duration_metrics(
+                                start_commitment_processing,
+                                index,
+                                *commitment_range.start(),
+                                *commitment_range.end(),
+                            );
+                            // Reset the start time for the next commitment processing
+                            start_commitment_processing = Instant::now();
                         };
 
                         last_l2_height = current_l2_height;
@@ -202,9 +212,9 @@ where
             .map(|sb| sb.hash)
             .collect::<Vec<[u8; 32]>>();
 
-        SEQUENCER_METRICS
-            .commitment_blocks_count
-            .set(l2_block_hashes.len() as f64);
+        SM.commitment_blocks_count.set(l2_block_hashes.len() as f64);
+
+        SM.currently_committing_index.set(commitment_index as f64);
 
         let commitment =
             self.get_commitment(commitment_index, &commitment_range, l2_block_hashes)?;
@@ -242,7 +252,7 @@ where
             .map_err(|_| anyhow!("DA service is dead!"))?
             .map_err(|_| anyhow!("Send transaction cannot fail"))?;
 
-        SEQUENCER_METRICS.send_commitment_execution.record(
+        SM.send_commitment_execution.record(
             Instant::now()
                 .saturating_duration_since(start)
                 .as_secs_f64(),
@@ -425,4 +435,24 @@ where
 
         Ok(mined_commitments)
     }
+}
+
+/// Records metrics related to the commitment processing duration
+fn record_commitment_process_duration_metrics(
+    start: Instant,
+    commitment_index: u32,
+    l2_start_height: L2BlockNumber,
+    l2_end_height: L2BlockNumber,
+) {
+    let duration = Instant::now()
+        .saturating_duration_since(start)
+        .as_secs_f64();
+    SM.latest_sequencer_commitment_process_duration_secs
+        .set(duration);
+    SM.latest_sequencer_commitment_index
+        .set(commitment_index as f64);
+    SM.latest_sequencer_commitment_l2_start_height
+        .set(l2_start_height.0 as f64);
+    SM.latest_sequencer_commitment_l2_end_height
+        .set(l2_end_height.0 as f64);
 }

@@ -1521,7 +1521,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
         from_block_number: u64,
         to_block_number: u64,
     ) -> Result<Vec<Log>, EthFilterError> {
-        let max_blocks_per_filter: u64 = DEFAULT_MAX_BLOCKS_PER_FILTER;
+        let max_blocks_per_filter: u64 = get_max_blocks_per_filter();
         if to_block_number - from_block_number >= max_blocks_per_filter {
             return Err(EthFilterError::QueryExceedsMaxBlocks(max_blocks_per_filter));
         }
@@ -1532,7 +1532,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
         let topics_filter: Vec<BloomFilter> =
             filter.topics.iter().map(|t| t.to_bloom_filter()).collect();
 
-        let max_headers_range = MAX_HEADERS_RANGE;
+        let max_headers_range = get_max_headers_range();
 
         // loop over the range of new blocks and check logs if the filter matches the log's bloom
         // filter
@@ -1564,7 +1564,7 @@ impl<C: sov_modules_api::Context> Evm<C> {
                         filter.clone(),
                         block,
                     );
-                    let max_logs_per_response = DEFAULT_MAX_LOGS_PER_RESPONSE;
+                    let max_logs_per_response = get_max_logs_per_response();
                     // size check but only if range is multiple blocks, so we always return all
                     // logs of a single block
                     let is_multi_block_range = from_block_number != to_block_number;
@@ -2088,6 +2088,24 @@ fn get_pending_block_env<C: sov_modules_api::Context>(
         .last(&mut working_set.accessory_state())
         .expect("Head block must be set");
 
+    let time_diff = if latest_block.header.number == 0 {
+        // if the first block hasn't been processed yet, just assume 2 secs
+        2
+    } else {
+        let block_before_latest_block = evm
+            .blocks
+            .get(
+                (latest_block.header.number - 1) as usize,
+                &mut working_set.accessory_state(),
+            )
+            .expect("block must exist");
+
+        latest_block
+            .header
+            .timestamp
+            .saturating_sub(block_before_latest_block.header.timestamp)
+    };
+
     evm.blockhash_set(
         latest_block.header.number,
         &latest_block.header.hash(),
@@ -2109,6 +2127,8 @@ fn get_pending_block_env<C: sov_modules_api::Context>(
         latest_block.header.base_fee_per_gas.unwrap_or_default(),
         cfg.base_fee_params,
     );
+    // assume timestamp will increment the same between last block and the one before that
+    block_env.timestamp += time_diff;
     let citrea_spec_id = fork_from_block_number(block_env.number).spec_id;
     let evm_spec_id = citrea_spec_id_to_evm_spec_id(citrea_spec_id);
     block_env.blob_excess_gas_and_price = Some(BlobExcessGasAndPrice::new(

@@ -1,3 +1,6 @@
+//! Provides functions to build Bitcoin transactions
+//! related to commit-reveal pattern for Citrea rollup.
+
 pub mod body_builders;
 #[cfg(feature = "testing")]
 pub mod test_utils;
@@ -48,8 +51,10 @@ impl fmt::Debug for TxWithId {
     }
 }
 
+/// Build the commit part of commit-reveal pair
 /// Return (tx, leftover_utxos)
-/// Includes an indirect change of at least 546 sat
+/// Always includes an indirect change of at least 546 sats to
+///  enable mining optimization (see `update_witness`).
 #[instrument(level = "trace", skip(utxos), err)]
 fn build_commit_transaction(
     prev_utxo: Option<UTXO>, // reuse outputs to add commit tx order
@@ -180,6 +185,7 @@ fn build_commit_transaction(
     Ok((tx, leftover_utxos))
 }
 
+/// Build the reveal part of commit-reveal pair
 #[allow(clippy::too_many_arguments)]
 fn build_reveal_transaction(
     input_utxo: TxOut,
@@ -235,7 +241,9 @@ fn build_reveal_transaction(
     Ok(tx)
 }
 
-fn build_taproot(
+/// Build control block for the reveal script with taproot spend info.
+/// This is a heavy operation because we need to hash the reveal script.
+fn build_control_block(
     reveal_script: &ScriptBuf,
     public_key: XOnlyPublicKey,
     secp256k1: &Secp256k1<All>,
@@ -262,6 +270,7 @@ fn build_taproot(
     )
 }
 
+/// Build witness in the form of [signature, reveal_script, control_block]
 fn build_witness(
     commit_tx: &Transaction,
     reveal_tx: &mut Transaction,
@@ -299,6 +308,13 @@ fn build_witness(
     witness.push(control_block.serialize());
 }
 
+/// Update witness' signature only from the form of [signature, reveal_script, control_block]
+///  without touching reveal_script, control_block.
+/// This is an optimization of mining to get the necessary wtxid prefix.
+/// The optimization is that we don't have to hash the reveal script again and again
+///  which can be costly when the reveal script is huge.
+/// It's possible only when reveal script is the same (hence nonce is the same)
+///  but only the outputs are changed.
 fn update_witness(
     commit_tx: &Transaction,
     reveal_tx: &mut Transaction,
@@ -340,6 +356,7 @@ fn update_witness(
     *witness = new_witness;
 }
 
+/// Get an approximate virtual size of a commit transaction
 fn get_size_commit(inputs: &[TxIn], outputs: &[TxOut]) -> usize {
     let mut tx = Transaction {
         input: inputs.to_vec(),
@@ -398,7 +415,7 @@ fn get_size_reveal(
 fn choose_utxos(
     required_utxo: Option<UTXO>,
     utxos: &[UTXO],
-    mut amount: u64,
+    amount: u64,
 ) -> Result<(Vec<UTXO>, u64, Vec<UTXO>), anyhow::Error> {
     let mut chosen_utxos = vec![];
     let mut sum = 0;
@@ -411,11 +428,13 @@ fn choose_utxos(
     }
     if sum >= amount {
         return Ok((chosen_utxos, sum, utxos.to_vec()));
-    } else {
-        amount -= sum;
     }
 
-    let mut bigger_utxos: Vec<&UTXO> = utxos.iter().filter(|utxo| utxo.amount >= amount).collect();
+    let remaining_amount = amount - sum;
+    let mut bigger_utxos: Vec<&UTXO> = utxos
+        .iter()
+        .filter(|utxo| utxo.amount >= remaining_amount)
+        .collect();
 
     if !bigger_utxos.is_empty() {
         // sort vec by amount (small first)
@@ -427,8 +446,10 @@ fn choose_utxos(
         sum += utxo.amount;
         chosen_utxos.push(utxo.clone());
     } else {
-        let mut smaller_utxos: Vec<&UTXO> =
-            utxos.iter().filter(|utxo| utxo.amount < amount).collect();
+        let mut smaller_utxos: Vec<&UTXO> = utxos
+            .iter()
+            .filter(|utxo| utxo.amount < remaining_amount)
+            .collect();
 
         // sort vec by amount (large first)
         smaller_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
@@ -468,7 +489,7 @@ pub fn sign_blob_with_private_key(blob: &[u8], private_key: &SecretKey) -> (Vec<
     )
 }
 
-pub fn calculate_sha256(input: &[u8]) -> [u8; 32] {
+fn calculate_sha256(input: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::default();
     hasher.update(input);
     hasher.finalize().into()

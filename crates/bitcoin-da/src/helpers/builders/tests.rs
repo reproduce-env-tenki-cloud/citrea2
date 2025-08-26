@@ -141,6 +141,46 @@ fn choose_utxos() {
 }
 
 #[test]
+fn choose_utxos_with_required() {
+    let (_, _, mut utxos) = get_mock_data();
+
+    let required = utxos[2].clone(); // 10k sats
+
+    // Remove the required UTXO from the list
+    utxos.retain(|utxo| !(utxo.vout == required.vout && utxo.tx_id == required.tx_id));
+
+    // Assuming we need 105k total
+    // With required: 10k, need additional 95k
+    // Should pick utxos[1] (100k) since it's the smallest UTXO that covers the remaining amount
+    let (chosen_utxos, sum, leftover_utxos) =
+        super::choose_utxos(Some(required.clone()), &utxos, 105_000).unwrap();
+
+    assert_eq!(sum, 110_000);
+    assert_eq!(chosen_utxos.len(), 2);
+    assert_eq!(chosen_utxos[0], required);
+    assert_eq!(chosen_utxos[1].amount, 100_000);
+    assert_eq!(leftover_utxos.len(), 1);
+    assert_eq!(leftover_utxos[0].amount, 1_000_000);
+
+    let (_, _, utxos) = get_mock_data();
+    let required = utxos[0].clone(); // 1M sats
+
+    let filtered_utxos: Vec<UTXO> = utxos
+        .iter()
+        .filter(|utxo| !(utxo.vout == required.vout && utxo.tx_id == required.tx_id))
+        .cloned()
+        .collect();
+
+    let (chosen_utxos, sum, leftover_utxos) =
+        super::choose_utxos(Some(required.clone()), &filtered_utxos, 100_000).unwrap();
+
+    assert_eq!(sum, 1_000_000);
+    assert_eq!(chosen_utxos.len(), 1);
+    assert_eq!(chosen_utxos[0], required);
+    assert_eq!(leftover_utxos.len(), 2);
+}
+
+#[test]
 fn build_commit_transaction() {
     let (_, address, utxos) = get_mock_data();
 
@@ -467,20 +507,18 @@ fn create_inscription_transactions() {
     let (signature, signer_public_key) = sign_blob_with_private_key(&body, &da_private_key);
 
     let tx_prefix = &[0u8];
-    let DaTxs::Complete { commit, reveal } =
-        super::body_builders::create_light_client_transactions(
-            RawTxData::Complete(body.clone()),
-            da_private_key,
-            None,
-            utxos.clone(),
-            address.clone(),
-            12,
-            10,
-            bitcoin::Network::Bitcoin,
-            tx_prefix.to_vec(),
-        )
-        .unwrap()
-    else {
+    let DaTxs::Complete { commit, reveal } = super::body_builders::create_inscription_transactions(
+        RawTxData::Complete(body.clone()),
+        da_private_key,
+        None,
+        utxos.clone(),
+        address.clone(),
+        12,
+        10,
+        bitcoin::Network::Bitcoin,
+        tx_prefix.to_vec(),
+    )
+    .unwrap() else {
         panic!("Unexpected tx kind was produced");
     };
 

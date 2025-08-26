@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
-use once_cell::race::OnceBox;
 use revm::context::result::{
     EVMError, FromStringError, HaltReason, InvalidTransaction, ResultAndState,
 };
@@ -331,6 +331,7 @@ pub trait CitreaBuilder {
     fn build_citrea(self) -> CitreaEvm<Self::Context, ()>;
 
     /// Build citrea with an inspector.
+    #[cfg(feature = "native")]
     fn build_citrea_with_inspector<INSP>(self, inspector: INSP) -> CitreaEvm<Self::Context, INSP>;
 }
 
@@ -348,6 +349,7 @@ where
         CitreaEvm::new(self, ())
     }
 
+    #[cfg(feature = "native")]
     fn build_citrea_with_inspector<INSP>(self, inspector: INSP) -> CitreaEvm<Self::Context, INSP> {
         CitreaEvm::new(self, inspector)
     }
@@ -362,7 +364,7 @@ pub struct CitreaPrecompiles {
 
 // Returns precompiles for Citrea's Cancun spec.
 pub fn cancun() -> &'static Precompiles {
-    static INSTANCE: OnceBox<Precompiles> = OnceBox::new();
+    static INSTANCE: OnceLock<Box<Precompiles>> = OnceLock::new();
     INSTANCE.get_or_init(|| {
         // Berlin because POINT_EVALUATION precompile(0x0A) is enabled in Cancun
         Box::new(Precompiles::berlin().clone())
@@ -371,7 +373,7 @@ pub fn cancun() -> &'static Precompiles {
 
 // Returns precompiles for Citrea's Prague spec.
 pub fn prague() -> &'static Precompiles {
-    static INSTANCE: OnceBox<Precompiles> = OnceBox::new();
+    static INSTANCE: OnceLock<Box<Precompiles>> = OnceLock::new();
     INSTANCE.get_or_init(|| {
         let mut precompiles = cancun().clone();
         // Add prague precompiles

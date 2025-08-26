@@ -6,12 +6,15 @@
 use core::panic;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 use citrea_common::backup::BackupManager;
 use citrea_common::cache::L1BlockCache;
 use citrea_common::da::{extract_zk_proofs_and_sequencer_commitments, sync_l1, ProofOrCommitment};
-use citrea_primitives::forks::{fork_from_block_number, get_tangerine_activation_height_non_zero};
+use citrea_common::utils::get_tangerine_activation_height_non_zero;
+use citrea_primitives::forks::fork_from_block_number;
+use citrea_primitives::network_to_dev_mode;
 use reth_tasks::shutdown::GracefulShutdown;
 use rs_merkle::algorithms::Sha256;
 use rs_merkle::MerkleTree;
@@ -24,13 +27,13 @@ use sov_rollup_interface::services::da::{DaService, SlotData};
 use sov_rollup_interface::spec::SpecId;
 use sov_rollup_interface::zk::batch_proof::output::BatchProofCircuitOutput;
 use sov_rollup_interface::zk::{Proof, ZkvmHost};
+use sov_rollup_interface::Network;
 use tokio::select;
-use tokio::sync::Mutex;
-use tokio::time::Duration;
+use tokio::sync::{Mutex, Notify};
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::error::{CommitmentError, HaltingError, ProcessingError, ProofError, SkippableError};
-use crate::metrics::FULLNODE_METRICS;
+use crate::metrics::FULLNODE_METRICS as FM;
 
 /// Result of processing a commitment or proof
 enum ProcessingResult {
@@ -72,6 +75,8 @@ where
     queued_l1_blocks: Arc<Mutex<VecDeque<<Da as DaService>::FilteredBlock>>>,
     /// Manager for backup operations
     backup_manager: Arc<BackupManager>,
+    /// Citrea network the node is operating on
+    network: Network,
 }
 
 impl<Vm, Da, DB> L1BlockHandler<Vm, Da, DB>
@@ -92,6 +97,7 @@ where
     /// * `backup_manager` - Manager for backup operations
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        network: Network,
         ledger_db: DB,
         da_service: Arc<Da>,
         sequencer_da_pub_key: Vec<u8>,
@@ -109,6 +115,7 @@ where
             l1_block_cache,
             queued_l1_blocks: Arc::new(Mutex::new(VecDeque::new())),
             backup_manager,
+            network,
         }
     }
 
@@ -125,26 +132,27 @@ where
     /// * `shutdown_signal` - Signal to gracefully shut down
     #[instrument(name = "L1BlockHandler", skip_all)]
     pub async fn run(mut self, start_l1_height: u64, mut shutdown_signal: GracefulShutdown) {
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
-        interval.tick().await;
+        let notifier = Arc::new(Notify::new());
 
         let l1_sync_worker = sync_l1(
             start_l1_height,
             self.da_service.clone(),
             self.queued_l1_blocks.clone(),
             self.l1_block_cache.clone(),
-            FULLNODE_METRICS.scan_l1_block.clone(),
+            notifier.clone(),
         );
         tokio::pin!(l1_sync_worker);
 
+        tokio::time::sleep(Duration::from_secs(1)).await; // Gives time for queue to fill up on startup
         loop {
             select! {
                 biased;
                 _ = &mut shutdown_signal => {
+                    info!("Shutting down L1BlockHandler");
                     return;
                 }
                 _ = &mut l1_sync_worker => {},
-                _ = interval.tick() => {
+                _ = notifier.notified() => {
                     if let Err(e) = self.process_queued_l1_blocks().await {
                         error!("{e}");
                         return;
@@ -177,6 +185,7 @@ where
     /// 2. Records block height mapping
     /// 3. Extracts and processes contained ZK proofs and commitments
     async fn process_l1_block(&mut self, l1_block: Da::FilteredBlock) -> anyhow::Result<()> {
+        let start_scanning = Instant::now();
         let _l1_lock = self.backup_manager.start_l1_processing().await;
 
         let short_header_proof: <<Da as DaService>::Spec as DaSpec>::ShortHeaderProof =
@@ -213,6 +222,7 @@ where
                         );
                         continue;
                     }
+                    let start_commitment_process = std::time::Instant::now();
                     if let Err(e) = self
                         .process_sequencer_commitment(
                             l1_block.header().height(),
@@ -233,8 +243,14 @@ where
                             }
                         }
                     }
+                    FM.sequencer_commitment_processing_time.record(
+                        Instant::now()
+                            .saturating_duration_since(start_commitment_process)
+                            .as_secs_f64(),
+                    );
                 }
                 ProofOrCommitment::Proof(proof) => {
+                    let start_proof_process = std::time::Instant::now();
                     if let Err(e) = self
                         .process_zk_proof(
                             l1_block.header().height(),
@@ -253,6 +269,11 @@ where
                             }
                         }
                     }
+                    FM.batch_proof_processing_time.record(
+                        Instant::now()
+                            .saturating_duration_since(start_proof_process)
+                            .as_secs_f64(),
+                    );
                 }
             }
         }
@@ -291,7 +312,12 @@ where
             .set_last_scanned_l1_height(SlotNumber(l1_height))
             .map_err(|e| anyhow!("Could not set last scanned l1 height: {e}"))?;
 
-        FULLNODE_METRICS.current_l1_block.set(l1_height as f64);
+        FM.current_l1_block.set(l1_height as f64);
+        FM.set_scan_l1_block_duration(
+            Instant::now()
+                .saturating_duration_since(start_scanning)
+                .as_secs_f64(),
+        );
 
         Ok(())
     }
@@ -414,19 +440,19 @@ where
             .get_head_l2_block_height()?
             .unwrap_or_default();
         if end_l2_height > head_l2_height {
+            info!(
+                "Commitment with index: {} L2 blocks not synced yet. Range: {}-{}, merkle root: {} Storing commitment as pending.",
+                sequencer_commitment.index,
+                start_l2_height,
+                end_l2_height,
+                hex::encode(sequencer_commitment.merkle_root)
+            );
             // Store as pending if we haven't synced all needed L2 blocks yet
             if self
                 .ledger_db
                 .get_pending_commitment_by_index(sequencer_commitment.index)?
                 .is_none()
             {
-                info!(
-                    "Commitment with index: {} L2 blocks not synced yet. Range: {}-{}, merkle root: {} Storing commitment as pending.",
-                    sequencer_commitment.index,
-                    start_l2_height,
-                    end_l2_height,
-                    hex::encode(sequencer_commitment.merkle_root)
-                );
                 self.ledger_db.store_pending_commitment(
                     sequencer_commitment.clone(),
                     found_in_l1_block_height,
@@ -492,6 +518,10 @@ where
             },
         )?;
 
+        FM.highest_committed_l2_height.set(end_l2_height as f64);
+        FM.highest_committed_index
+            .set(sequencer_commitment.index as f64);
+
         Ok(ProcessingResult::Success)
     }
 
@@ -542,8 +572,12 @@ where
             .expect("Proof public input must contain valid spec id");
 
         // Verify the proof against the code commitment
-        Vm::verify(proof.as_slice(), code_commitment)
-            .map_err(|err| anyhow!("Failed to verify proof: {:?}. Skipping it...", err))?;
+        Vm::verify(
+            proof.as_slice(),
+            code_commitment,
+            network_to_dev_mode(self.network),
+        )
+        .map_err(|err| anyhow!("Failed to verify proof: {:?}. Skipping it...", err))?;
 
         // Process the verified proof using Tangerine-specific logic
         self.process_tangerine_zk_proof(
@@ -708,6 +742,8 @@ where
             },
         )?;
 
+        FM.highest_proven_l2_height.set(end_l2_height as f64);
+
         Ok(ProcessingResult::Success)
     }
 
@@ -848,7 +884,7 @@ where
     /// * `proof_is_pending` - Out parameter indicating if verification is pending
     ///
     /// # Returns
-    /// The L1 block height where the commitment was found
+    /// The L2 end block number of the commitment
     fn verify_sequencer_commitment_hash_by_index(
         &self,
         idx: u32,

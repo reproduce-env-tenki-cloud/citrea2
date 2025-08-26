@@ -32,7 +32,7 @@ async fn create_backup(
     Ok(client
         .request(
             "backup_create",
-            rpc_params![path, Some(API_KEY.to_string())],
+            rpc_params![path, None::<u32>, Some(API_KEY.to_string())],
         )
         .await?)
 }
@@ -87,7 +87,11 @@ impl BackupSequencerTest {
         let client = sequencer.client.http_client();
 
         // Should fail as backup methods are protected and api_key is not passed as hidden second param
-        let backup = sequencer.client.http_client().backup_create(None).await;
+        let backup = sequencer
+            .client
+            .http_client()
+            .backup_create(None, None)
+            .await;
 
         assert!(backup.is_err());
 
@@ -131,7 +135,7 @@ impl TestCase for BackupSequencerTest {
         let backup_path = sequencer.config.base.dir.join("backup");
         let backup_info = create_backup(&client, Some(&backup_path)).await?;
 
-        assert_eq!(backup_info.node_kind, "sequencer");
+        assert_eq!(backup_info.node_type, "sequencer");
         assert_eq!(backup_info.backup_id, 1);
         assert!(backup_info.created_at > 0);
         assert_eq!(backup_info.backup_path, backup_path);
@@ -199,7 +203,7 @@ impl TestCase for BackupSequencerTest {
             .run(
                 "restore-backup",
                 &[
-                    "--node-kind",
+                    "--node-type",
                     "sequencer",
                     "--db-path",
                     sequencer.config.rollup.storage.path.to_str().unwrap(),
@@ -282,7 +286,7 @@ impl TestCase for BackupSequencerTest {
             .run(
                 "restore-backup",
                 &[
-                    "--node-kind",
+                    "--node-type",
                     "sequencer",
                     "--db-path",
                     sequencer.config.rollup.storage.path.to_str().unwrap(),
@@ -378,7 +382,7 @@ impl TestCase for BackupFullNodeTest {
         let backup_path = full_node.config.base.dir.join("backup");
         let create_backup_info = create_backup(&client, Some(&backup_path)).await?;
 
-        assert_eq!(create_backup_info.node_kind, "full-node");
+        assert_eq!(create_backup_info.node_type, "full-node");
         assert_eq!(create_backup_info.backup_id, 1);
         assert!(create_backup_info.created_at > 0);
         assert_eq!(create_backup_info.backup_path, backup_path);
@@ -425,7 +429,7 @@ impl TestCase for BackupFullNodeTest {
             .run(
                 "restore-backup",
                 &[
-                    "--node-kind",
+                    "--node-type",
                     "full-node",
                     "--db-path",
                     full_node.config.rollup.storage.path.to_str().unwrap(),
@@ -552,7 +556,7 @@ impl TestCase for BackupFullNodeTest {
             .run(
                 "restore-backup",
                 &[
-                    "--node-kind",
+                    "--node-type",
                     "full-node",
                     "--db-path",
                     full_node.config.rollup.storage.path.to_str().unwrap(),
@@ -672,7 +676,7 @@ impl TestCase for BackupBatchProverTest {
         let backup_path = batch_prover.config.base.dir.join("backup");
         let backup_info = create_backup(&client, Some(&backup_path)).await?;
 
-        assert_eq!(backup_info.node_kind, "batch-prover");
+        assert_eq!(backup_info.node_type, "batch-prover");
         assert_eq!(backup_info.backup_id, 1);
         assert!(backup_info.created_at > 0);
         assert_eq!(backup_info.backup_path, backup_path);
@@ -732,7 +736,7 @@ impl TestCase for BackupBatchProverTest {
             .run(
                 "restore-backup",
                 &[
-                    "--node-kind",
+                    "--node-type",
                     "batch-prover",
                     "--db-path",
                     batch_prover.config.rollup.storage.path.to_str().unwrap(),
@@ -860,7 +864,7 @@ impl TestCase for BackupBatchProverTest {
             .run(
                 "restore-backup",
                 &[
-                    "--node-kind",
+                    "--node-type",
                     "batch-prover",
                     "--db-path",
                     batch_prover.config.rollup.storage.path.to_str().unwrap(),
@@ -988,7 +992,7 @@ impl TestCase for BackupLightClientProverTest {
         let first_proof = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(batch_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(batch_proof_l1_height))
             .await?;
 
         assert!(first_proof.is_some());
@@ -1003,7 +1007,7 @@ impl TestCase for BackupLightClientProverTest {
         let backup_path = light_client_prover.config.base.dir.join("backup");
         let backup_info = create_backup(&client, Some(&backup_path)).await?;
 
-        assert_eq!(backup_info.node_kind, "light-client-prover");
+        assert_eq!(backup_info.node_type, "light-client-prover");
         assert_eq!(backup_info.backup_id, 1);
         assert!(backup_info.created_at > 0);
         assert_eq!(backup_info.backup_path, backup_path);
@@ -1053,7 +1057,7 @@ impl TestCase for BackupLightClientProverTest {
         let second_proof = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(second_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(second_proof_l1_height))
             .await?
             .unwrap();
 
@@ -1070,7 +1074,7 @@ impl TestCase for BackupLightClientProverTest {
             .run(
                 "restore-backup",
                 &[
-                    "--node-kind",
+                    "--node-type",
                     "light-client-prover",
                     "--db-path",
                     light_client_prover
@@ -1097,7 +1101,7 @@ impl TestCase for BackupLightClientProverTest {
         let restored_proof = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(second_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(second_proof_l1_height))
             .await?
             .unwrap();
 
@@ -1130,7 +1134,7 @@ impl TestCase for BackupLightClientProverTest {
                 "rollback",
                 &[
                     "--node-type",
-                    "light-client",
+                    "light-client-prover",
                     "--db-path",
                     light_client_prover
                         .config
@@ -1158,7 +1162,7 @@ impl TestCase for BackupLightClientProverTest {
         let rollback_proof = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(second_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(second_proof_l1_height))
             .await?
             .unwrap();
 
@@ -1200,7 +1204,7 @@ impl TestCase for BackupLightClientProverTest {
         let third_proof = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(third_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(third_proof_l1_height))
             .await?
             .unwrap();
 
@@ -1210,7 +1214,7 @@ impl TestCase for BackupLightClientProverTest {
             .run(
                 "restore-backup",
                 &[
-                    "--node-kind",
+                    "--node-type",
                     "light-client-prover",
                     "--db-path",
                     light_client_prover
@@ -1237,7 +1241,7 @@ impl TestCase for BackupLightClientProverTest {
         let final_proof = light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(third_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(third_proof_l1_height))
             .await?
             .unwrap();
 
@@ -1253,7 +1257,7 @@ impl TestCase for BackupLightClientProverTest {
         assert!(light_client_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(third_proof_l1_height)
+            .get_light_client_proof_by_l1_height(U64::from(third_proof_l1_height))
             .await?
             .is_some());
 

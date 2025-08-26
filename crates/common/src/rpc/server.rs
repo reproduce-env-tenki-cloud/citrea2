@@ -6,6 +6,7 @@ use reth_tasks::TaskExecutor;
 use tokio::sync::oneshot;
 use tracing::{error, info, info_span, Instrument};
 
+use crate::rpc::RpcMetrics;
 use crate::RpcConfig;
 
 /// Starts a RPC server with provided rpc methods.
@@ -37,7 +38,8 @@ pub fn start_rpc_server(
 
     let rpc_middleware = RpcServiceBuilder::new()
         .layer_fn(move |s| super::auth::Auth::new(s, rpc_config.api_key.clone()))
-        .layer_fn(super::Logger);
+        .layer_fn(super::Logger)
+        .layer_fn(RpcMetrics);
 
     task_executor.spawn_with_signal(move |cancellation_token| {
         async move {

@@ -395,6 +395,10 @@ where
         }
     }
 
+    // This method is implemented only for full nodes.
+    // Sequencer has a real implementation of txpool_content.
+    // Full nodes return an empty txpool content not to create
+    // problems with 3rd party tools.
     fn txpool_content(&self) -> RpcResult<Value> {
         // This is a simple mock for serde.
         Ok(json!({
@@ -664,6 +668,7 @@ where
         module.remove_method("eth_sendRawTransaction");
         module.remove_method("eth_getTransactionByHash");
         module.remove_method("citrea_syncStatus");
+        module.remove_method("txpool_content");
     }
 
     if !enable_subscriptions {

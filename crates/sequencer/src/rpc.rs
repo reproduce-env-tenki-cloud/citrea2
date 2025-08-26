@@ -1,8 +1,11 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use alloy_eips::eip2718::Encodable2718;
-use alloy_primitives::{Bytes, B256};
+use alloy_eips::BlockId;
+use alloy_primitives::{Address, Bytes, B256};
 use alloy_rpc_types::Transaction;
+use alloy_rpc_types_txpool::TxpoolContent;
 use citrea_common::rpc::utils::internal_rpc_error;
 use citrea_evm::Evm;
 use citrea_stf::runtime::DefaultContext;
@@ -13,7 +16,9 @@ use parking_lot::Mutex;
 use reth_rpc::eth::EthTxBuilder;
 use reth_rpc_eth_types::error::EthApiError;
 use reth_rpc_types_compat::TransactionCompat;
-use reth_transaction_pool::{EthPooledTransaction, PoolTransaction};
+use reth_transaction_pool::{
+    AllPoolTransactions, EthPooledTransaction, PoolTransaction, ValidPoolTransaction,
+};
 use sov_db::ledger_db::{LedgerDB, SequencerLedgerOps};
 use sov_modules_api::{Spec, WorkingSet};
 use tokio::sync::mpsc::UnboundedSender;
@@ -21,7 +26,7 @@ use tracing::{debug, error};
 
 use crate::deposit_data_mempool::DepositDataMempool;
 use crate::mempool::CitreaMempool;
-use crate::metrics::SEQUENCER_METRICS;
+use crate::metrics::SEQUENCER_METRICS as SM;
 use crate::types::SequencerRpcMessage;
 use crate::utils::recover_raw_transaction;
 
@@ -158,6 +163,20 @@ pub trait SequencerRpc {
     /// Resume sequencer commitments
     #[method(name = "citrea_resumeCommitments")]
     async fn resume_commitments(&self) -> RpcResult<()>;
+
+    /// Returns the transaction pool content.
+    #[method(name = "txpool_content")]
+    async fn txpool_content(&self) -> RpcResult<TxpoolContent<Transaction>>;
+
+    /// Removes transactions from the pool by hash.
+    /// Returns the hashes of the removed transactions.
+    #[method(name = "txpool_removeTransactionsByHash")]
+    async fn txpool_remove_txs_by_hash(&self, hashes: Vec<B256>) -> RpcResult<Vec<B256>>;
+
+    /// Removes all transactions from the pool by sender.
+    /// Returns the hashes of the removed transactions.
+    #[method(name = "txpool_removeTransactionsBySender")]
+    async fn txpool_remove_txs_by_sender(&self, sender: Address) -> RpcResult<Vec<B256>>;
 }
 
 /// Sequencer RPC server implementation
@@ -206,8 +225,8 @@ impl SequencerRpcServer for SequencerRpcServerImpl {
         {
             tracing::warn!("Failed to insert mempool tx into db: {:?}", e);
         } else {
-            SEQUENCER_METRICS.mempool_txs.increment(1);
-            SEQUENCER_METRICS.mempool_txs_inc.increment(1);
+            SM.mempool_txs.increment(1);
+            SM.mempool_txs_inc.increment(1);
         }
 
         Ok(hash)
@@ -263,6 +282,9 @@ impl SequencerRpcServer for SequencerRpcServerImpl {
     fn send_raw_deposit_transaction(&self, deposit: Bytes) -> RpcResult<()> {
         debug!("Sequencer: citrea_sendRawDepositTransaction");
 
+        let deposit_tx_size = deposit.len();
+        SM.deposit_tx_size.record(deposit_tx_size as f64);
+
         let evm = Evm::<DefaultContext>::default();
         let mut working_set = WorkingSet::new(self.context.storage.clone());
 
@@ -272,26 +294,46 @@ impl SequencerRpcServer for SequencerRpcServerImpl {
             .lock()
             .make_deposit_tx_from_data(deposit.clone().into());
 
+        let start = std::time::Instant::now();
         let tx_res = evm.get_call(
             dep_tx,
-            None,
+            Some(BlockId::pending()),
             None,
             None,
             &mut working_set,
             &self.context.ledger,
         );
+        let deposit_tx_call_duration = Instant::now()
+            .saturating_duration_since(start)
+            .as_secs_f64();
+        SM.deposit_tx_call_duration.record(deposit_tx_call_duration);
 
         match tx_res {
             Ok(hex_res) => {
                 tracing::debug!("Deposit tx processed successfully {}", hex_res);
-                self.context
+                let add_result = self
+                    .context
                     .deposit_mempool
                     .lock()
                     .add_deposit_tx(deposit.to_vec());
-                Ok(())
+
+                match add_result {
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err(jsonrpsee::types::error::ErrorObject::owned(
+                        jsonrpsee::types::error::INVALID_PARAMS_CODE,
+                        "Deposit already pending in mempool",
+                        None::<()>,
+                    )),
+                    Err(_) => Err(jsonrpsee::types::error::ErrorObject::owned(
+                        jsonrpsee::types::error::INVALID_PARAMS_CODE,
+                        "Invalid deposit",
+                        None::<()>,
+                    )),
+                }
             }
             Err(e) => {
                 error!("Error processing deposit tx: {:?}", e);
+                SM.unaccepted_deposit_txs.increment(1);
                 Err(e)
             }
         }
@@ -332,6 +374,55 @@ impl SequencerRpcServer for SequencerRpcServerImpl {
             .map_err(|e| {
                 internal_rpc_error(format!("Could not send resume commitments signal: {e}"))
             })
+    }
+
+    /// Returns the transaction pool content.
+    async fn txpool_content(&self) -> RpcResult<TxpoolContent<Transaction>> {
+        let AllPoolTransactions { pending, queued } = self.context.mempool.all_transactions();
+
+        fn extract_tx(tx: Arc<ValidPoolTransaction<EthPooledTransaction>>) -> Transaction {
+            let tx_signed_ec_recovered = tx.to_consensus(); // tx signed ec recovered
+            EthTxBuilder::default()
+                .fill_pending(tx_signed_ec_recovered)
+                .expect("EthTxBuilder fill can't fail")
+        }
+
+        let mut content = TxpoolContent::default();
+
+        for tx in pending {
+            content
+                .pending
+                .entry(tx.sender())
+                .or_default()
+                .insert(tx.nonce().to_string(), extract_tx(tx));
+        }
+
+        for tx in queued {
+            content
+                .queued
+                .entry(tx.sender())
+                .or_default()
+                .insert(tx.nonce().to_string(), extract_tx(tx));
+        }
+
+        Ok(content)
+    }
+
+    /// Removes transactions from the pool by hash.
+    async fn txpool_remove_txs_by_hash(&self, hashes: Vec<B256>) -> RpcResult<Vec<B256>> {
+        let removed_txs = self
+            .context
+            .mempool
+            .remove_transactions_and_descendants(hashes);
+        let removed_hashes: Vec<B256> = removed_txs.iter().map(|tx| *tx.hash()).collect();
+        Ok(removed_hashes)
+    }
+
+    /// Removes all transactions from the pool by sender.
+    async fn txpool_remove_txs_by_sender(&self, sender: Address) -> RpcResult<Vec<B256>> {
+        let removed_txs = self.context.mempool.remove_transactions_by_sender(sender);
+        let removed_hashes: Vec<B256> = removed_txs.iter().map(|tx| *tx.hash()).collect();
+        Ok(removed_hashes)
     }
 }
 
