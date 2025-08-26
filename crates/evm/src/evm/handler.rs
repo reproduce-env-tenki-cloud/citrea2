@@ -2,29 +2,29 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
+use revm::context::entry::SelfdestructionRevertStatus;
 use revm::context::result::{
-    EVMError, FromStringError, HaltReason, InvalidTransaction, ResultAndState,
+    EVMError, ExecResultAndState, FromStringError, HaltReason, InvalidTransaction, ResultAndState,
 };
 use revm::context::transaction::AuthorizationTr;
 use revm::context::{
-    Block, BlockEnv, Cfg, CfgEnv, ContextSetters, ContextTr, Evm, EvmData, JournalTr, Transaction,
-    TxEnv,
+    Block, BlockEnv, Cfg, CfgEnv, ContextSetters, ContextTr, Evm, FrameStack, JournalTr,
+    Transaction, TxEnv,
 };
-use revm::handler::instructions::{EthInstructions, InstructionProvider};
+use revm::handler::instructions::EthInstructions;
 // use revm::handler::register::{EvmHandler, HandleRegisterBox, HandleRegisters};
 use revm::handler::{
-    EthFrame, EthPrecompiles, EvmTr, EvmTrError, Frame, FrameResult, Handler, MainnetHandler,
+    EthFrame, EthPrecompiles, EvmTr, EvmTrError, FrameResult, FrameTr, Handler, MainnetHandler,
     PrecompileProvider,
 };
 #[cfg(feature = "native")]
 use revm::inspector::{InspectorEvmTr, InspectorFrame, InspectorHandler};
 use revm::interpreter::interpreter::EthInterpreter;
-use revm::interpreter::{
-    FrameInput, InputsImpl, InstructionResult, Interpreter, InterpreterResult, InterpreterTypes,
-};
+use revm::interpreter::interpreter_action::FrameInit;
+use revm::interpreter::{FrameInput, InputsImpl, InstructionResult, InterpreterResult};
 use revm::primitives::hardfork::SpecId;
 use revm::primitives::{Address, B256, KECCAK_EMPTY, U256};
-use revm::state::Bytecode;
+use revm::state::{Bytecode, EvmState};
 use revm::{Context, Database, ExecuteEvm, Journal, JournalEntry};
 #[cfg(feature = "native")]
 use revm::{InspectEvm, Inspector};
@@ -177,17 +177,24 @@ impl<EVM: EvmTr> CitreaCallExt for EVM {
 }
 
 pub struct CitreaEvm<CTX, INSP>(
-    pub Evm<CTX, INSP, EthInstructions<EthInterpreter, CTX>, CitreaPrecompiles>,
+    pub  Evm<
+        CTX,
+        INSP,
+        EthInstructions<EthInterpreter, CTX>,
+        CitreaPrecompiles,
+        FrameStack<EthFrame>,
+    >,
 );
 
 impl<CTX: CitreaContextTr, INSP> CitreaEvm<CTX, INSP> {
     pub fn new(ctx: CTX, inspector: INSP) -> Self {
         let spec = ctx.cfg().spec().into();
-        Self(Evm {
-            data: EvmData { ctx, inspector },
-            instruction: EthInstructions::new_mainnet(),
-            precompiles: CitreaPrecompiles::new_with_spec(spec),
-        })
+        Self(Evm::new_with_inspector(
+            ctx,
+            inspector,
+            EthInstructions::new_mainnet(),
+            CitreaPrecompiles::new_with_spec(spec),
+        ))
     }
 }
 
@@ -198,33 +205,55 @@ where
     type Context = CTX;
     type Instructions = EthInstructions<EthInterpreter, CTX>;
     type Precompiles = CitreaPrecompiles;
-
-    fn run_interpreter(
-        &mut self,
-        interpreter: &mut Interpreter<
-            <Self::Instructions as InstructionProvider>::InterpreterTypes,
-        >,
-    ) -> <<Self::Instructions as InstructionProvider>::InterpreterTypes as InterpreterTypes>::Output
-    {
-        let context = &mut self.0.data.ctx;
-        let instructions = &mut self.0.instruction;
-        interpreter.run_plain(instructions.instruction_table(), context)
-    }
+    type Frame = EthFrame<EthInterpreter>;
 
     fn ctx(&mut self) -> &mut Self::Context {
-        &mut self.0.data.ctx
+        self.0.ctx()
     }
 
     fn ctx_ref(&self) -> &Self::Context {
-        &self.0.data.ctx
+        self.0.ctx_ref()
     }
 
     fn ctx_instructions(&mut self) -> (&mut Self::Context, &mut Self::Instructions) {
-        (&mut self.0.data.ctx, &mut self.0.instruction)
+        self.0.ctx_instructions()
     }
 
     fn ctx_precompiles(&mut self) -> (&mut Self::Context, &mut Self::Precompiles) {
-        (&mut self.0.data.ctx, &mut self.0.precompiles)
+        self.0.ctx_precompiles()
+    }
+
+    fn frame_stack(&mut self) -> &mut revm::context::FrameStack<Self::Frame> {
+        self.0.frame_stack()
+    }
+
+    fn frame_init(
+        &mut self,
+        frame_input: <Self::Frame as revm::handler::FrameTr>::FrameInit,
+    ) -> Result<
+        revm::handler::evm::FrameInitResult<'_, Self::Frame>,
+        revm::handler::evm::ContextDbError<Self::Context>,
+    > {
+        self.0.frame_init(frame_input)
+    }
+
+    fn frame_run(
+        &mut self,
+    ) -> Result<
+        revm::handler::FrameInitOrResult<Self::Frame>,
+        revm::handler::evm::ContextDbError<Self::Context>,
+    > {
+        self.0.frame_run()
+    }
+
+    fn frame_return_result(
+        &mut self,
+        result: <Self::Frame as revm::handler::FrameTr>::FrameResult,
+    ) -> Result<
+        Option<<Self::Frame as revm::handler::FrameTr>::FrameResult>,
+        revm::handler::evm::ContextDbError<Self::Context>,
+    > {
+        self.0.frame_return_result(result)
     }
 }
 
@@ -244,14 +273,25 @@ where
         (&mut self.0.data.ctx, &mut self.0.data.inspector)
     }
 
-    fn run_inspect_interpreter(
+    fn ctx_inspector_frame(
         &mut self,
-        interpreter: &mut Interpreter<
-            <Self::Instructions as InstructionProvider>::InterpreterTypes,
-        >,
-    ) -> <<Self::Instructions as InstructionProvider>::InterpreterTypes as InterpreterTypes>::Output
-    {
-        self.0.run_inspect_interpreter(interpreter)
+    ) -> (&mut Self::Context, &mut Self::Inspector, &mut Self::Frame) {
+        (
+            &mut self.0.data.ctx,
+            &mut self.0.data.inspector,
+            &mut self.0.data.frame,
+        )
+    }
+
+    fn ctx_inspector_frame_instructions(
+        &mut self,
+    ) -> (
+        &mut Self::Context,
+        &mut Self::Inspector,
+        &mut Self::Frame,
+        &mut Self::Instructions,
+    ) {
+        self.0.ctx_inspector_frame_instructions()
     }
 }
 
@@ -263,23 +303,32 @@ impl<CTX, INSP> ExecuteEvm for CitreaEvm<CTX, INSP>
 where
     CTX: CitreaContextTr + ContextSetters,
 {
-    type Output = Result<ResultAndState<HaltReason /*TODO CitreaHaltReason */>, CitreaError<CTX>>;
+    type ExecutionResult = HaltReason;
+    type State = EvmState;
+    type Error = CitreaError<CTX>;
 
     type Tx = <CTX as ContextTr>::Tx;
-
     type Block = <CTX as ContextTr>::Block;
 
-    fn set_tx(&mut self, tx: Self::Tx) {
-        self.0.data.ctx.set_tx(tx);
-    }
-
     fn set_block(&mut self, block: Self::Block) {
-        self.0.data.ctx.set_block(block);
+        self.0.set_block(block);
     }
 
-    fn replay(&mut self) -> Self::Output {
+    fn transact_one(&mut self, tx: Self::Tx) -> Result<Self::ExecutionResult, Self::Error> {
         let mut h = CitreaHandler::<_, _, EthFrame<_, _, _>>::new();
-        h.run(self)
+        h.transact_one(tx)
+    }
+
+    fn finalize(&mut self) -> Self::State {
+        let mut h = CitreaHandler::<_, _, EthFrame<_, _, _>>::new();
+        h.finalize()
+    }
+
+    fn replay(
+        &mut self,
+    ) -> Result<ExecResultAndState<Self::ExecutionResult, Self::State>, Self::Error> {
+        let mut h = CitreaHandler::<_, _, EthFrame<_, _, _>>::new();
+        h.replay(self)
     }
 }
 
@@ -295,9 +344,9 @@ where
         self.0.data.inspector = inspector;
     }
 
-    fn inspect_replay(&mut self) -> Self::Output {
+    fn inspect_one_tx(&mut self, tx: Self::Tx) -> Result<Self::ExecutionResult, Self::Error> {
         let mut h = CitreaHandler::<_, _, EthFrame<_, _, _>>::new();
-        h.inspect_run(self)
+        h.inspect_one_tx(tx)
     }
 }
 
@@ -461,16 +510,18 @@ impl<EVM, ERROR, FRAME> CitreaHandler<EVM, ERROR, FRAME> {
 
 impl<EVM, ERROR, FRAME> Handler for CitreaHandler<EVM, ERROR, FRAME>
 where
-    EVM: EvmTr<Context: CitreaContextTr>,
+    EVM: EvmTr<Context: CitreaContextTr, Frame = FRAME>,
     ERROR: EvmTrError<EVM> /*+ From<CitreaTransactionError>*/ + FromStringError, /*+ IsTxError*/
-    FRAME: Frame<Evm = EVM, Error = ERROR, FrameResult = FrameResult, FrameInit = FrameInput>,
+    FRAME: FrameTr<FrameResult = FrameResult, FrameInit = FrameInit>,
 {
     type Evm = EVM;
     type Error = ERROR;
-    type Frame = FRAME;
     type HaltReason = HaltReason; // TODO: CitreaHaltReason ??
 
-    fn validate_tx_against_state(&self, evm: &mut Self::Evm) -> Result<(), Self::Error> {
+    fn validate_against_state_and_deduct_caller(
+        &self,
+        evm: &mut Self::Evm,
+    ) -> Result<(), Self::Error> {
         if evm.is_system_caller() {
             // Don't verify balance but nonce only.
             let context = evm.ctx();
@@ -488,25 +539,9 @@ where
                 }
                 _ => {}
             }
-            return Ok(());
-        }
-        self.mainnet.validate_tx_against_state(evm)
-    }
-
-    #[cfg_attr(feature = "native", instrument(level = "trace", skip_all))]
-    fn deduct_caller(&self, evm: &mut Self::Evm) -> Result<(), Self::Error> {
-        if evm.is_system_caller() {
-            // System caller doesn't spend gas.
-
-            let context = evm.ctx();
 
             let is_call = context.tx().kind().is_call();
-            let caller = context.tx().caller();
-
-            // Load caller's account.
-            let mut caller_account = context.journal().load_account(caller)?;
-
-            // Bump the nonce for calls. Nonce for CREATE will be bumped in `handle_create`.
+            // Bump the nonce for calls. Nonce for CREATE will be bumped in `make_create_frame`.
             if is_call {
                 // Nonce is already checked
                 caller_account.info.nonce = caller_account.info.nonce.saturating_add(1);
@@ -517,14 +552,14 @@ where
 
             return Ok(());
         }
-        self.mainnet.deduct_caller(evm)
+        self.mainnet.validate_against_state_and_deduct_caller(evm)
     }
 
     #[cfg_attr(feature = "native", instrument(level = "trace", skip_all))]
     fn reimburse_caller(
         &self,
         evm: &mut Self::Evm,
-        exec_result: &mut <Self::Frame as Frame>::FrameResult,
+        exec_result: &mut <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
     ) -> Result<(), Self::Error> {
         if evm.is_system_caller() {
             // System caller doesn't spend gas.
@@ -540,7 +575,7 @@ where
     fn reward_beneficiary(
         &self,
         evm: &mut Self::Evm,
-        exec_result: &mut <Self::Frame as Frame>::FrameResult,
+        exec_result: &mut <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
     ) -> Result<(), Self::Error> {
         if evm.is_system_caller() {
             // System caller doesn't spend gas.
@@ -564,11 +599,11 @@ where
     }
 
     #[cfg_attr(feature = "native", instrument(level = "trace", skip_all, fields(caller = %evm.ctx_ref().tx().caller())))]
-    fn output(
-        &self,
+    fn execution_result(
+        &mut self,
         evm: &mut Self::Evm,
-        result: <Self::Frame as Frame>::FrameResult,
-    ) -> Result<revm::context::result::ResultAndState<Self::HaltReason>, Self::Error> {
+        result: <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
+    ) -> Result<ExecutionResult<Self::HaltReason>, Self::Error> {
         let uncompressed_size = calc_diff_size(evm.ctx());
 
         // Estimate the size of the state diff after the brotli compression and add L1 fee overhead
@@ -592,7 +627,7 @@ where
             change_balance(evm.ctx(), l1_fee, true, L1_FEE_VAULT)?;
         }
 
-        self.mainnet.output(evm, result)
+        self.mainnet.execution_result(evm, result)
     }
 }
 
@@ -604,15 +639,6 @@ where
         Inspector: Inspector<<<Self as Handler>::Evm as EvmTr>::Context, EthInterpreter>,
     >,
     ERROR: EvmTrError<EVM> + FromStringError,
-    // TODO `FrameResult` should be a generic trait.
-    // TODO `FrameInit` should be a generic.
-    FRAME: InspectorFrame<
-        Evm = EVM,
-        Error = ERROR,
-        FrameResult = FrameResult,
-        FrameInit = FrameInput,
-        IT = EthInterpreter,
-    >,
 {
     type IT = EthInterpreter;
 }
@@ -704,14 +730,18 @@ where
                 account.account_info_changed = true;
             }
             // Only added to the journal on smart contract creation
-            JournalEntry::AccountCreated { address } => {
+            JournalEntry::AccountCreated {
+                address,
+                is_created_globally,
+            } => {
+                let _ = is_created_globally;
                 let account = account_changes.entry(address).or_default();
                 account.account_info_changed = true;
             }
             JournalEntry::AccountDestroyed {
                 address,
                 target,
-                was_destroyed,
+                destroyed_status,
                 had_balance,
             } => {
                 // This event is produced only if acc.is_created() || !is_cancun_enabled
@@ -720,7 +750,7 @@ where
                 // * Selfdestruct account that is created in the same transaction and
                 // * Specify the target is same as selfdestructed account. The balance stays unchanged.
 
-                if *was_destroyed {
+                if destroyed_status == SelfdestructionRevertStatus::RepeatedSelfdestruction {
                     // It was already destroyed before in the log, no need to do anything.
                     continue;
                 }
