@@ -573,20 +573,28 @@ where
 
         self.save_l2_block(l2_block, l2_block_result, tx_hashes, blobs)?;
 
-        // Update mempool with new block info
+        // Get the latest block header for actual gas info
+        let latest_header = self
+            .db_provider
+            .latest_header()
+            .map_err(|e| anyhow!("Failed to get latest header: {}", e))?
+            .ok_or(anyhow!("Latest header must exist after saving block"))?
+            .unseal();
+
+        // Calculate next base fee using ACTUAL gas used from the block
         let next_base_fee = calculate_next_block_base_fee(
-            evm_txs_count as u64 * MIN_TRANSACTION_GAS, // Approximate gas used
-            self.db_provider.cfg().block_gas_limit,
-            l1_fee_rate as u64, // Using L1 fee rate as base fee for simplicity
+            latest_header.gas_used,
+            latest_header.gas_limit,
+            latest_header.base_fee_per_gas.unwrap_or_default(),
             self.db_provider.cfg().base_fee_params,
         );
 
         self.mempool.set_block_info(BlockInfo {
-            block_gas_limit: self.db_provider.cfg().block_gas_limit,
+            block_gas_limit: latest_header.gas_limit,
             last_seen_block_number: l2_height,
-            last_seen_block_hash: alloy_primitives::B256::from_slice(&self.l2_block_hash),
+            last_seen_block_hash: B256::from_slice(&self.l2_block_hash),
             pending_basefee: next_base_fee,
-            pending_blob_fee: None, // Citrea doesn't use blob transactions
+            pending_blob_fee: None,
         });
 
         // Decode the RLP transactions that were executed and create minimal receipts
