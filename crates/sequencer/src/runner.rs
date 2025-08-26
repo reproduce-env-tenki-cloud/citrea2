@@ -23,7 +23,7 @@ use citrea_primitives::types::L2BlockHash;
 use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use parking_lot::Mutex;
 use reth_execution_types::ChangedAccount;
-use reth_provider::{AccountReader, BlockReaderIdExt};
+use reth_provider::{AccountReader, BlockReaderIdExt, CanonStateNotification};
 use reth_tasks::shutdown::GracefulShutdown;
 use reth_transaction_pool::error::InvalidPoolTransactionError;
 use reth_transaction_pool::{
@@ -113,6 +113,8 @@ where
     l2_block_tx: broadcast::Sender<u64>,
     /// Manager for backup operations
     backup_manager: Arc<BackupManager>,
+    /// Channel for sending canonical state notifications to mempool maintenance
+    canon_state_tx: mpsc::UnboundedSender<CanonStateNotification>,
 }
 
 impl<Da> CitreaSequencer<Da>
@@ -152,6 +154,7 @@ where
         l2_block_tx: broadcast::Sender<u64>,
         backup_manager: Arc<BackupManager>,
         rpc_message_rx: UnboundedReceiver<SequencerRpcMessage>,
+        canon_state_tx: mpsc::UnboundedSender<CanonStateNotification>,
     ) -> anyhow::Result<Self> {
         let sov_tx_signer_priv_key =
             K256PrivateKey::try_from(hex::decode(&config.private_key)?.as_slice())?;
@@ -173,6 +176,7 @@ where
             fork_manager,
             l2_block_tx,
             backup_manager,
+            canon_state_tx,
         })
     }
 

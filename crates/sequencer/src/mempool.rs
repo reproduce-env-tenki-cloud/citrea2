@@ -10,10 +10,10 @@ use reth_tasks::TaskExecutor;
 use reth_transaction_pool::blobstore::NoopBlobStore;
 use reth_transaction_pool::error::{PoolError, PoolErrorKind};
 use reth_transaction_pool::{
-    AllPoolTransactions, BestTransactions, BestTransactionsAttributes, CoinbaseTipOrdering,
-    EthPooledTransaction, EthTransactionValidator, Pool, PoolConfig, PoolResult, PoolTransaction,
-    SubPoolLimit, TransactionPool, TransactionPoolExt, TransactionValidationTaskExecutor,
-    ValidPoolTransaction,
+    AllPoolTransactions, BestTransactions, BestTransactionsAttributes, BlockInfo,
+    CoinbaseTipOrdering, EthPooledTransaction, EthTransactionValidator, Pool, PoolConfig,
+    PoolResult, PoolTransaction, SubPoolLimit, TransactionPool, TransactionPoolExt,
+    TransactionValidationTaskExecutor, ValidPoolTransaction,
 };
 
 use crate::db_provider::DbProvider;
@@ -167,5 +167,33 @@ impl CitreaMempool {
     /// The number of transactions currently in the pool
     pub(crate) fn len(&self) -> usize {
         self.0.len()
+    }
+
+    /// Returns a reference to the underlying pool implementation
+    ///
+    /// This is needed for the maintenance task to access the pool directly
+    pub(crate) fn inner_pool(&self) -> &CitreaMempoolImpl {
+        &self.0
+    }
+
+    /// Updates account information in the pool
+    ///
+    /// This method updates the pool's understanding of account states after
+    /// a new block has been processed
+    pub(crate) fn update_accounts(&self, account_updates: Vec<ChangedAccount>) {
+        self.0.update_accounts(account_updates);
+    }
+
+    /// Sets the current block info for the pool
+    ///
+    /// This updates the pool's understanding of the current block state,
+    /// including base fee which affects transaction ordering and validation
+    pub(crate) fn set_block_info(&self, info: BlockInfo) {
+        self.0.set_block_info(info);
+    }
+
+    /// Returns the current block info the pool is tracking
+    pub(crate) fn block_info(&self) -> BlockInfo {
+        self.0.block_info()
     }
 }
