@@ -377,10 +377,11 @@ impl BoundlessProver {
         // TODO: https://github.com/chainwayxyz/citrea/issues/2418
 
         // Get data of failed order
-        let Ok(failed_order) = self
+        // Queries first offchain, and then onchain.
+        let Ok((failed_request, _signature)) = self
             .client
-            .fetch_order(
-                U256::from_str(request_id).expect("Should convert str to u256"),
+            .fetch_proof_request(
+                U256::from_str(request_id).expect("Should convert str to U256"),
                 None,
                 None,
             )
@@ -428,17 +429,15 @@ impl BoundlessProver {
                 }
             };
             // Get old parameters from the failed order
-            let min_price_per_mcycle = failed_order
-                .request
+            let min_price_per_mcycle = failed_request
                 .offer
                 .minPrice
                 .div_ceil(U256::from(mcycles_count));
-            let max_price_per_mcycle = failed_order
-                .request
+            let max_price_per_mcycle = failed_request
                 .offer
                 .maxPrice
                 .div_ceil(U256::from(mcycles_count));
-            let lock_timeout = failed_order.request.offer.lockTimeout;
+            let lock_timeout = failed_request.offer.lockTimeout;
 
             if is_locked {
                 // If locked, that means a prover worked on the request but failed to deliver it on time.
@@ -461,17 +460,16 @@ impl BoundlessProver {
 
         let new_request = self.build_proof_request(
             image_id,
-            failed_order
-                .request
+            failed_request
                 .requirements
                 .predicate
                 .data
                 .to_vec()
                 .try_into()
                 .unwrap(),
-            Url::parse(&failed_order.request.imageUrl).expect("Invalid image URL"),
+            Url::parse(&failed_request.imageUrl).expect("Invalid image URL"),
             Url::parse(
-                core::str::from_utf8(&failed_order.request.input.data).expect("Invalid input URL"),
+                core::str::from_utf8(&failed_request.input.data).expect("Invalid input URL"),
             )
             .expect("Invalid input URL"),
             new_min_price_per_mcycle,
