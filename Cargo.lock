@@ -3141,9 +3141,9 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.10.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fcff32858ae7fab7917fbff14235aedc3eeaa971aab95181a12ce172450bb36"
+checksum = "9bf680cdd85ec815b0ac5ed46e233078f31c462831eb2061849e775080b7fe70"
 dependencies = [
  "alloy 1.0.9",
  "alloy-chains 0.2.1",
@@ -10584,9 +10584,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-aggregation"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "896a62e412d327548948c4e7b66b71b87ca5cbe258da2a4b675f7d57e5162980"
+checksum = "6f18e3e10496d7cda4adb19d220865c39c9ad3b2fd5f9b6c5ebc21db5ab6a2ba"
 dependencies = [
  "alloy-primitives 1.1.2",
  "alloy-sol-types 1.1.2",
@@ -10704,9 +10704,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-ethereum-contracts"
-version = "2.2.0"
+version = "2.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a54c94ca72de802a01d41eb3d6ed72464daa747867ef49ef3ef9176aa27ab998"
+checksum = "0d3a6978f67c13fcf3e9123d28882368a3a3d686f881a35bb0caaebc585f93d6"
 dependencies = [
  "alloy 1.0.9",
  "alloy-primitives 1.1.2",
