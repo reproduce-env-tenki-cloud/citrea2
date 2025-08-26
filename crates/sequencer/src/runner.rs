@@ -27,7 +27,7 @@ use reth_provider::{AccountReader, BlockReaderIdExt, CanonStateNotification};
 use reth_tasks::shutdown::GracefulShutdown;
 use reth_transaction_pool::error::InvalidPoolTransactionError;
 use reth_transaction_pool::{
-    BestTransactions, BestTransactionsAttributes, EthPooledTransaction, PoolTransaction,
+    BestTransactions, BestTransactionsAttributes, BlockInfo, EthPooledTransaction, PoolTransaction,
     ValidPoolTransaction,
 };
 use sov_accounts::Accounts;
@@ -569,6 +569,22 @@ where
 
         self.save_l2_block(l2_block, l2_block_result, tx_hashes, blobs)?;
 
+        // Update mempool with new block info
+        let next_base_fee = calculate_next_block_base_fee(
+            evm_txs_count as u64 * MIN_TRANSACTION_GAS, // Approximate gas used
+            self.db_provider.cfg().block_gas_limit,
+            l1_fee_rate as u64, // Using L1 fee rate as base fee for simplicity
+            self.db_provider.cfg().base_fee_params,
+        );
+
+        self.mempool.set_block_info(BlockInfo {
+            block_gas_limit: self.db_provider.cfg().block_gas_limit,
+            last_seen_block_number: l2_height,
+            last_seen_block_hash: alloy_primitives::B256::from_slice(&self.l2_block_hash),
+            pending_basefee: next_base_fee,
+            pending_blob_fee: None, // Citrea doesn't use blob transactions
+        });
+
         self.maintain_mempool(l1_fee_failed_txs)?;
 
         SM.no_dry_run_block_production_duration_secs.set(
@@ -773,23 +789,30 @@ where
         Ok(())
     }
 
-    /// Maintains the mempool by removing failed transactions
+    /// Handles cleanup for L1 fee failed transactions and persistent storage
+    ///
+    /// Mined transaction removal from the mempool is handled by the maintenance task
+    /// through canonical state notifications. This function only handles:
+    /// - Remove L1 fee failed transactions from mempool
+    /// - Clean up persistent storage for both mined and failed transactions
     ///
     /// # Arguments
     /// * `l1_fee_failed_txs` - Transactions that failed due to L1 fee issues
     pub(crate) fn maintain_mempool(&self, l1_fee_failed_txs: Vec<TxHash>) -> anyhow::Result<()> {
         let start_maintain_mempool = Instant::now();
-        // Combine transactions from last block and those that failed L1 fee check
-        let mut txs_to_remove = self.db_provider.last_block_tx_hashes()?;
+
+        // Remove L1 fee failed transactions from the mempool
+        // These are not handled by the maintenance task
+        if !l1_fee_failed_txs.is_empty() {
+            self.mempool.remove_transactions(l1_fee_failed_txs.clone());
+        }
+
+        // Get mined transactions for persistent storage cleanup
+        let mined_txs = self.db_provider.last_block_tx_hashes()?;
+
+        // Clean up persistent storage for both mined and failed transactions
+        let mut txs_to_remove = mined_txs;
         txs_to_remove.extend(l1_fee_failed_txs);
-
-        // Remove processed/failed transactions from mempool
-        self.mempool.remove_transactions(txs_to_remove.clone());
-
-        // Update account states in mempool
-        let account_updates = self.get_account_updates()?;
-
-        self.mempool.update_accounts(account_updates);
 
         // Remove transactions from persistent storage
         let txs = txs_to_remove
