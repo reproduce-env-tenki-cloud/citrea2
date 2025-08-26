@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use std::vec;
 
 use alloy_eips::eip2718::Encodable2718;
+use alloy_eips::{BlockHashOrNumber, BlockId, BlockNumberOrTag};
 use alloy_primitives::{Bytes, TxHash, B256, U256};
 use anyhow::{anyhow, bail};
 use backoff::future::retry as retry_backoff;
@@ -22,8 +23,11 @@ use citrea_primitives::types::L2BlockHash;
 use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use parking_lot::Mutex;
 use reth_execution_types::{Chain, ExecutionOutcome};
-use reth_primitives::{Receipt, RecoveredBlock, SealedBlock, SealedHeader, TransactionSigned};
-use reth_provider::{BlockReaderIdExt, CanonStateNotification};
+use reth_primitives::{Receipt, RecoveredBlock, SealedBlock};
+use reth_provider::{
+    BlockBodyIndicesProvider, BlockReaderIdExt, CanonStateNotification, ReceiptProvider,
+    TransactionsProvider,
+};
 use reth_tasks::shutdown::GracefulShutdown;
 use reth_transaction_pool::error::InvalidPoolTransactionError;
 use reth_transaction_pool::{
@@ -594,59 +598,38 @@ where
             pending_blob_fee: None,
         });
 
-        // Get actual transactions and receipts from the saved block
+        // Get actual receipts and senders from the saved block
         // This data is used to notify the mempool maintenance task about mined transactions
-        let (reth_transactions, senders, reth_receipts) = {
-            let mut working_set = WorkingSet::new(self.storage_manager.create_final_view_storage());
-            let mut accessory_state = working_set.accessory_state();
-
-            // Get the saved block to find transaction indices
-            let saved_block = self
+        let (senders, reth_receipts) = {
+            // Get receipts using the standard ReceiptProvider trait method
+            let reth_receipts = self
                 .db_provider
-                .evm
-                .get_block_by_height(l2_height, &mut accessory_state)
-                .ok_or(anyhow!("Block must exist after saving"))?;
+                .receipts_by_block(BlockHashOrNumber::Number(l2_height))?
+                .ok_or(anyhow!("Receipts must exist for block {}", l2_height))?;
 
-            // Get actual executed transactions and receipts using the new accessor methods
-            let evm_txs = self.db_provider.evm.get_block_transactions(
-                saved_block.transactions.start,
-                saved_block.transactions.end,
-                &mut accessory_state,
-            );
+            // Get the block body indices to find the transaction range
+            let block_indices = self
+                .db_provider
+                .block_body_indices(l2_height)?
+                .ok_or(anyhow!(
+                    "Block body indices must exist for block {}",
+                    l2_height
+                ))?;
 
-            let evm_receipts = self.db_provider.evm.get_block_receipts_range(
-                saved_block.transactions.start,
-                saved_block.transactions.end,
-                &mut accessory_state,
-            );
+            // Calculate the transaction range from the indices
+            let tx_start = block_indices.first_tx_num;
+            let tx_end = tx_start + block_indices.tx_count;
 
-            // Convert to Reth types for mempool notification
-            let mut reth_transactions = Vec::new();
-            let mut senders = Vec::new();
-            let mut reth_receipts = Vec::new();
+            // Get senders using the standard TransactionsProvider trait method
+            let senders = self.db_provider.senders_by_tx_range(tx_start..tx_end)?;
 
-            for (tx, receipt) in evm_txs.iter().zip(evm_receipts.iter()) {
-                reth_transactions.push(tx.signed_transaction.clone());
-                senders.push(tx.signer);
-
-                // Convert CitreaReceiptWithBloom to Reth Receipt
-                let reth_receipt = Receipt {
-                    tx_type: tx.signed_transaction.tx_type(),
-                    success: receipt.receipt.receipt.success,
-                    cumulative_gas_used: receipt.receipt.receipt.cumulative_gas_used,
-                    logs: receipt.receipt.receipt.logs.clone(),
-                };
-                reth_receipts.push(reth_receipt);
-            }
-
-            (reth_transactions, senders, reth_receipts)
+            (senders, reth_receipts)
         };
 
         // Create the Chain notification with the produced block data
         if let Ok(chain) = self.create_chain_notification(
             l2_height,
-            alloy_primitives::B256::from_slice(&self.l2_block_hash),
-            reth_transactions,
+            B256::from_slice(&self.l2_block_hash),
             senders,
             reth_receipts,
         ) {
@@ -870,50 +853,16 @@ where
         &self,
         l2_height: u64,
         block_hash: alloy_primitives::B256,
-        transactions: Vec<TransactionSigned>,
         senders: Vec<alloy_primitives::Address>,
         receipts: Vec<Receipt>,
     ) -> anyhow::Result<Chain> {
-        // Calculate total gas used from receipts
-        let gas_used = receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);
+        // Get the actual block from DbProvider using block_by_id
+        let block = self
+            .db_provider
+            .block_by_id(BlockId::Number(BlockNumberOrTag::Number(l2_height)))?
+            .ok_or(anyhow!("Block {} must exist after saving", l2_height))?;
 
-        // Get parent block hash from the previous block
-        let parent_hash = if l2_height > 0 {
-            // Get the parent block hash using the EVM's blockhash_get method
-            let mut working_set = WorkingSet::new(self.storage_manager.create_final_view_storage());
-            self.db_provider
-                .evm
-                .blockhash_get(l2_height - 1, &mut working_set)
-                .unwrap_or(alloy_primitives::B256::ZERO)
-        } else {
-            alloy_primitives::B256::ZERO
-        };
-
-        // Create a minimal block header
-        let header = reth_primitives::Header {
-            number: l2_height,
-            parent_hash,
-            gas_limit: self.db_provider.cfg().block_gas_limit,
-            gas_used,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-            ..Default::default()
-        };
-
-        // Create sealed header with the block hash
-        let sealed_header = SealedHeader::new(header, block_hash);
-
-        // Create block body with transactions
-        let body = reth_primitives::BlockBody {
-            transactions,
-            ommers: vec![],
-            withdrawals: None,
-        };
-
-        // Create sealed block
-        let block = reth_primitives::Block {
-            header: sealed_header.header().clone(),
-            body,
-        };
+        // Create sealed block with the actual block hash
         let sealed_block = SealedBlock::new_unchecked(block, block_hash);
 
         // Create recovered block with the actual sender addresses from our transactions
