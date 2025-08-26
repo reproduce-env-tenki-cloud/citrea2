@@ -24,7 +24,7 @@ use reth_provider::{
 use reth_trie::updates::TrieUpdates;
 use reth_trie::{HashedPostState, HashedStorage, StorageMultiProof, StorageProof};
 use revm::database::BundleState;
-use sov_db::ledger_db::LedgerDB;
+use sov_db::ledger_db::{LedgerDB, SharedLedgerOps};
 use sov_modules_api::{Spec, StateMapAccessor, WorkingSet};
 
 /// Provider for EVM database operations in the sequencer
@@ -197,9 +197,7 @@ impl BlockReaderIdExt for DbProvider {
                 ) {
                     Ok(Some(block)) => Ok(Some(block.inner.header.into_consensus())),
                     Ok(None) => Ok(None),
-                    Err(e) => Err(ProviderError::Database(
-                        alloy_primitives::hex::FromHexError::InvalidStringLength.into(),
-                    )),
+                    Err(_) => Ok(None),
                 }
             }
             BlockNumberOrTag::Latest | BlockNumberOrTag::Safe | BlockNumberOrTag::Finalized => {
@@ -212,9 +210,7 @@ impl BlockReaderIdExt for DbProvider {
                 ) {
                     Ok(Some(block)) => Ok(Some(block.inner.header.into_consensus())),
                     Ok(None) => Ok(None),
-                    Err(e) => Err(ProviderError::Database(
-                        alloy_primitives::hex::FromHexError::InvalidStringLength.into(),
-                    )),
+                    Err(_) => Ok(None),
                 }
             }
             _ => Ok(None),
@@ -373,16 +369,9 @@ impl BlockIdReader for DbProvider {
         unimplemented!("finalized_block_num_hash")
     }
     fn finalized_block_number(&self) -> ProviderResult<Option<BlockNumber>> {
-        // all blocks are considered finalized once they're committed
-        // Return the latest block number
-        let mut working_set = WorkingSet::new(self.storage.clone());
-        match self.evm.get_block_by_number(
-            Some(BlockNumberOrTag::Latest),
-            None,
-            &mut working_set,
-            &self.ledger_db,
-        ) {
-            Ok(Some(block)) => Ok(Some(block.inner.header.number)),
+        // Finalized blocks are those included in commitments sent to DA layer
+        match self.ledger_db.get_last_commitment() {
+            Ok(Some(commitment)) => Ok(Some(commitment.l2_end_block_number)),
             Ok(None) => Ok(None),
             Err(_) => Ok(None),
         }
