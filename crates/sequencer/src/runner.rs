@@ -5,6 +5,7 @@ use std::vec;
 
 use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{Address, Bytes, TxHash, U256};
+use alloy_rlp::Decodable;
 use anyhow::{anyhow, bail};
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
@@ -22,7 +23,9 @@ use citrea_primitives::merkle::{compute_tx_hashes, compute_tx_merkle_root};
 use citrea_primitives::types::L2BlockHash;
 use citrea_stf::runtime::{CitreaRuntime, DefaultContext};
 use parking_lot::Mutex;
-use reth_execution_types::ChangedAccount;
+use reth_execution_types::{Chain, ChangedAccount, ExecutionOutcome};
+use reth_primitives::transaction::SignedTransaction;
+use reth_primitives::{Receipt, RecoveredBlock, SealedBlock, SealedHeader, TransactionSigned};
 use reth_provider::{AccountReader, BlockReaderIdExt, CanonStateNotification};
 use reth_tasks::shutdown::GracefulShutdown;
 use reth_transaction_pool::error::InvalidPoolTransactionError;
@@ -30,6 +33,7 @@ use reth_transaction_pool::{
     BestTransactions, BestTransactionsAttributes, BlockInfo, EthPooledTransaction, PoolTransaction,
     ValidPoolTransaction,
 };
+use revm::database::BundleState;
 use sov_accounts::Accounts;
 use sov_accounts::Response::{AccountEmpty, AccountExists};
 use sov_db::ledger_db::{LedgerDB, SequencerLedgerOps, SharedLedgerOps};
@@ -529,7 +533,7 @@ where
         let (signed_txs, blobs) = self.encode_and_sign_evm_txs_into_sov_txs(
             &mut working_set,
             &l2_block_info,
-            txs_to_run,
+            txs_to_run.clone(),
         )?;
 
         self.instrumented_apply_l2_block_txs(&l2_block_info, &signed_txs, &mut working_set)?;
@@ -585,6 +589,54 @@ where
             pending_blob_fee: None, // Citrea doesn't use blob transactions
         });
 
+        // Decode the RLP transactions that were executed and create minimal receipts
+        // This data is used to notify the mempool maintenance task about mined transactions
+        let (reth_transactions, senders, reth_receipts) = {
+            let mut transactions = Vec::new();
+            let mut senders = Vec::new();
+            let mut receipts = Vec::new();
+
+            // Decode each RLP transaction that was executed
+            for (idx, tx) in txs_to_run.iter().enumerate() {
+                // Decode the RLP-encoded transaction
+                if let Ok(decoded_tx) = TransactionSigned::decode(&mut tx.rlp.as_slice()) {
+                    // Try to recover the sender
+                    if let Ok(recovered) = decoded_tx.clone().try_into_recovered() {
+                        transactions.push(decoded_tx);
+                        senders.push(recovered.signer());
+
+                        // Create a minimal successful receipt for each transaction
+                        // The actual receipt details don't matter for mempool maintenance
+                        let receipt = Receipt {
+                            tx_type: recovered.tx_type(),
+                            success: true,
+                            cumulative_gas_used: (idx as u64 + 1) * MIN_TRANSACTION_GAS,
+                            logs: vec![],
+                        };
+                        receipts.push(receipt);
+                    }
+                }
+            }
+
+            (transactions, senders, receipts)
+        };
+
+        // Create the Chain notification with the produced block data
+        if let Ok(chain) = self.create_chain_notification(
+            l2_height,
+            alloy_primitives::B256::from_slice(&self.l2_block_hash),
+            reth_transactions,
+            senders,
+            reth_receipts,
+        ) {
+            // Send canonical state notification for mempool maintenance task
+            let _ = self.canon_state_tx.send(CanonStateNotification::Commit {
+                new: Arc::new(chain),
+            });
+        }
+
+        // Handle L1 fee failed transactions and persistent storage cleanup
+        // Note: Mined transaction removal from mempool is handled by the maintenance task
         self.maintain_mempool(l1_fee_failed_txs)?;
 
         SM.no_dry_run_block_production_duration_secs.set(
@@ -787,6 +839,81 @@ where
         );
 
         Ok(())
+    }
+
+    /// Creates a Chain notification from the produced L2 block
+    ///
+    /// This creates a minimal but valid Chain structure that contains the block
+    /// information needed by the maintenance task to remove mined transactions.
+    fn create_chain_notification(
+        &self,
+        l2_height: u64,
+        block_hash: alloy_primitives::B256,
+        transactions: Vec<TransactionSigned>,
+        senders: Vec<alloy_primitives::Address>,
+        receipts: Vec<Receipt>,
+    ) -> anyhow::Result<Chain> {
+        // Calculate total gas used from receipts
+        let gas_used = receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);
+
+        // Get parent block hash from the previous block
+        let parent_hash = if l2_height > 0 {
+            // Get the parent block hash using the EVM's blockhash_get method
+            let mut working_set = WorkingSet::new(self.storage_manager.create_final_view_storage());
+            self.db_provider
+                .evm
+                .blockhash_get(l2_height - 1, &mut working_set)
+                .unwrap_or(alloy_primitives::B256::ZERO)
+        } else {
+            alloy_primitives::B256::ZERO
+        };
+
+        // Create a minimal block header
+        let header = reth_primitives::Header {
+            number: l2_height,
+            parent_hash,
+            gas_limit: self.db_provider.cfg().block_gas_limit,
+            gas_used,
+            timestamp: chrono::Utc::now().timestamp() as u64,
+            ..Default::default()
+        };
+
+        // Create sealed header with the block hash
+        let sealed_header = SealedHeader::new(header, block_hash);
+
+        // Create block body with transactions
+        let body = reth_primitives::BlockBody {
+            transactions,
+            ommers: vec![],
+            withdrawals: None,
+        };
+
+        // Create sealed block
+        let block = reth_primitives::Block {
+            header: sealed_header.header().clone(),
+            body,
+        };
+        let sealed_block = SealedBlock::new_unchecked(block, block_hash);
+
+        // Create recovered block with the actual sender addresses from our transactions
+        let recovered_block = RecoveredBlock::new_sealed(sealed_block, senders);
+
+        // Create a minimal ExecutionOutcome
+        // The bundle state can be empty as we're not using it for state changes
+        let bundle_state = BundleState::default();
+
+        // Create ExecutionOutcome with the receipts from this block
+        let execution_outcome = ExecutionOutcome::new(
+            bundle_state,
+            vec![receipts], // One block worth of receipts
+            l2_height,
+            vec![], // No EIP-7685 requests in Citrea
+        );
+
+        // Create Chain with single block
+        let chain = Chain::from_block(recovered_block, execution_outcome, None);
+
+        Ok(chain)
     }
 
     /// Handles cleanup for L1 fee failed transactions and persistent storage
