@@ -176,14 +176,6 @@ impl CitreaMempool {
         &self.0
     }
 
-    /// Updates account information in the pool
-    ///
-    /// This method updates the pool's understanding of account states after
-    /// a new block has been processed
-    pub(crate) fn update_accounts(&self, account_updates: Vec<ChangedAccount>) {
-        self.0.update_accounts(account_updates);
-    }
-
     /// Sets the current block info for the pool
     ///
     /// This updates the pool's understanding of the current block state,
