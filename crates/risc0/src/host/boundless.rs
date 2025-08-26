@@ -87,8 +87,10 @@ impl BoundlessProver {
     ) -> anyhow::Result<oneshot::Receiver<ProofWithJob>> {
         // Upload image id
         let image_id = compute_image_id(&elf).expect("Invalid elf program");
-
-        assert!(!risc0_zkvm::is_dev_mode(), "Boundless should not be run with dev mode as provers do not accept fake receipt requests" );
+        assert!(
+            std::env::var("RISC0_DEV_MODE").is_err(),
+            "RISC0_DEV_MODE should not be set for boundless"
+        );
 
         assert!(
             matches!(receipt_type, ReceiptType::Groth16),
