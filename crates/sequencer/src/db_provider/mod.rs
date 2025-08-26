@@ -184,9 +184,41 @@ impl BlockReaderIdExt for DbProvider {
     }
     fn header_by_number_or_tag(
         &self,
-        _id: BlockNumberOrTag,
+        id: BlockNumberOrTag,
     ) -> ProviderResult<Option<reth_primitives::Header>> {
-        unimplemented!("header_by_number_or_tag")
+        match id {
+            BlockNumberOrTag::Number(num) => {
+                let mut working_set = WorkingSet::new(self.storage.clone());
+                match self.evm.get_block_by_number(
+                    Some(BlockNumberOrTag::Number(num)),
+                    None,
+                    &mut working_set,
+                    &self.ledger_db,
+                ) {
+                    Ok(Some(block)) => Ok(Some(block.inner.header.into_consensus())),
+                    Ok(None) => Ok(None),
+                    Err(e) => Err(ProviderError::Database(
+                        alloy_primitives::hex::FromHexError::InvalidStringLength.into(),
+                    )),
+                }
+            }
+            BlockNumberOrTag::Latest | BlockNumberOrTag::Safe | BlockNumberOrTag::Finalized => {
+                let mut working_set = WorkingSet::new(self.storage.clone());
+                match self.evm.get_block_by_number(
+                    Some(BlockNumberOrTag::Latest),
+                    None,
+                    &mut working_set,
+                    &self.ledger_db,
+                ) {
+                    Ok(Some(block)) => Ok(Some(block.inner.header.into_consensus())),
+                    Ok(None) => Ok(None),
+                    Err(e) => Err(ProviderError::Database(
+                        alloy_primitives::hex::FromHexError::InvalidStringLength.into(),
+                    )),
+                }
+            }
+            _ => Ok(None),
+        }
     }
     fn ommers_by_id(&self, _id: BlockId) -> ProviderResult<Option<Vec<reth_primitives::Header>>> {
         unimplemented!("ommers_by_id")
@@ -341,7 +373,19 @@ impl BlockIdReader for DbProvider {
         unimplemented!("finalized_block_num_hash")
     }
     fn finalized_block_number(&self) -> ProviderResult<Option<BlockNumber>> {
-        unimplemented!("finalized_block_number")
+        // all blocks are considered finalized once they're committed
+        // Return the latest block number
+        let mut working_set = WorkingSet::new(self.storage.clone());
+        match self.evm.get_block_by_number(
+            Some(BlockNumberOrTag::Latest),
+            None,
+            &mut working_set,
+            &self.ledger_db,
+        ) {
+            Ok(Some(block)) => Ok(Some(block.inner.header.number)),
+            Ok(None) => Ok(None),
+            Err(_) => Ok(None),
+        }
     }
     fn pending_block_num_hash(&self) -> ProviderResult<Option<alloy_eips::BlockNumHash>> {
         unimplemented!("pending_block_num_hash")
@@ -544,38 +588,47 @@ impl StateProviderFactory for DbProvider {
         &self,
         _block: BlockHash,
     ) -> ProviderResult<reth_provider::StateProviderBox> {
-        unimplemented!("history_by_block_hash")
+        // Return self as the state provider
+        Ok(Box::new(self.clone()))
     }
+
     fn history_by_block_number(
         &self,
         _block: BlockNumber,
     ) -> ProviderResult<reth_provider::StateProviderBox> {
-        unimplemented!("history_by_block_number")
+        // Return self as the state provider
+        Ok(Box::new(self.clone()))
     }
+
     fn latest(&self) -> ProviderResult<reth_provider::StateProviderBox> {
         Ok(Box::new(self.clone()))
     }
+
     fn pending(&self) -> ProviderResult<reth_provider::StateProviderBox> {
         unimplemented!("pending")
     }
+
     fn pending_state_by_hash(
         &self,
         _block_hash: B256,
     ) -> ProviderResult<Option<reth_provider::StateProviderBox>> {
         unimplemented!("pending_state_by_hash")
     }
+
     fn state_by_block_hash(
         &self,
         _block: BlockHash,
     ) -> ProviderResult<reth_provider::StateProviderBox> {
         unimplemented!("state_by_block_hash")
     }
+
     fn state_by_block_id(
         &self,
         _block_id: BlockId,
     ) -> ProviderResult<reth_provider::StateProviderBox> {
         unimplemented!("state_by_block_id")
     }
+
     fn state_by_block_number_or_tag(
         &self,
         _number_or_tag: BlockNumberOrTag,
@@ -589,15 +642,18 @@ impl StateRootProvider for DbProvider {
     fn state_root(&self, _hashed_state: HashedPostState) -> ProviderResult<B256> {
         unimplemented!("state_root")
     }
+
     fn state_root_with_updates(
         &self,
         _hashed_state: HashedPostState,
     ) -> ProviderResult<(B256, TrieUpdates)> {
         unimplemented!("state_root_with_updates")
     }
+
     fn state_root_from_nodes(&self, _input: reth_trie::TrieInput) -> ProviderResult<B256> {
         unimplemented!("state_root_from_nodes")
     }
+
     fn state_root_from_nodes_with_updates(
         &self,
         _input: reth_trie::TrieInput,
