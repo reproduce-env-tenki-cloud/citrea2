@@ -18,6 +18,7 @@ use alloy_rpc_types::{BlockId, BlockNumberOrTag, EIP1186AccountProofResponse, Fi
 use alloy_rpc_types_trace::geth::{
     GethDebugTracingCallOptions, GethDebugTracingOptions, GethTrace, TraceResult,
 };
+use alloy_rpc_types_txpool::TxpoolContent;
 use citrea_batch_prover::rpc::{BatchProverRpcClient, ProvingJobResponse};
 use citrea_batch_prover::PartitionMode;
 use citrea_evm::EstimatedDiffSize;
@@ -26,6 +27,7 @@ use jsonrpsee::core::client::{ClientT, SubscriptionClientT};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use jsonrpsee::ws_client::{PingConfig, WsClient, WsClientBuilder};
+use serde_json::Value;
 use sov_db::schema::types::L2HeightAndIndex;
 use sov_ledger_rpc::{HexHash, LedgerRpcClient};
 use sov_rollup_interface::rpc::block::L2BlockResponse;
@@ -879,6 +881,64 @@ impl TestClient {
             .request("citrea_resumeCommitments", rpc_params![])
             .await?;
         Ok(())
+    }
+
+    /// Get the number of transactions in the mempool
+    pub(crate) async fn get_mempool_transaction_count(
+        &self,
+    ) -> Result<usize, Box<dyn std::error::Error>> {
+        let pool_content: TxpoolContent<Value> = self
+            .http_client
+            .request("txpool_content", rpc_params![])
+            .await?;
+
+        let pending_count = pool_content
+            .pending
+            .values()
+            .map(|account_txs| account_txs.len())
+            .sum::<usize>();
+        let queued_count = pool_content
+            .queued
+            .values()
+            .map(|account_txs| account_txs.len())
+            .sum::<usize>();
+
+        Ok(pending_count + queued_count)
+    }
+
+    /// Check if a specific transaction is in the mempool
+    pub(crate) async fn is_transaction_in_mempool(
+        &self,
+        tx_hash: TxHash,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let pool_content: TxpoolContent<Value> = self
+            .http_client
+            .request("txpool_content", rpc_params![])
+            .await?;
+
+        // Check pending transactions
+        for account_txs in pool_content.pending.values() {
+            for tx in account_txs.values() {
+                if let Some(hash) = tx.get("hash").and_then(|h| h.as_str()) {
+                    if hash == format!("{:?}", tx_hash) {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+
+        // Check queued transactions
+        for account_txs in pool_content.queued.values() {
+            for tx in account_txs.values() {
+                if let Some(hash) = tx.get("hash").and_then(|h| h.as_str()) {
+                    if hash == format!("{:?}", tx_hash) {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+
+        Ok(false)
     }
 }
 
