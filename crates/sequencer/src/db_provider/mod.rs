@@ -1,5 +1,6 @@
 use core::ops::RangeInclusive;
 use std::fmt::Debug;
+use std::ops::Bound;
 
 use alloy_eips::{BlockHashOrNumber, BlockId, BlockNumberOrTag};
 use alloy_genesis::Genesis;
@@ -160,10 +161,24 @@ impl OmmersProvider for DbProvider {
 impl BlockBodyIndicesProvider for DbProvider {
     fn block_body_indices(
         &self,
-        _num: u64,
+        num: u64,
     ) -> ProviderResult<Option<reth_db::models::StoredBlockBodyIndices>> {
-        unimplemented!("block_body_indices")
+        let mut working_set = WorkingSet::new(self.storage.clone());
+        let mut accessory_state = working_set.accessory_state();
+
+        // Get the block from EVM
+        let block = match self.evm.get_block_by_height(num, &mut accessory_state) {
+            Some(block) => block,
+            None => return Ok(None),
+        };
+
+        // Create StoredBlockBodyIndices from the block's transaction range
+        Ok(Some(reth_db::models::StoredBlockBodyIndices {
+            first_tx_num: block.transactions.start,
+            tx_count: (block.transactions.end - block.transactions.start) as u64,
+        }))
     }
+
     fn block_body_indices_range(
         &self,
         _range: RangeInclusive<BlockNumber>,
@@ -173,15 +188,75 @@ impl BlockBodyIndicesProvider for DbProvider {
 }
 
 impl BlockReaderIdExt for DbProvider {
-    fn block_by_id(&self, _id: BlockId) -> ProviderResult<Option<Self::Block>> {
-        unimplemented!("block_by_id")
+    fn block_by_id(&self, id: BlockId) -> ProviderResult<Option<Self::Block>> {
+        let block_number = match id {
+            BlockId::Hash(hash) => {
+                let mut working_set = WorkingSet::new(self.storage.clone());
+                match self.evm.get_block_by_hash(
+                    hash.block_hash,
+                    None,
+                    &mut working_set,
+                    &self.ledger_db,
+                ) {
+                    Ok(Some(block)) => block.header.number,
+                    _ => return Ok(None),
+                }
+            }
+            BlockId::Number(num_or_tag) => match num_or_tag {
+                BlockNumberOrTag::Number(n) => n,
+                BlockNumberOrTag::Latest => self.best_block_number()?,
+                BlockNumberOrTag::Finalized => match self.finalized_block_number()? {
+                    Some(n) => n,
+                    None => return Ok(None),
+                },
+                BlockNumberOrTag::Safe => match self.finalized_block_number()? {
+                    Some(n) => n,
+                    None => return Ok(None),
+                },
+                BlockNumberOrTag::Earliest => 0,
+                BlockNumberOrTag::Pending => {
+                    return Ok(None);
+                }
+            },
+        };
+
+        let mut working_set = WorkingSet::new(self.storage.clone());
+        let mut accessory_state = working_set.accessory_state();
+
+        let citrea_block = match self
+            .evm
+            .get_block_by_height(block_number, &mut accessory_state)
+        {
+            Some(block) => block,
+            None => return Ok(None),
+        };
+
+        let transactions =
+            match self.transactions_by_block(BlockHashOrNumber::Number(block_number))? {
+                Some(txs) => txs,
+                None => Vec::new(),
+            };
+
+        let header = citrea_block.header.unseal();
+
+        Ok(Some(reth_primitives::Block {
+            header,
+            body: reth_primitives::BlockBody {
+                transactions,
+                ommers: Vec::new(),
+                withdrawals: None,
+            },
+        }))
     }
+
     fn finalized_header(&self) -> ProviderResult<Option<reth_primitives::SealedHeader>> {
         unimplemented!("finalized_header")
     }
+
     fn header_by_id(&self, _id: BlockId) -> ProviderResult<Option<reth_primitives::Header>> {
         unimplemented!("header_by_id")
     }
+
     fn header_by_number_or_tag(
         &self,
         id: BlockNumberOrTag,
@@ -216,18 +291,22 @@ impl BlockReaderIdExt for DbProvider {
             _ => Ok(None),
         }
     }
+
     fn ommers_by_id(&self, _id: BlockId) -> ProviderResult<Option<Vec<reth_primitives::Header>>> {
         unimplemented!("ommers_by_id")
     }
+
     fn ommers_by_number_or_tag(
         &self,
         _id: BlockNumberOrTag,
     ) -> ProviderResult<Option<Vec<reth_primitives::Header>>> {
         unimplemented!("ommers_by_number_or_tag")
     }
+
     fn pending_header(&self) -> ProviderResult<Option<reth_primitives::SealedHeader>> {
         unimplemented!("pending_header")
     }
+
     /// Gets a sealed header by block ID
     ///
     /// # Arguments
@@ -279,27 +358,33 @@ impl HeaderProvider for DbProvider {
     fn header(&self, _block_hash: &BlockHash) -> ProviderResult<Option<Self::Header>> {
         unimplemented!("header")
     }
+
     fn header_by_number(&self, _num: u64) -> ProviderResult<Option<Self::Header>> {
         unimplemented!("header_by_number")
     }
+
     fn header_td(&self, _hash: &BlockHash) -> ProviderResult<Option<U256>> {
         unimplemented!("header_td")
     }
+
     fn header_td_by_number(&self, _number: BlockNumber) -> ProviderResult<Option<U256>> {
         unimplemented!("header_td_by_number")
     }
+
     fn headers_range(
         &self,
         _range: impl std::ops::RangeBounds<BlockNumber>,
     ) -> ProviderResult<Vec<Self::Header>> {
         unimplemented!("headers_range")
     }
+
     fn sealed_header(
         &self,
         _number: BlockNumber,
     ) -> ProviderResult<Option<SealedHeader<Self::Header>>> {
         unimplemented!("sealed_header")
     }
+
     fn sealed_headers_while(
         &self,
         _range: impl std::ops::RangeBounds<BlockNumber>,
@@ -313,6 +398,7 @@ impl BlockHashReader for DbProvider {
     fn block_hash(&self, _number: BlockNumber) -> ProviderResult<Option<B256>> {
         unimplemented!()
     }
+
     fn canonical_hashes_range(
         &self,
         _start: BlockNumber,
@@ -320,6 +406,7 @@ impl BlockHashReader for DbProvider {
     ) -> ProviderResult<Vec<B256>> {
         unimplemented!("canonical_hashes_range")
     }
+
     fn convert_block_hash(
         &self,
         _hash_or_number: BlockHashOrNumber,
@@ -332,21 +419,26 @@ impl BlockNumReader for DbProvider {
     fn best_block_number(&self) -> ProviderResult<BlockNumber> {
         unimplemented!("best_block_number")
     }
+
     fn block_number(&self, _hash: B256) -> ProviderResult<Option<BlockNumber>> {
         unimplemented!("block_number")
     }
+
     fn chain_info(&self) -> ProviderResult<ChainInfo> {
         unimplemented!("chain_info")
     }
+
     fn convert_hash_or_number(
         &self,
         _id: BlockHashOrNumber,
     ) -> ProviderResult<Option<BlockNumber>> {
         unimplemented!("convert_hash_or_number")
     }
+
     fn convert_number(&self, _id: BlockHashOrNumber) -> ProviderResult<Option<B256>> {
         unimplemented!("convert_number")
     }
+
     fn last_block_number(&self) -> ProviderResult<BlockNumber> {
         unimplemented!("last_block_number")
     }
@@ -356,18 +448,23 @@ impl BlockIdReader for DbProvider {
     fn block_hash_for_id(&self, _block_id: BlockId) -> ProviderResult<Option<B256>> {
         unimplemented!("block_hash_for_id")
     }
+
     fn block_number_for_id(&self, _block_id: BlockId) -> ProviderResult<Option<BlockNumber>> {
         unimplemented!("block_number_for_id")
     }
+
     fn convert_block_number(&self, _num: BlockNumberOrTag) -> ProviderResult<Option<BlockNumber>> {
         unimplemented!("convert_block_number")
     }
+
     fn finalized_block_hash(&self) -> ProviderResult<Option<B256>> {
         unimplemented!("finalized_block_hash")
     }
+
     fn finalized_block_num_hash(&self) -> ProviderResult<Option<alloy_eips::BlockNumHash>> {
         unimplemented!("finalized_block_num_hash")
     }
+
     fn finalized_block_number(&self) -> ProviderResult<Option<BlockNumber>> {
         // Finalized blocks are those included in commitments sent to DA layer
         match self.ledger_db.get_last_commitment() {
@@ -379,12 +476,15 @@ impl BlockIdReader for DbProvider {
     fn pending_block_num_hash(&self) -> ProviderResult<Option<alloy_eips::BlockNumHash>> {
         unimplemented!("pending_block_num_hash")
     }
+
     fn safe_block_hash(&self) -> ProviderResult<Option<B256>> {
         unimplemented!("safe_block_hash")
     }
+
     fn safe_block_num_hash(&self) -> ProviderResult<Option<alloy_eips::BlockNumHash>> {
         unimplemented!("safe_block_num_hash")
     }
+
     fn safe_block_number(&self) -> ProviderResult<Option<BlockNumber>> {
         unimplemented!("safe_block_number")
     }
@@ -395,6 +495,7 @@ impl BlockReader for DbProvider {
     fn block(&self, _id: BlockHashOrNumber) -> ProviderResult<Option<Self::Block>> {
         unimplemented!("block")
     }
+
     fn find_block_by_hash(
         &self,
         _hash: B256,
@@ -402,14 +503,17 @@ impl BlockReader for DbProvider {
     ) -> ProviderResult<Option<reth_primitives::Block>> {
         unimplemented!("find_block_by_hash")
     }
+
     fn pending_block(&self) -> ProviderResult<Option<reth_primitives::SealedBlock>> {
         unimplemented!("pending_block")
     }
+
     fn pending_block_and_receipts(
         &self,
     ) -> ProviderResult<Option<(reth_primitives::SealedBlock, Vec<reth_primitives::Receipt>)>> {
         unimplemented!("pending_block_and_receipts")
     }
+
     fn recovered_block(
         &self,
         _id: BlockHashOrNumber,
@@ -417,15 +521,18 @@ impl BlockReader for DbProvider {
     ) -> ProviderResult<Option<RecoveredBlock<Self::Block>>> {
         unimplemented!("recovered_block")
     }
+
     fn block_range(
         &self,
         _range: std::ops::RangeInclusive<BlockNumber>,
     ) -> ProviderResult<Vec<reth_primitives::Block>> {
         unimplemented!("block_range")
     }
+
     fn pending_block_with_senders(&self) -> ProviderResult<Option<RecoveredBlock<Self::Block>>> {
         unimplemented!("pending_block_with_senders")
     }
+
     fn block_with_senders_range(
         &self,
         _range: RangeInclusive<BlockNumber>,
@@ -453,16 +560,47 @@ impl TransactionsProvider for DbProvider {
     type Transaction = reth_primitives::TransactionSigned;
     fn senders_by_tx_range(
         &self,
-        _range: impl std::ops::RangeBounds<TxNumber>,
+        range: impl std::ops::RangeBounds<TxNumber>,
     ) -> ProviderResult<Vec<Address>> {
-        unimplemented!("senders_by_tx_range")
+        // Convert range bounds to concrete start and end indices
+        let start = match range.start_bound() {
+            Bound::Included(&n) => n,
+            Bound::Excluded(&n) => n + 1,
+            Bound::Unbounded => 0,
+        };
+
+        let end = match range.end_bound() {
+            Bound::Included(&n) => n + 1,
+            Bound::Excluded(&n) => n,
+            Bound::Unbounded => {
+                // For unbounded end, we don't know the total count
+                // TODO: Maybe get transactions and .len() them to get all?
+                return Ok(Vec::new());
+            }
+        };
+
+        let mut working_set = WorkingSet::new(self.storage.clone());
+        let mut accessory_state = working_set.accessory_state();
+
+        // Get the transactions in the range
+        let transactions = self
+            .evm
+            .get_block_transactions(start, end, &mut accessory_state);
+
+        // Extract senders
+        let senders: Vec<Address> = transactions.iter().map(|tx| tx.signer).collect();
+
+        Ok(senders)
     }
+
     fn transaction_block(&self, _id: TxNumber) -> ProviderResult<Option<BlockNumber>> {
         unimplemented!("transaction_block")
     }
+
     fn transaction_by_hash(&self, _hash: TxHash) -> ProviderResult<Option<Self::Transaction>> {
         unimplemented!("transaction_by_hash")
     }
+
     fn transaction_by_hash_with_meta(
         &self,
         _hash: TxHash,
@@ -474,33 +612,77 @@ impl TransactionsProvider for DbProvider {
     > {
         unimplemented!("transaction_by_hash_with_meta")
     }
+
     fn transaction_by_id(&self, _id: TxNumber) -> ProviderResult<Option<Self::Transaction>> {
         unimplemented!("transaction_by_id")
     }
+
     fn transaction_by_id_unhashed(
         &self,
         _id: TxNumber,
     ) -> ProviderResult<Option<Self::Transaction>> {
         unimplemented!("transaction_by_id_unhashed")
     }
+
     fn transaction_id(&self, _tx_hash: TxHash) -> ProviderResult<Option<TxNumber>> {
         unimplemented!("transaction_id")
     }
+
     fn transaction_sender(&self, _id: TxNumber) -> ProviderResult<Option<Address>> {
         unimplemented!("transaction_sender")
     }
+
     fn transactions_by_block(
         &self,
-        _block: BlockHashOrNumber,
+        block: BlockHashOrNumber,
     ) -> ProviderResult<Option<Vec<Self::Transaction>>> {
-        unimplemented!("transactions_by_block")
+        // Convert BlockHashOrNumber to block number
+        let block_number = match block {
+            BlockHashOrNumber::Hash(hash) => {
+                let mut working_set = WorkingSet::new(self.storage.clone());
+                match self
+                    .evm
+                    .get_block_by_hash(hash, None, &mut working_set, &self.ledger_db)
+                {
+                    Ok(Some(block)) => block.header.number,
+                    _ => return Ok(None),
+                }
+            }
+            BlockHashOrNumber::Number(num) => num,
+        };
+
+        let mut working_set = WorkingSet::new(self.storage.clone());
+        let mut accessory_state = working_set.accessory_state();
+        let block = match self
+            .evm
+            .get_block_by_height(block_number, &mut accessory_state)
+        {
+            Some(block) => block,
+            None => return Ok(None),
+        };
+
+        let transactions = self.evm.get_block_transactions(
+            block.transactions.start,
+            block.transactions.end,
+            &mut accessory_state,
+        );
+
+        // Convert TransactionSignedAndRecovered to TransactionSigned
+        let signed_transactions: Vec<Self::Transaction> = transactions
+            .into_iter()
+            .map(|tx| tx.signed_transaction)
+            .collect();
+
+        Ok(Some(signed_transactions))
     }
+
     fn transactions_by_block_range(
         &self,
         _range: impl std::ops::RangeBounds<BlockNumber>,
     ) -> ProviderResult<Vec<Vec<Self::Transaction>>> {
         unimplemented!("transactions_by_block_range")
     }
+
     fn transactions_by_tx_range(
         &self,
         _range: impl std::ops::RangeBounds<TxNumber>,
@@ -514,15 +696,55 @@ impl ReceiptProvider for DbProvider {
     fn receipt(&self, _id: TxNumber) -> ProviderResult<Option<Self::Receipt>> {
         unimplemented!("receipt")
     }
+
     fn receipt_by_hash(&self, _hash: TxHash) -> ProviderResult<Option<Self::Receipt>> {
         unimplemented!("receipt_by_hash")
     }
+
     fn receipts_by_block(
         &self,
-        _block: BlockHashOrNumber,
+        block: BlockHashOrNumber,
     ) -> ProviderResult<Option<Vec<Self::Receipt>>> {
-        unimplemented!("receipts_by_block")
+        // Convert BlockHashOrNumber to block number
+        let block_number = match block {
+            BlockHashOrNumber::Hash(hash) => {
+                let mut working_set = WorkingSet::new(self.storage.clone());
+                match self
+                    .evm
+                    .get_block_by_hash(hash, None, &mut working_set, &self.ledger_db)
+                {
+                    Ok(Some(block)) => block.header.number,
+                    _ => return Ok(None),
+                }
+            }
+            BlockHashOrNumber::Number(num) => num,
+        };
+
+        let mut working_set = WorkingSet::new(self.storage.clone());
+        let mut accessory_state = working_set.accessory_state();
+        let block = match self
+            .evm
+            .get_block_by_height(block_number, &mut accessory_state)
+        {
+            Some(block) => block,
+            None => return Ok(None),
+        };
+
+        let citrea_receipts = self.evm.get_block_receipts_range(
+            block.transactions.start,
+            block.transactions.end,
+            &mut accessory_state,
+        );
+
+        // Convert CitreaReceiptWithBloom to Receipt using From trait
+        let reth_receipts: Vec<Self::Receipt> = citrea_receipts
+            .iter()
+            .map(|receipt| receipt.into())
+            .collect();
+
+        Ok(Some(reth_receipts))
     }
+
     fn receipts_by_tx_range(
         &self,
         _range: impl std::ops::RangeBounds<TxNumber>,
