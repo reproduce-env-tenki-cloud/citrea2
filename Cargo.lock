@@ -2679,6 +2679,7 @@ dependencies = [
  "sov-rollup-interface",
  "sov-state",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-subscriber 0.3.19",
 ]
