@@ -28,7 +28,9 @@ pub(crate) mod call;
 #[cfg(all(test, feature = "native"))]
 mod tests;
 
-pub use primitive_types::RlpEvmTransaction;
+pub use primitive_types::{
+    CitreaReceiptWithBloom, RlpEvmTransaction, SealedBlock, TransactionSignedAndRecovered,
+};
 use sov_state::codec::BorshCodec;
 
 #[cfg(all(test, feature = "native"))]
