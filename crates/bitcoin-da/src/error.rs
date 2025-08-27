@@ -28,6 +28,9 @@ pub enum BitcoinServiceError {
     /// Missing previous UTXOs.
     #[error("Missing previous UTXOs")]
     MissingPreviousUTXO,
+    /// Fee calculation fails to meet min relay fee
+    #[error("Fee calculation error. Doesn't meet min relay fee rate of {0}")]
+    FeeCalculation(u64),
     /// Monitoring error.
     #[error("Monitoring error: {0}")]
     MonitorError(#[from] MonitorError),
@@ -66,6 +69,9 @@ pub enum MempoolRejection {
     /// Sent package of txs resulted in too many transactions in mempool. (ascendant/descendant limit)
     #[error("Transaction rejected: package-mempool-limits")]
     PackageMempoolLimits,
+    #[error("Transaction rejected: too-long-mempool-chain")]
+    /// Sent package of txs resulted in too long mempool chain. (ascendant/descendant limit)
+    TooLongMempoolChain,
     /// Other mempool rejection reason.
     #[error("Transaction rejected by mempool: {0}")]
     Other(String),
@@ -82,6 +88,8 @@ impl MempoolRejection {
             MempoolRejection::PackageTooManyTransactions
         } else if reason.contains("package-mempool-limits") {
             MempoolRejection::PackageMempoolLimits
+        } else if reason.contains("too-long-mempool-chain") {
+            MempoolRejection::TooLongMempoolChain
         } else {
             MempoolRejection::Other(reason.to_string())
         }
