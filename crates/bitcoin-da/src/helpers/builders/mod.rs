@@ -10,7 +10,6 @@ mod tests;
 
 use core::fmt;
 use core::result::Result::Ok;
-use std::collections::HashSet;
 
 use anyhow::anyhow;
 use bitcoin::absolute::LockTime;
@@ -58,7 +57,7 @@ impl fmt::Debug for TxWithId {
 #[instrument(level = "trace", skip(utxos), err)]
 fn build_commit_transaction(
     prev_utxo: Option<UTXO>, // reuse outputs to add commit tx order
-    mut utxos: Vec<UTXO>,
+    utxos: Vec<UTXO>,
     recipient: Address,
     change_address: Address,
     output_value: u64,
@@ -88,13 +87,6 @@ fn build_commit_transaction(
             },
         ],
     );
-
-    if let Some(req_utxo) = &prev_utxo {
-        // if we don't do this, then we might end up using the required utxo twice
-        // which would yield an invalid transaction
-        // however using a different txo from the same tx is fine.
-        utxos.retain(|utxo| !(utxo.vout == req_utxo.vout && utxo.tx_id == req_utxo.tx_id));
-    }
 
     let mut iteration = 0;
     let mut last_size = size;
@@ -420,47 +412,68 @@ fn choose_utxos(
     let mut chosen_utxos = vec![];
     let mut sum = 0;
 
-    // First include a required utxo
+    // First include required utxo if specified
     if let Some(required) = required_utxo {
-        let req_amount = required.amount;
-        chosen_utxos.push(required);
-        sum += req_amount;
-    }
-    if sum >= amount {
-        return Ok((chosen_utxos, sum, utxos.to_vec()));
+        chosen_utxos.push(required.clone());
+        sum += required.amount;
     }
 
-    let remaining_amount = amount - sum;
-    let mut bigger_utxos: Vec<&UTXO> = utxos
+    // Check if we already have enough with just the required UTXO
+    if sum >= amount {
+        // Filter out the chosen UTXOs (just the required one) from the original list
+        let leftovers = utxos
+            .iter()
+            .filter(|u| {
+                !chosen_utxos
+                    .iter()
+                    .any(|chosen| chosen.tx_id == u.tx_id && chosen.vout == u.vout)
+            })
+            .cloned()
+            .collect();
+        return Ok((chosen_utxos, sum, leftovers));
+    }
+
+    // Filter available UTXOs (excluding any already chosen)
+    let available_utxos: Vec<&UTXO> = utxos
         .iter()
-        .filter(|utxo| utxo.amount >= remaining_amount)
+        .filter(|u| {
+            !chosen_utxos
+                .iter()
+                .any(|chosen| chosen.tx_id == u.tx_id && chosen.vout == u.vout)
+        })
         .collect();
 
-    if !bigger_utxos.is_empty() {
-        // sort vec by amount (small first)
-        bigger_utxos.sort_by(|a, b| a.amount.cmp(&b.amount));
+    // Find UTXOs that can cover remaining amount alone
+    let remaining_needed = amount - sum;
+    let mut adequate_utxos: Vec<&UTXO> = available_utxos
+        .iter()
+        .filter(|u| u.amount >= remaining_needed)
+        .copied()
+        .collect();
 
-        // single utxo will be enough
-        // so return the transaction
-        let utxo = bigger_utxos[0];
-        sum += utxo.amount;
-        chosen_utxos.push(utxo.clone());
+    if !adequate_utxos.is_empty() {
+        // Sort by amount ascending (choose smallest sufficient UTXO)
+        adequate_utxos.sort_by(|a, b| a.amount.cmp(&b.amount));
+        let best_utxo = adequate_utxos[0];
+        chosen_utxos.push(best_utxo.clone());
+        sum += best_utxo.amount;
     } else {
-        let mut smaller_utxos: Vec<&UTXO> = utxos
+        // Use multiple smaller UTXOs to reach target
+        let mut smaller_utxos: Vec<&UTXO> = available_utxos
             .iter()
-            .filter(|utxo| utxo.amount < remaining_amount)
+            .filter(|u| u.amount < remaining_needed)
+            .copied()
             .collect();
 
-        // sort vec by amount (large first)
+        // Sort descending to use larger UTXOs first
         smaller_utxos.sort_by(|a, b| b.amount.cmp(&a.amount));
 
         for utxo in smaller_utxos {
-            sum += utxo.amount;
-            chosen_utxos.push(utxo.clone());
-
             if sum >= amount {
                 break;
             }
+            chosen_utxos.push(utxo.clone());
+            sum += utxo.amount;
         }
 
         if sum < amount {
@@ -468,10 +481,16 @@ fn choose_utxos(
         }
     }
 
-    let input_set: HashSet<_> = utxos.iter().collect();
-    let chosen_set: HashSet<_> = chosen_utxos.iter().collect();
-    let leftovers_set = input_set.difference(&chosen_set);
-    let leftovers: Vec<_> = leftovers_set.copied().cloned().collect();
+    // Calculate leftovers by filtering out chosen UTXOs
+    let leftovers = utxos
+        .iter()
+        .filter(|u| {
+            !chosen_utxos
+                .iter()
+                .any(|chosen| chosen.tx_id == u.tx_id && chosen.vout == u.vout)
+        })
+        .cloned()
+        .collect();
 
     Ok((chosen_utxos, sum, leftovers))
 }
