@@ -5,7 +5,6 @@ use alloy_primitives::{Address, TxHash};
 use citrea_common::SequencerMempoolConfig;
 use citrea_evm::SYSTEM_SIGNER;
 use citrea_primitives::MIN_BASE_FEE_PER_GAS;
-use reth_execution_types::ChangedAccount;
 use reth_tasks::TaskExecutor;
 use reth_transaction_pool::blobstore::NoopBlobStore;
 use reth_transaction_pool::error::{PoolError, PoolErrorKind};
@@ -139,13 +138,6 @@ impl CitreaMempool {
         self.0.remove_transactions_by_sender(sender)
     }
 
-    /// Performs account updates on the pool.
-    ///
-    /// This will either promote or discard transactions based on the new account state.
-    pub(crate) fn update_accounts(&self, account_updates: Vec<ChangedAccount>) {
-        self.0.update_accounts(account_updates);
-    }
-
     /// Gets the best transactions from the mempool with specific attributes
     ///
     /// # Arguments
@@ -182,10 +174,5 @@ impl CitreaMempool {
     /// including base fee which affects transaction ordering and validation
     pub(crate) fn set_block_info(&self, info: BlockInfo) {
         self.0.set_block_info(info);
-    }
-
-    /// Returns the current block info the pool is tracking
-    pub(crate) fn block_info(&self) -> BlockInfo {
-        self.0.block_info()
     }
 }

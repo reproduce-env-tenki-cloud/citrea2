@@ -175,7 +175,7 @@ impl BlockBodyIndicesProvider for DbProvider {
         // Create StoredBlockBodyIndices from the block's transaction range
         Ok(Some(reth_db::models::StoredBlockBodyIndices {
             first_tx_num: block.transactions.start,
-            tx_count: (block.transactions.end - block.transactions.start) as u64,
+            tx_count: block.transactions.end - block.transactions.start,
         }))
     }
 
@@ -231,11 +231,9 @@ impl BlockReaderIdExt for DbProvider {
             None => return Ok(None),
         };
 
-        let transactions =
-            match self.transactions_by_block(BlockHashOrNumber::Number(block_number))? {
-                Some(txs) => txs,
-                None => Vec::new(),
-            };
+        let transactions = self
+            .transactions_by_block(BlockHashOrNumber::Number(block_number))?
+            .unwrap_or_default();
 
         let header = citrea_block.header.unseal();
 
