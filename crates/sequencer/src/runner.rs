@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec;
 
 use alloy_eips::eip2718::Encodable2718;
 use alloy_eips::{BlockHashOrNumber, BlockId, BlockNumberOrTag};
-use alloy_primitives::{Bytes, TxHash, B256, U256};
+use alloy_primitives::{keccak256, Address, Bytes, TxHash, B256, U256};
 use anyhow::{anyhow, bail};
 use backoff::future::retry as retry_backoff;
 use backoff::ExponentialBackoffBuilder;
@@ -34,7 +35,8 @@ use reth_transaction_pool::{
     BestTransactions, BestTransactionsAttributes, BlockInfo, EthPooledTransaction, PoolTransaction,
     ValidPoolTransaction,
 };
-use revm::database::BundleState;
+use revm::database::{BundleAccount, BundleState};
+use revm::state::AccountInfo as ReVmAccountInfo;
 use sov_accounts::Accounts;
 use sov_accounts::Response::{AccountEmpty, AccountExists};
 use sov_db::ledger_db::{LedgerDB, SequencerLedgerOps, SharedLedgerOps};
@@ -55,7 +57,7 @@ use sov_rollup_interface::stf::{L2BlockResult, StateTransitionError};
 use sov_rollup_interface::transaction::Transaction;
 use sov_rollup_interface::zk::StorageRootHash;
 use sov_state::storage::NativeStorage;
-use sov_state::ProverStorage;
+use sov_state::{ProverStorage, ReadWriteLog};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{broadcast, mpsc};
 use tracing::level_filters::LevelFilter;
@@ -566,6 +568,9 @@ where
             evm_txs_count
         );
 
+        // Extract account state changes for mempool maintenance
+        let bundle_state = self.extract_bundle_state_from_state_log(&l2_block_result.state_log);
+
         // First set the state diff before committing the L2 block
         // This prevents race conditions where the sequencer might shut down
         // between committing the L2 block and saving the state diff
@@ -599,7 +604,7 @@ where
         });
 
         // Get actual receipts and senders from the saved block
-        // This data is used to notify the mempool maintenance task about mined transactions
+        // This data is used to notify the mempool maintenance task about included transactions
         let (senders, reth_receipts) = {
             // Get receipts using the standard ReceiptProvider trait method
             let reth_receipts = self
@@ -632,6 +637,7 @@ where
             B256::from_slice(&self.l2_block_hash),
             senders,
             reth_receipts,
+            bundle_state,
         ) {
             // Send canonical state notification for mempool maintenance task
             let _ = self.canon_state_tx.send(CanonStateNotification::Commit {
@@ -845,53 +851,100 @@ where
         Ok(())
     }
 
+    /// Extracts EVM account changes from the state log to create a BundleState
+    fn extract_bundle_state_from_state_log(&self, state_log: &ReadWriteLog) -> BundleState {
+        let mut bundle_state = BundleState::default();
+        let mut account_id_to_address: HashMap<u64, alloy_primitives::Address> = HashMap::new();
+        let mut account_id_to_info: HashMap<u64, AccountInfo> = HashMap::new();
+
+        // Parse reads for existing account mappings
+        for (cache_key, cache_value) in state_log.ordered_reads() {
+            if cache_key.key.starts_with(b"E/i/") {
+                if let Some(value) = cache_value {
+                    let encoded_addr = &cache_key.key[4..];
+                    if let Ok(addr_bytes) = borsh::from_slice::<[u8; 20]>(encoded_addr) {
+                        let address = Address::from_slice(&addr_bytes);
+                        if let Ok(account_id) = borsh::from_slice::<u64>(&value.value) {
+                            account_id_to_address.insert(account_id, address);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Parse writes for new mappings and account info changes
+        for (cache_key, cache_value) in state_log.iter_ordered_writes() {
+            if cache_key.key.starts_with(b"E/i/") {
+                if let Some(value) = cache_value {
+                    let encoded_addr = &cache_key.key[4..];
+                    if let Ok(addr_bytes) = borsh::from_slice::<[u8; 20]>(encoded_addr) {
+                        let address = Address::from_slice(&addr_bytes);
+                        if let Ok(account_id) = borsh::from_slice::<u64>(&value.value) {
+                            account_id_to_address.insert(account_id, address);
+                        }
+                    }
+                }
+            } else if cache_key.key.starts_with(b"E/a/") {
+                if let Some(value) = cache_value {
+                    let encoded_id = &cache_key.key[4..];
+                    if let Ok(account_id) = borsh::from_slice::<u64>(encoded_id) {
+                        if let Ok(account_info) = borsh::from_slice::<AccountInfo>(&value.value) {
+                            account_id_to_info.insert(account_id, account_info);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (account_id, account_info) in account_id_to_info {
+            if let Some(&address) = account_id_to_address.get(&account_id) {
+                let revm_info = ReVmAccountInfo {
+                    balance: account_info.balance,
+                    nonce: account_info.nonce,
+                    code_hash: account_info.code_hash.unwrap_or_else(|| keccak256([])),
+                    code: None,
+                };
+
+                let bundle_account = BundleAccount {
+                    info: Some(revm_info),
+                    storage: Default::default(),
+                    original_info: None,
+                    status: Default::default(),
+                };
+
+                bundle_state.state.insert(address, bundle_account);
+            }
+        }
+
+        bundle_state
+    }
+
     /// Creates a Chain notification from the produced L2 block
-    ///
-    /// This creates a minimal but valid Chain structure that contains the block
-    /// information needed by the maintenance task to remove mined transactions.
     fn create_chain_notification(
         &self,
         l2_height: u64,
         block_hash: alloy_primitives::B256,
         senders: Vec<alloy_primitives::Address>,
         receipts: Vec<Receipt>,
+        bundle_state: BundleState,
     ) -> anyhow::Result<Chain> {
-        // Get the actual block from DbProvider using block_by_id
         let block = self
             .db_provider
             .block_by_id(BlockId::Number(BlockNumberOrTag::Number(l2_height)))?
             .ok_or(anyhow!("Block {} must exist after saving", l2_height))?;
 
-        // Create sealed block with the actual block hash
         let sealed_block = SealedBlock::new_unchecked(block, block_hash);
-
-        // Create recovered block with the actual sender addresses from our transactions
         let recovered_block = RecoveredBlock::new_sealed(sealed_block, senders);
 
-        // Create a minimal ExecutionOutcome
-        // The bundle state can be empty as we're not using it for state changes
-        let bundle_state = BundleState::default();
+        let execution_outcome =
+            ExecutionOutcome::new(bundle_state, vec![receipts], l2_height, vec![]);
 
-        // Create ExecutionOutcome with the receipts from this block
-        let execution_outcome = ExecutionOutcome::new(
-            bundle_state,
-            vec![receipts], // One block worth of receipts
-            l2_height,
-            vec![], // No EIP-7685 requests in Citrea
-        );
-
-        // Create Chain with single block
         let chain = Chain::from_block(recovered_block, execution_outcome, None);
 
         Ok(chain)
     }
 
     /// Handles cleanup for L1 fee failed transactions and persistent storage
-    ///
-    /// Mined transaction removal from the mempool is handled by the maintenance task
-    /// through canonical state notifications. This function only handles:
-    /// - Remove L1 fee failed transactions from mempool
-    /// - Clean up persistent storage for both mined and failed transactions
     ///
     /// # Arguments
     /// * `l1_fee_failed_txs` - Transactions that failed due to L1 fee issues
@@ -904,11 +957,8 @@ where
             self.mempool.remove_transactions(l1_fee_failed_txs.clone());
         }
 
-        // Get mined transactions for persistent storage cleanup
-        let mined_txs = self.db_provider.last_block_tx_hashes()?;
-
-        // Clean up persistent storage for both mined and failed transactions
-        let mut txs_to_remove = mined_txs;
+        // Clean up persistent storage for both included and failed transactions
+        let mut txs_to_remove = self.db_provider.last_block_tx_hashes()?;
         txs_to_remove.extend(l1_fee_failed_txs);
 
         // Remove transactions from persistent storage

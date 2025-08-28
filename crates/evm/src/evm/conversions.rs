@@ -148,9 +148,6 @@ pub(crate) fn sealed_block_to_block_env(
 }
 
 /// Converts CitreaReceiptWithBloom to Reth Receipt
-///
-/// This conversion extracts the necessary fields from the Citrea-specific receipt
-/// structure to create a standard Reth receipt for mempool operations.
 impl From<&CitreaReceiptWithBloom> for reth_primitives::Receipt {
     fn from(receipt: &CitreaReceiptWithBloom) -> Self {
         Self {
