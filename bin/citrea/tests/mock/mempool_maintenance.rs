@@ -9,6 +9,7 @@ use alloy_rpc_types::BlockNumberOrTag;
 use citrea_common::SequencerConfig;
 use citrea_stf::genesis_config::GenesisPaths;
 use reth_tasks::TaskManager;
+use sov_db::ledger_db::migrations::copy_db_dir_recursive;
 
 use crate::common::client::TestClient;
 use crate::common::helpers::{
@@ -575,8 +576,12 @@ async fn test_persistent_storage_cleanup() {
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
+    let sequencer_copy_dir = db_dir.path().join("sequencer_copy").to_path_buf();
+    copy_db_dir_recursive(&sequencer_db_dir, &sequencer_copy_dir)
+        .expect("Failed to copy sequencer database");
+
     {
-        let (seq_task, test_client) = initialize_test(sequencer_db_dir, da_db_dir).await;
+        let (seq_task, test_client) = initialize_test(sequencer_copy_dir, da_db_dir).await;
 
         // Wait for sequencer startup
         tokio::time::sleep(Duration::from_millis(1000)).await;
