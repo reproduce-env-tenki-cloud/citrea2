@@ -150,11 +150,6 @@ pub(crate) fn sealed_block_to_block_env(
 /// Converts CitreaReceiptWithBloom to Reth Receipt
 impl From<&CitreaReceiptWithBloom> for reth_primitives::Receipt {
     fn from(receipt: &CitreaReceiptWithBloom) -> Self {
-        Self {
-            tx_type: receipt.receipt.receipt.tx_type,
-            success: receipt.receipt.receipt.success,
-            cumulative_gas_used: receipt.receipt.receipt.cumulative_gas_used,
-            logs: receipt.receipt.receipt.logs.clone(),
-        }
+        receipt.receipt.receipt.clone()
     }
 }
