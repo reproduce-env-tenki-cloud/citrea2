@@ -3795,6 +3795,7 @@ dependencies = [
  "alloy-primitives 0.8.25",
  "anyhow",
  "async-trait",
+ "backoff",
  "bincode",
  "bonsai-sdk",
  "borsh",

@@ -3,6 +3,8 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use anyhow::Context;
+use backoff::future::retry as retry_backoff;
+use backoff::ExponentialBackoff;
 use boundless_market::alloy::primitives::U256;
 use boundless_market::client::{Client, ClientBuilder, ClientError};
 use boundless_market::contracts::boundless_market::MarketError;
@@ -26,6 +28,11 @@ use uuid::Uuid;
 
 use super::config::{get_boundless_builtin_storage_provider, BoundlessConfig};
 use crate::host::pricing_service::{PriceResponse, PricingService};
+
+enum ResubmitResult {
+    Retry,
+    Success,
+}
 
 #[derive(Clone)]
 pub struct BoundlessProver {
@@ -62,9 +69,7 @@ impl BoundlessProver {
         // Otherwise first tries to parse pinata env variables
         // If fails then tries to parse s3 env variables
         // If the environment variable `RISC0_DEV_MODE` is set, a temporary file storage provider is used.
-        // Otherwise, the following environment variables are checked in order:
-        // - `PINATA_JWT`, `PINATA_API_URL`, `IPFS_GATEWAY_URL`: Pinata storage provider;
-        // - `S3_ACCESS`, `S3_SECRET`, `S3_BUCKET`, `S3_URL`, `AWS_REGION`: S3 storage provider.
+        // Otherwise, the environment variables in `BoundlessPinataStorageConfig` or `BoundlessS3StorageConfig` is checked
         let storage_provider = get_boundless_builtin_storage_provider().await?;
 
         // Create a Boundless client from the provided parameters.
@@ -151,12 +156,26 @@ impl BoundlessProver {
         })
         .await??;
 
+        let exponential_backoff = ExponentialBackoff::default();
         let PriceResponse {
             min_price,
             max_price,
             lock_timeout,
             max_possible_price,
-        } = self.pricing_service.get_price(mcycles_count).await?;
+        } = retry_backoff(exponential_backoff, || async move {
+            self.pricing_service
+                .get_price(mcycles_count)
+                .await
+                .map_err(backoff::Error::transient)
+        })
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to get price from pricing service for job: {}  | err={}",
+                job_id,
+                e
+            )
+        })?;
 
         let lock_timeout = cmp::max(lock_timeout, 200); // at least 200 seconds
 
@@ -214,14 +233,14 @@ impl BoundlessProver {
             )
             .with_offer(
                 Offer::default()
+                    // TODO: I think zero here is ok
                     .with_min_price_per_mcycle(U256::ZERO, mcycles_count)
                     .with_max_price_per_mcycle(max_price_per_mcycle, mcycles_count)
-                    .with_timeout((lock_timeout * 2) as u32) // The offer should be taken in 24 hours
-                    .with_lock_timeout(lock_timeout as u32) // The proof should be generated in 12 hours
+                    .with_lock_timeout(lock_timeout as u32)
+                    .with_timeout((lock_timeout * 4) as u32)
                     .with_ramp_up_period(ramp_up_period as u32)
                     .with_bidding_start(current_timestamp_as_secs() + 50)
-                    // https://github.com/boundless-xyz/boundless/blob/628af072d8ed67a7503e112c8dc09e0d4665f711/documentation/site/pages/developers/tutorials/request.mdx?plain=1#L305
-                    // https://github.com/boundless-xyz/boundless/blob/628af072d8ed67a7503e112c8dc09e0d4665f711/documentation/site/pages/developers/tutorials/request.mdx?plain=1#L347C16-L347C35
+                    // https://github.com/boundless-xyz/boundless/blob/5e7ac7ddce4f54a146c607e2627302472706261b/crates/boundless-market/src/request_builder/offer_layer.rs#L66
                     .with_lock_stake(U256::from(3u64)),
             )
     }
@@ -341,13 +360,19 @@ impl BoundlessProver {
                         )
                         .await
                         {
-                            Ok(_) => {
-                                tracing::info!(
+                            Ok(res) => {
+                                if matches!(res, ResubmitResult::Success) {
+                                    tracing::info!(
                                     "Resubmitted boundless proving session job: {} | Boundless request id: {}",
                                     job_id,
                                     request_id
                                 );
-
+                            }
+                                tracing::info!(
+                                    "Resubmit boundless proving session Failed with job id: {}, and boundless request id: {} retrying...",
+                                    job_id,
+                                    request_id
+                                );
                                 continue;
                             }
                             Err(e) => {
@@ -383,7 +408,7 @@ impl BoundlessProver {
         mcycles_count: u64,
         image_id: Digest,
         receipt_type: ReceiptType,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<ResubmitResult> {
         // Remove failed job from pending boundless sessions
         self.ledger_db
             .remove_pending_boundless_session(job_id)
@@ -407,21 +432,39 @@ impl BoundlessProver {
                 job_id,
                 request_id
             );
-            return Ok(());
+            return Ok(ResubmitResult::Retry);
         };
 
         // Retrieve the maximum possible price again from the pricing service as the price of ether may have changed.
-        let max_possible_price = match self.pricing_service.get_price(mcycles_count).await {
-            Ok(price) => price.max_possible_price,
-            Err(_) => {
-                tracing::error!(
-                    "Failed to get max possible price for job: {} request_id: {}",
-                    job_id,
-                    request_id,
-                );
-                return Ok(());
+        let exponential_backoff = ExponentialBackoff::default();
+
+        let PriceResponse {
+            min_price,
+            max_price,
+            lock_timeout,
+            max_possible_price,
+        } = retry_backoff(exponential_backoff, || async move {
+            match self.pricing_service.get_price(mcycles_count).await {
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to get price from pricing service for job: {}  | err={}",
+                        job_id,
+                        e
+                    );
+                    return Err(backoff::Error::transient(e));
+                }
+                Ok(res) => Ok(res),
             }
-        };
+        })
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to get price from pricing service for job: {} request_id: {} | err={}",
+                job_id,
+                request_id,
+                e
+            )
+        })?;
 
         // TODO: https://github.com/chainwayxyz/citrea/issues/2417
         // Define new request with updated parameters
@@ -440,7 +483,7 @@ impl BoundlessProver {
                         request_id,
                         e
                     );
-                    return Ok(());
+                    return Ok(ResubmitResult::Retry);
                 }
             };
             // Get old parameters from the failed order
@@ -503,7 +546,7 @@ impl BoundlessProver {
                 job_id,
                 request_id
             );
-            return Ok(());
+            return Ok(ResubmitResult::Retry);
         };
 
         // Update request_id and request_expiry for the next iteration
@@ -518,7 +561,7 @@ impl BoundlessProver {
             new_max_price_per_mcycle,
             new_lock_timeout
         );
-        Ok(())
+        Ok(ResubmitResult::Success)
     }
 
     async fn handle_session(
