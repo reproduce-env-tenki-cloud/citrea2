@@ -139,7 +139,7 @@ where
         let proof_start_time = std::time::Instant::now();
         let proof_rx = make_proof(vm, job_id, elf, self.proof_mode, receipt_type)
             .await
-            .context("Failed to start proving")?;
+            .map_err(|e| anyhow::anyhow!(format!("Failed to start proving: {e}")))?;
         debug!("Started proving job");
 
         let (tx, rx) = oneshot::channel();

@@ -105,6 +105,15 @@ impl BoundlessProver {
             .encode()
             .context("Failed to encode input for boundless proving")?;
 
+        // Deposit to contract
+        // let deposit_amount = U256::from(1e15 as u64); // 0.001eth
+        // let market = self.client.boundless_market.clone();
+        // market.deposit(deposit_amount).await?;
+        // tracing::info!(
+        //     "Successfully deposited {} ETH",
+        //     alloy_primitives::utils::format_units(deposit_amount, "ether")?
+        // );
+
         // Upload input
         let input_url = self.client.upload_input(&guest_env).await?;
         tracing::info!("Uploaded input to {}", input_url);
@@ -149,6 +158,8 @@ impl BoundlessProver {
             max_possible_price,
         } = self.pricing_service.get_price(mcycles_count).await?;
 
+        let lock_timeout = cmp::max(lock_timeout, 200); // at least 200 seconds
+
         let request = self.build_proof_request(
             image_id,
             journal.digest(),
@@ -189,6 +200,8 @@ impl BoundlessProver {
         mcycles_count: u64,
         lock_timeout: u64,
     ) -> RequestParams {
+        // Note that offer ramp up period must be less than or equal to the lock timeout)
+        let ramp_up_period = cmp::min(lock_timeout, 300); // at most 5 minutes
         self.client
             .new_request()
             .with_program_url(image_url)
@@ -201,15 +214,15 @@ impl BoundlessProver {
             )
             .with_offer(
                 Offer::default()
-                    .with_min_price_per_mcycle(min_price_per_mcycle, mcycles_count)
+                    .with_min_price_per_mcycle(U256::ZERO, mcycles_count)
                     .with_max_price_per_mcycle(max_price_per_mcycle, mcycles_count)
                     .with_timeout((lock_timeout * 2) as u32) // The offer should be taken in 24 hours
                     .with_lock_timeout(lock_timeout as u32) // The proof should be generated in 12 hours
-                    .with_ramp_up_period(300)
-                    .with_bidding_start(current_timestamp_as_secs() + 10)
+                    .with_ramp_up_period(ramp_up_period as u32)
+                    .with_bidding_start(current_timestamp_as_secs() + 50)
                     // https://github.com/boundless-xyz/boundless/blob/628af072d8ed67a7503e112c8dc09e0d4665f711/documentation/site/pages/developers/tutorials/request.mdx?plain=1#L305
                     // https://github.com/boundless-xyz/boundless/blob/628af072d8ed67a7503e112c8dc09e0d4665f711/documentation/site/pages/developers/tutorials/request.mdx?plain=1#L347C16-L347C35
-                    .with_lock_stake(U256::from(5000000000000000000u64)),
+                    .with_lock_stake(U256::from(3u64)),
             )
     }
 

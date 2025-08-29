@@ -3,7 +3,7 @@ use std::str::FromStr;
 use anyhow::Context;
 use boundless_market::alloy::signers::k256::ecdsa::SigningKey;
 use boundless_market::alloy::signers::local::{LocalSigner, PrivateKeySigner};
-use boundless_market::deployments::SEPOLIA;
+use boundless_market::deployments::BASE;
 use boundless_market::storage::{PinataStorageProvider, S3StorageProvider};
 use boundless_market::{Deployment, StandardStorageProvider};
 use citrea_common::utils::read_env;
@@ -113,7 +113,7 @@ impl citrea_common::FromEnv for BoundlessConfig {
         let rpc_url = read_env("BOUNDLESS_RPC_URL")?;
 
         // TODO: Switch to Deployment::builder after boundless 1.0 release to switch between base mainnet and sepolia
-        let deployment = SEPOLIA;
+        let deployment = BASE;
 
         Ok(Self {
             wallet_private_key: PrivateKeySigner::from_str(&wallet_private_key)
