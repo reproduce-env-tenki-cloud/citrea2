@@ -579,7 +579,6 @@ where
 
         self.save_l2_block(l2_block, l2_block_result, tx_hashes, blobs)?;
 
-
         // Get actual receipts and senders from the saved block
         // This data is used to notify the mempool maintenance task about included transactions
         let (senders, reth_receipts) = {
@@ -839,12 +838,12 @@ where
             if cache_key.key.starts_with(b"E/i/") {
                 if let Some(value) = cache_value {
                     let encoded_addr = &cache_key.key[4..];
-                    if let Ok(addr_bytes) = borsh::from_slice::<[u8; 20]>(encoded_addr) {
-                        let address = Address::from_slice(&addr_bytes);
-                        if let Ok(account_id) = borsh::from_slice::<u64>(&value.value) {
-                            account_id_to_address.insert(account_id, address);
-                        }
-                    }
+                    let addr_bytes = borsh::from_slice::<[u8; 20]>(encoded_addr)
+                        .expect("Failed to borsh deserialize address");
+                    let address = Address::from_slice(&addr_bytes);
+                    let account_id = borsh::from_slice::<u64>(&value.value)
+                        .expect("Failed to borsh deserialize account ID");
+                    account_id_to_address.insert(account_id, address);
                 }
             }
         }
@@ -854,21 +853,21 @@ where
             if cache_key.key.starts_with(b"E/i/") {
                 if let Some(value) = cache_value {
                     let encoded_addr = &cache_key.key[4..];
-                    if let Ok(addr_bytes) = borsh::from_slice::<[u8; 20]>(encoded_addr) {
-                        let address = Address::from_slice(&addr_bytes);
-                        if let Ok(account_id) = borsh::from_slice::<u64>(&value.value) {
-                            account_id_to_address.insert(account_id, address);
-                        }
-                    }
+                    let addr_bytes = borsh::from_slice::<[u8; 20]>(encoded_addr)
+                        .expect("Failed to borsh deserialize address");
+                    let address = Address::from_slice(&addr_bytes);
+                    let account_id = borsh::from_slice::<u64>(&value.value)
+                        .expect("Failed to borsh deserialize account ID");
+                    account_id_to_address.insert(account_id, address);
                 }
             } else if cache_key.key.starts_with(b"E/a/") {
                 if let Some(value) = cache_value {
                     let encoded_id = &cache_key.key[4..];
-                    if let Ok(account_id) = borsh::from_slice::<u64>(encoded_id) {
-                        if let Ok(account_info) = borsh::from_slice::<AccountInfo>(&value.value) {
-                            account_id_to_info.insert(account_id, account_info);
-                        }
-                    }
+                    let account_id =
+                        borsh::from_slice::<u64>(encoded_id).expect("Failed to parse account ID");
+                    let account_info = borsh::from_slice::<AccountInfo>(&value.value)
+                        .expect("Failed to borsh deserialize account inf");
+                    account_id_to_info.insert(account_id, account_info);
                 }
             }
         }
