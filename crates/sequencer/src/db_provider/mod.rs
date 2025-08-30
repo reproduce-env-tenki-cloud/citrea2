@@ -14,6 +14,7 @@ use citrea_evm::{Evm, EvmChainConfig};
 use citrea_stf::runtime::DefaultContext;
 use jsonrpsee::core::RpcResult;
 use reth_chainspec::{Chain, ChainInfo, ChainSpec, ChainSpecBuilder};
+use reth_db::DatabaseError;
 use reth_primitives::{Account, Bytecode, RecoveredBlock, SealedHeader};
 use reth_provider::{
     AccountReader, BlockBodyIndicesProvider, BlockHashReader, BlockIdReader, BlockNumReader,
@@ -464,13 +465,13 @@ impl BlockIdReader for DbProvider {
     }
 
     fn finalized_block_number(&self) -> ProviderResult<Option<BlockNumber>> {
-        // Finalized blocks are those included in commitments sent to DA layer
-        match self.ledger_db.get_last_commitment() {
-            Ok(Some(commitment)) => Ok(Some(commitment.l2_end_block_number)),
-            Ok(None) => Ok(None),
-            Err(_) => Ok(None),
-        }
+        self.ledger_db.get_head_l2_block_height().map_err(|_| {
+            ProviderError::Database(DatabaseError::Other(
+                "Failed to get head L2 block height".to_owned(),
+            ))
+        })
     }
+
     fn pending_block_num_hash(&self) -> ProviderResult<Option<alloy_eips::BlockNumHash>> {
         unimplemented!("pending_block_num_hash")
     }
