@@ -32,7 +32,7 @@ use reth_provider::{
 use reth_tasks::shutdown::GracefulShutdown;
 use reth_transaction_pool::error::InvalidPoolTransactionError;
 use reth_transaction_pool::{
-    BestTransactions, BestTransactionsAttributes, BlockInfo, EthPooledTransaction, PoolTransaction,
+    BestTransactions, BestTransactionsAttributes, EthPooledTransaction, PoolTransaction,
     ValidPoolTransaction,
 };
 use revm::database::{BundleAccount, BundleState};
@@ -579,29 +579,6 @@ where
 
         self.save_l2_block(l2_block, l2_block_result, tx_hashes, blobs)?;
 
-        // Get the latest block header for actual gas info
-        let latest_header = self
-            .db_provider
-            .latest_header()
-            .map_err(|e| anyhow!("Failed to get latest header: {}", e))?
-            .ok_or(anyhow!("Latest header must exist after saving block"))?
-            .unseal();
-
-        // Calculate next base fee using ACTUAL gas used from the block
-        let next_base_fee = calculate_next_block_base_fee(
-            latest_header.gas_used,
-            latest_header.gas_limit,
-            latest_header.base_fee_per_gas.unwrap_or_default(),
-            self.db_provider.cfg().base_fee_params,
-        );
-
-        self.mempool.set_block_info(BlockInfo {
-            block_gas_limit: latest_header.gas_limit,
-            last_seen_block_number: l2_height,
-            last_seen_block_hash: B256::from_slice(&self.l2_block_hash),
-            pending_basefee: next_base_fee,
-            pending_blob_fee: None,
-        });
 
         // Get actual receipts and senders from the saved block
         // This data is used to notify the mempool maintenance task about included transactions

@@ -9,10 +9,9 @@ use reth_tasks::TaskExecutor;
 use reth_transaction_pool::blobstore::NoopBlobStore;
 use reth_transaction_pool::error::{PoolError, PoolErrorKind};
 use reth_transaction_pool::{
-    AllPoolTransactions, BestTransactions, BestTransactionsAttributes, BlockInfo,
-    CoinbaseTipOrdering, EthPooledTransaction, EthTransactionValidator, Pool, PoolConfig,
-    PoolResult, PoolTransaction, SubPoolLimit, TransactionPool, TransactionPoolExt,
-    TransactionValidationTaskExecutor, ValidPoolTransaction,
+    AllPoolTransactions, BestTransactions, BestTransactionsAttributes, CoinbaseTipOrdering,
+    EthPooledTransaction, EthTransactionValidator, Pool, PoolConfig, PoolResult, PoolTransaction,
+    SubPoolLimit, TransactionPool, TransactionValidationTaskExecutor, ValidPoolTransaction,
 };
 
 use crate::db_provider::DbProvider;
@@ -166,13 +165,5 @@ impl CitreaMempool {
     /// This is needed for the maintenance task to access the pool directly
     pub(crate) fn inner_pool(&self) -> &CitreaMempoolImpl {
         &self.0
-    }
-
-    /// Sets the current block info for the pool
-    ///
-    /// This updates the pool's understanding of the current block state,
-    /// including base fee which affects transaction ordering and validation
-    pub(crate) fn set_block_info(&self, info: BlockInfo) {
-        self.0.set_block_info(info);
     }
 }
