@@ -35,7 +35,7 @@ use reth_transaction_pool::{
     BestTransactions, BestTransactionsAttributes, EthPooledTransaction, PoolTransaction,
     ValidPoolTransaction,
 };
-use revm::database::{BundleAccount, BundleState};
+use revm::database::{AccountStatus, BundleAccount, BundleState};
 use revm::state::AccountInfo as ReVmAccountInfo;
 use sov_accounts::Accounts;
 use sov_accounts::Response::{AccountEmpty, AccountExists};
@@ -832,8 +832,9 @@ where
         let mut bundle_state = BundleState::default();
         let mut account_id_to_address: HashMap<u64, alloy_primitives::Address> = HashMap::new();
         let mut account_id_to_info: HashMap<u64, AccountInfo> = HashMap::new();
+        let mut account_id_to_status: HashMap<u64, AccountStatus> = HashMap::new();
 
-        // Parse reads for existing account mappings
+        // Parse reads for existing account mappings - these accounts are Loaded
         for (cache_key, cache_value) in state_log.ordered_reads() {
             if cache_key.key.starts_with(b"E/i/") {
                 if let Some(value) = cache_value {
@@ -845,10 +846,16 @@ where
                         .expect("Failed to borsh deserialize account ID");
                     account_id_to_address.insert(account_id, address);
                 }
+            } else if cache_key.key.starts_with(b"E/a/") && cache_value.is_some() {
+                let encoded_id = &cache_key.key[4..];
+                let account_id =
+                    borsh::from_slice::<u64>(encoded_id).expect("Failed to parse account ID");
+                // Account was read from state, so it's Loaded
+                account_id_to_status.insert(account_id, AccountStatus::Loaded);
             }
         }
 
-        // Parse writes for new mappings and account info changes
+        // Parse writes for new mappings and account info changes - these override status to Changed
         for (cache_key, cache_value) in state_log.iter_ordered_writes() {
             if cache_key.key.starts_with(b"E/i/") {
                 if let Some(value) = cache_value {
@@ -868,6 +875,8 @@ where
                     let account_info = borsh::from_slice::<AccountInfo>(&value.value)
                         .expect("Failed to borsh deserialize account inf");
                     account_id_to_info.insert(account_id, account_info);
+                    // Account was written to, so it's Changed (overrides Loaded if it was read)
+                    account_id_to_status.insert(account_id, AccountStatus::Changed);
                 }
             }
         }
@@ -881,11 +890,17 @@ where
                     code: None,
                 };
 
+                // Get the status for this account (will be Changed since we only process written accounts)
+                let status = account_id_to_status
+                    .get(&account_id)
+                    .copied()
+                    .unwrap_or(AccountStatus::Changed);
+
                 let bundle_account = BundleAccount {
                     info: Some(revm_info),
                     storage: Default::default(),
                     original_info: None,
-                    status: Default::default(),
+                    status,
                 };
 
                 bundle_state.state.insert(address, bundle_account);
