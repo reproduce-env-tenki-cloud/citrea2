@@ -152,14 +152,6 @@ impl CitreaMempool {
             .best_transactions_with_attributes(best_transactions_attributes)
     }
 
-    /// Gets the total number of transactions in the mempool
-    ///
-    /// # Returns
-    /// The number of transactions currently in the pool
-    pub(crate) fn len(&self) -> usize {
-        self.0.len()
-    }
-
     /// Returns a reference to the underlying pool implementation
     ///
     /// This is needed for the maintenance task to access the pool directly

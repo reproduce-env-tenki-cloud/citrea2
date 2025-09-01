@@ -8,12 +8,6 @@ use metrics_derive::Metrics;
 #[derive(Metrics)]
 #[metrics(scope = "sequencer")]
 pub struct SequencerMetrics {
-    /// Current number of transactions in the mempool
-    #[metric(describe = "How many transactions are currently in the mempool")]
-    pub mempool_txs: Gauge,
-    /// Counter for tracking mempool transaction increments
-    #[metric(describe = "An ever increasing transactions count into the mempool")]
-    pub mempool_txs_inc: Counter,
     /// Current number of transactions in the deposit data mempool
     #[metric(
         describe = "How many deposit data transactions are currently in the deposit data mempool"

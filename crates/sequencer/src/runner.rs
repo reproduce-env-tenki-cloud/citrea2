@@ -973,7 +973,6 @@ where
             warn!("Failed to remove txs from mempool: {:?}", e);
         }
 
-        SM.mempool_txs.set(self.mempool.len() as f64);
         SM.maintain_mempool_time.set(
             Instant::now()
                 .saturating_duration_since(start_maintain_mempool)
