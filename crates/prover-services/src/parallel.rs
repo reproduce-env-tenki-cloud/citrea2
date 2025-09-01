@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use anyhow::Context;
 use rand::Rng;
 use sov_rollup_interface::da::DaTxRequest;
 use sov_rollup_interface::services::da::DaService;

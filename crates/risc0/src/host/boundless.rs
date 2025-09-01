@@ -214,7 +214,7 @@ impl BoundlessProver {
         journal_digest: Digest,
         image_url: Url,
         input_url: Url,
-        min_price_per_mcycle: U256,
+        _min_price_per_mcycle: U256,
         max_price_per_mcycle: U256,
         mcycles_count: u64,
         lock_timeout: u64,
@@ -438,12 +438,7 @@ impl BoundlessProver {
         // Retrieve the maximum possible price again from the pricing service as the price of ether may have changed.
         let exponential_backoff = ExponentialBackoff::default();
 
-        let PriceResponse {
-            min_price,
-            max_price,
-            lock_timeout,
-            max_possible_price,
-        } = retry_backoff(exponential_backoff, || async move {
+        let max_possible_price = retry_backoff(exponential_backoff, || async move {
             match self.pricing_service.get_price(mcycles_count).await {
                 Err(e) => {
                     tracing::error!(
@@ -451,7 +446,7 @@ impl BoundlessProver {
                         job_id,
                         e
                     );
-                    return Err(backoff::Error::transient(e));
+                    Err(backoff::Error::transient(e))
                 }
                 Ok(res) => Ok(res),
             }
@@ -464,7 +459,8 @@ impl BoundlessProver {
                 request_id,
                 e
             )
-        })?;
+        })?
+        .max_possible_price;
 
         // TODO: https://github.com/chainwayxyz/citrea/issues/2417
         // Define new request with updated parameters
