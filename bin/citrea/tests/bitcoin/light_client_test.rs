@@ -77,14 +77,9 @@ impl TestCase for LightClientProvingTest {
         }
     }
 
-    fn scan_l1_start_height() -> Option<u64> {
-        Some(199)
-    }
-
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
             enable_recovery: false,
-            initial_da_height: 199,
             ..Default::default()
         }
     }
