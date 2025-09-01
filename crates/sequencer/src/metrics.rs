@@ -107,6 +107,16 @@ pub struct SequencerMetrics {
         describe = "The time taken to maintain the mempool after processing an L2 block in milliseconds"
     )]
     pub maintain_mempool_time: Gauge,
+    /// Time taken to extract bundle state from the state log for mempool maintenance
+    #[metric(
+        describe = "The time taken to extract bundle state from state log for mempool maintenance in milliseconds"
+    )]
+    pub mempool_extract_bundle_state_time: Gauge,
+    /// Time taken to prepare and send canonical state notification for mempool maintenance
+    #[metric(
+        describe = "The time taken to prepare and send canonical state notification for mempool maintenance in milliseconds"
+    )]
+    pub mempool_canonical_notification_time: Gauge,
     /// Basically all the operations happening before the dry run, such as fetching the mempool transactions, preparing the dry run state, etc.
     #[metric(describe = "The time taken to prepare for a dry run in seconds per block")]
     pub dry_run_preparation_time: Gauge,

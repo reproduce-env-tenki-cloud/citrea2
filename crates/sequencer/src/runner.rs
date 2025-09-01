@@ -569,7 +569,13 @@ where
         );
 
         // Extract account state changes for mempool maintenance
+        let start_extract_bundle = Instant::now();
         let bundle_state = self.extract_bundle_state_from_state_log(&l2_block_result.state_log);
+        SM.mempool_extract_bundle_state_time.set(
+            Instant::now()
+                .saturating_duration_since(start_extract_bundle)
+                .as_millis() as f64,
+        );
 
         // First set the state diff before committing the L2 block
         // This prevents race conditions where the sequencer might shut down
@@ -581,6 +587,7 @@ where
 
         // Get actual receipts and senders from the saved block
         // This data is used to notify the mempool maintenance task about included transactions
+        let start_canonical_notification = Instant::now();
         let (senders, reth_receipts) = {
             // Get receipts using the standard ReceiptProvider trait method
             let reth_receipts = self
@@ -620,6 +627,11 @@ where
                 new: Arc::new(chain),
             });
         }
+        SM.mempool_canonical_notification_time.set(
+            Instant::now()
+                .saturating_duration_since(start_canonical_notification)
+                .as_millis() as f64,
+        );
 
         // Handle L1 fee failed transactions and persistent storage cleanup
         // Note: Mined transaction removal from mempool is handled by the maintenance task
