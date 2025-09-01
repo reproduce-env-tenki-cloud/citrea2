@@ -269,6 +269,15 @@ where
         keys: Vec<JsonStorageKey>,
         block_id: Option<BlockId>,
     ) -> RpcResult<EIP1186AccountProofResponse> {
+        const MAX_STORAGE_KEYS: usize = 1000;
+        if keys.len() > MAX_STORAGE_KEYS {
+            return Err(EthApiError::InvalidParams(format!(
+                "Too many storage keys requested: {}. Maximum allowed: {}",
+                keys.len(),
+                MAX_STORAGE_KEYS
+            )))?;
+        }
+
         let mut working_set = WorkingSet::new(self.ethereum.storage.clone());
 
         let evm = Evm::<C>::default();
@@ -288,7 +297,7 @@ where
         } else {
             block_id_internal
                 .checked_add(1) // We need to set block_id to the end
-                .ok_or_else(|| EthApiError::EvmCustom("Block id overflow".into()))?
+                .ok_or_else(|| EthApiError::InvalidParams("Block id overflow".into()))?
         };
 
         let proof = generate_eth_proof(&evm, address, keys, version, &mut working_set);
