@@ -536,7 +536,7 @@ where
         let (signed_txs, blobs) = self.encode_and_sign_evm_txs_into_sov_txs(
             &mut working_set,
             &l2_block_info,
-            txs_to_run.clone(),
+            txs_to_run,
         )?;
 
         self.instrumented_apply_l2_block_txs(&l2_block_info, &signed_txs, &mut working_set)?;
