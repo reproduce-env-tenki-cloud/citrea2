@@ -636,3 +636,153 @@ async fn test_persistent_storage_cleanup() {
         seq_task.graceful_shutdown();
     }
 }
+
+/// Test that stale transactions are evicted from mempool after max lifetime
+#[tokio::test(flavor = "multi_thread")]
+async fn test_stale_tx_eviction() {
+    let db_dir = tempdir_with_children(&["DA", "sequencer", "full-node"]);
+    let da_db_dir = db_dir.path().join("DA").to_path_buf();
+    let sequencer_db_dir = db_dir.path().join("sequencer").to_path_buf();
+
+    // Create a custom sequencer config with short max_tx_lifetime
+    let (seq_port_tx, seq_port_rx) = tokio::sync::oneshot::channel();
+
+    let rollup_config = create_default_rollup_config(
+        true,
+        &sequencer_db_dir,
+        &da_db_dir,
+        NodeMode::SequencerNode,
+        None,
+    );
+
+    // Configure sequencer with a very short transaction lifetime (2 seconds)
+    let mut sequencer_config = SequencerConfig::default();
+    sequencer_config.mempool_conf.max_tx_lifetime_secs = Some(2);
+
+    let seq_task = start_rollup(
+        seq_port_tx,
+        GenesisPaths::from_dir(TEST_DATA_GENESIS_PATH),
+        None,
+        None,
+        rollup_config,
+        Some(sequencer_config),
+        None,
+        false,
+    )
+    .await;
+
+    let seq_port = seq_port_rx.await.unwrap();
+    let test_client = make_test_client(seq_port).await.unwrap();
+
+    let addr = Address::from_str("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266").unwrap();
+
+    // Send transactions with FUTURE nonces that won't be included in blocks
+    // These will sit in mempool and become stale
+    let tx1 = test_client
+        .send_eth(addr, None, None, Some(10), 1_000_000_000u128) // Future nonce
+        .await
+        .unwrap();
+    let tx2 = test_client
+        .send_eth(addr, None, None, Some(11), 2_000_000_000u128) // Future nonce
+        .await
+        .unwrap();
+    let tx3 = test_client
+        .send_eth(addr, None, None, Some(12), 3_000_000_000u128) // Future nonce
+        .await
+        .unwrap();
+
+    let tx1_hash = *tx1.tx_hash();
+    let tx2_hash = *tx2.tx_hash();
+    let tx3_hash = *tx3.tx_hash();
+
+    assert_eq!(
+        test_client.get_mempool_transaction_count().await.unwrap(),
+        3,
+        "Should have 3 transactions in mempool initially"
+    );
+    assert!(
+        test_client
+            .is_transaction_in_mempool(tx1_hash)
+            .await
+            .unwrap(),
+        "TX1 should be in mempool initially"
+    );
+    assert!(
+        test_client
+            .is_transaction_in_mempool(tx2_hash)
+            .await
+            .unwrap(),
+        "TX2 should be in mempool initially"
+    );
+    assert!(
+        test_client
+            .is_transaction_in_mempool(tx3_hash)
+            .await
+            .unwrap(),
+        "TX3 should be in mempool initially"
+    );
+
+    // Wait for transactions to become stale
+    // We set max_tx_lifetime to 2 seconds, so wait 3 seconds to ensure they're stale
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Trigger maintenance by publishing an empty block
+    // The future nonce transactions won't be included, but maintenance should evict them as stale
+    test_client.send_publish_batch_request().await;
+    wait_for_l2_block(&test_client, 1, None).await;
+
+    // Wait a bit for maintenance task to process
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // Check block to verify transactions were NOT included
+    let block = test_client
+        .eth_get_block_by_number(Some(BlockNumberOrTag::Latest))
+        .await;
+    let block_transactions = block.transactions.as_hashes().unwrap();
+
+    // Future nonce transactions should NOT be in the block
+    assert!(
+        !block_transactions.contains(&tx1_hash),
+        "TX1 with future nonce should NOT be in block"
+    );
+    assert!(
+        !block_transactions.contains(&tx2_hash),
+        "TX2 with future nonce should NOT be in block"
+    );
+    assert!(
+        !block_transactions.contains(&tx3_hash),
+        "TX3 with future nonce should NOT be in block"
+    );
+
+    // Check that stale transactions were evicted from mempool
+    assert!(
+        !test_client
+            .is_transaction_in_mempool(tx1_hash)
+            .await
+            .unwrap(),
+        "TX1 should be evicted from mempool due to staleness"
+    );
+    assert!(
+        !test_client
+            .is_transaction_in_mempool(tx2_hash)
+            .await
+            .unwrap(),
+        "TX2 should be evicted from mempool due to staleness"
+    );
+    assert!(
+        !test_client
+            .is_transaction_in_mempool(tx3_hash)
+            .await
+            .unwrap(),
+        "TX3 should be evicted from mempool due to staleness"
+    );
+
+    let mempool_count = test_client.get_mempool_transaction_count().await.unwrap();
+    assert_eq!(
+        mempool_count, 0,
+        "All stale transactions should be evicted, but found {} transactions",
+        mempool_count
+    );
+
+    seq_task.graceful_shutdown();
+}
