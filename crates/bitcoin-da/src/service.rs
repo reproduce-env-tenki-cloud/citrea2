@@ -25,7 +25,7 @@ use bitcoincore_rpc::{Client, Error as BitcoinError, Error, RpcApi, RpcError};
 use borsh::BorshDeserialize;
 use citrea_common::utils::read_env;
 use citrea_primitives::compression::{compress_blob, decompress_blob};
-use citrea_primitives::MAX_TX_BODY_SIZE;
+use citrea_primitives::{MAX_COMPRESSED_BLOB_SIZE, MAX_TX_BODY_SIZE};
 use lru::LruCache;
 use reth_tasks::shutdown::GracefulShutdown;
 use serde::{Deserialize, Serialize};
@@ -1000,6 +1000,11 @@ impl DaService for BitcoinService {
                                 continue;
                             };
 
+                            if compressed_zk_proof.len() > MAX_COMPRESSED_BLOB_SIZE {
+                                warn!("{tx_id}: Compressed zk proof too large");
+                                continue;
+                            }
+
                             // push only when signature is correct
                             let Ok(zk_proof) = self.decompress_chunks(&compressed_zk_proof) else {
                                 warn!("{tx_id}: Failed to decompress blob");
@@ -1114,7 +1119,13 @@ impl DaService for BitcoinService {
                             warn!("{tx_id}: Chunk: unexpected kind",);
                             continue 'aggregate;
                         };
+
                         body.extend(chunk);
+
+                        if body.len() > MAX_COMPRESSED_BLOB_SIZE {
+                            warn!("{tx_id}: Compressed aggregate too large");
+                            continue 'aggregate;
+                        }
                     }
                     ParsedTransaction::Complete(_)
                     | ParsedTransaction::Aggregate(_)
