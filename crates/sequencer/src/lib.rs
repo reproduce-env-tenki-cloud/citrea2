@@ -141,12 +141,26 @@ where
         let pool = mempool.inner_pool().clone();
         let client = db_provider.clone();
         let events_stream = UnboundedReceiverStream::new(canon_state_rx);
+
+        // Build MaintainPoolConfig from mempool config
+        let mut maintain_config = reth_transaction_pool::maintain::MaintainPoolConfig::default();
+        if let Some(max_update_depth) = sequencer_config.mempool_conf.max_update_depth {
+            maintain_config.max_update_depth = max_update_depth;
+        }
+        if let Some(max_reload_accounts) = sequencer_config.mempool_conf.max_reload_accounts {
+            maintain_config.max_reload_accounts = max_reload_accounts;
+        }
+        if let Some(max_tx_lifetime_secs) = sequencer_config.mempool_conf.max_tx_lifetime_secs {
+            maintain_config.max_tx_lifetime = std::time::Duration::from_secs(max_tx_lifetime_secs);
+        }
+        // Note: no_local_exemptions field doesn't exist in reth v1.3.7
+
         let maintenance_future = reth_transaction_pool::maintain::maintain_transaction_pool_future(
             client,
             pool,
             events_stream,
             task_executor.clone(),
-            Default::default(), // Use default MaintainPoolConfig
+            maintain_config,
         );
         task_executor.spawn_critical("mempool-maintenance", maintenance_future);
     }
