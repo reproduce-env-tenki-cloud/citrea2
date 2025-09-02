@@ -8,8 +8,8 @@ use std::sync::Arc;
 use alloy_primitives::{keccak256, Address, Bytes, B256, U256, U64};
 use alloy_rpc_types::serde_helpers::JsonStorageKey;
 use alloy_rpc_types::{
-    BlockId, BlockNumberOrTag, EIP1186AccountProofResponse, FeeHistory, Filter, Index, SyncInfo,
-    SyncStatus as EthSyncStatus, Transaction,
+    BlockId, BlockNumberOrTag, EIP1186AccountProofResponse, FeeHistory, Filter, FilterSet, Index,
+    SyncInfo, SyncStatus as EthSyncStatus, Transaction,
 };
 use alloy_rpc_types_trace::geth::{GethDebugTracingOptions, GethTrace, TraceResult};
 use citrea_evm::{generate_eth_proof, Evm};
@@ -34,6 +34,9 @@ use sov_state::storage::NativeStorage;
 use tokio::join;
 use tokio::sync::broadcast;
 use trace::{debug_trace_by_block_number, handle_debug_trace_chain};
+
+/// Limit maximum number of addresses in a filter for eth_subscribe/logs
+const MAX_ADDRESSES_IN_FILTER: usize = 15;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -591,7 +594,7 @@ where
         &self,
         pending: PendingSubscriptionSink,
         topic: String,
-        filter: Option<Filter>,
+        mut filter: Option<Filter>,
     ) -> SubscriptionResult {
         match topic.as_str() {
             "newHeads" => {
@@ -605,6 +608,12 @@ where
             }
             "logs" => {
                 let subscription = pending.accept().await?;
+                if let Some(filter) = filter.as_mut() {
+                    // Use only first MAX_ADDRESSES_IN_FILTER addresses to register the filter
+                    let origin_addresses = core::mem::take(&mut filter.address);
+                    let new_addresses = origin_addresses.into_iter().take(MAX_ADDRESSES_IN_FILTER);
+                    filter.address = FilterSet::from_iter(new_addresses);
+                }
                 self.ethereum
                     .subscription_manager
                     .as_ref()
