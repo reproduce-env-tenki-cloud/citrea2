@@ -164,11 +164,9 @@ where
                             .expect("Commit check tokio blocking task failed")
                             .expect("Commitment criteria check failed")
                         {
-                            if let Err(e) = self.commit(index, commitment_range.clone()).await {
-                                // We just log error and continue here as the controller updated its internal state and it can
-                                // continue functioning correctly. We just need to resubmit the failed commitment to DA.
-                                error!("Failed to submit commitment: {:?}", e);
-                            }
+                            self.commit(index, commitment_range.clone())
+                                .await
+                                .expect("Failed to submit commitment");
 
                             record_commitment_process_duration_metrics(
                                 start_commitment_processing,
