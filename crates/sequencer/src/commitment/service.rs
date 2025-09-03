@@ -263,8 +263,7 @@ where
         &mut self,
         mut working_set: WorkingSet<ProverStorage>,
     ) -> anyhow::Result<()> {
-        let mut pending_mempool_commitments = self.get_pending_mempool_commitments().await;
-        pending_mempool_commitments.sort();
+        let pending_mempool_commitments = self.get_pending_mempool_commitments().await;
         info!(
             "Commitments that are already in DA mempool: {:?}",
             pending_mempool_commitments
@@ -290,10 +289,9 @@ where
             l1_height.to::<u64>() + 1
         };
 
-        let mut mined_commitments = self
+        let mined_commitments = self
             .get_mined_commitments_from(start_scanning_l1_from)
             .await?;
-        mined_commitments.sort();
         info!(
             "Commitments that are already mined by DA: {:?}",
             mined_commitments
