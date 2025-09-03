@@ -305,15 +305,13 @@ where
 
         commitments_to_store.sort();
         commitments_to_store.dedup();
-        if let Some(last) = last_commitment {
-            commitments_to_store.retain(|c| c.index > last.index);
-            assert!(
-                commitments_to_store
-                    .first()
-                    .map_or(true, |c| c.index == last.index + 1),
-                "There should be no gaps in commitments to store"
-            );
-        }
+
+        let last_index = last_commitment.map(|c| c.index).unwrap_or(0);
+        commitments_to_store.retain(|c| c.index > last_index);
+        assert!(
+            commitments_to_store.first().map_or(true, |c| c.index == last_index + 1),
+        );
+
         for window in commitments_to_store.windows(2) {
             assert!(
                 window[0].index + 1 == window[1].index,
