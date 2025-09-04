@@ -307,15 +307,10 @@ where
         let last_index = last_commitment.map(|c| c.index).unwrap_or(0);
         commitments_to_store.retain(|c| c.index > last_index);
         assert!(
-            commitments_to_store.first().map_or(true, |c| c.index == last_index + 1),
+            commitments_to_store.first().map_or(true, |c| c.index == last_index + 1), "First commitment to store must be the next after last stored commitment"
         );
+        assert!(commitments_to_store.windows(2).all(|w| w[0].index + 1 == w[1].index), "Commitments to store must be consecutive");
 
-        for window in commitments_to_store.windows(2) {
-            assert!(
-                window[0].index + 1 == window[1].index,
-                "There should be no gaps in commitments to store"
-            );
-        }
         info!(
             "Commitments from DA to store: {:?}",
             commitments_to_store
