@@ -5,6 +5,7 @@ on:
     branches:
       - main
 
+
 env:
   EXPECTED_BITCOIN_DA_ID: ${{ vars.EXPECTED_BITCOIN_DA_ID }}
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
