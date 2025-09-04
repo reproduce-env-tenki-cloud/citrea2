@@ -12,8 +12,7 @@ env:
 jobs:
 
   linux_amd64_binary_extraction:
-    needs: validate_DA_ID_format
-    runs-on: ubicloud-standard-30
+    runs-on: tenki-standard-autoscale
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,11 +27,12 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           rustup install 1.79.0
           rustup default 1.79.0
+          rustup update 1.79.0
 
       - name: Install Cargo Binstall
         run: |
           source $HOME/.cargo/env
-          cargo install --version 1.7.0 cargo-binstall
+          cargo install --locked --version 1.7.0 cargo-binstall
 
       - name: Install cargo-risczero
         run: |
@@ -57,7 +57,7 @@ jobs:
 
   release:
     needs: [ linux_amd64_binary_extraction]
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-autoscale
     steps:
       - name: Download linux-amd64 Binary
         uses: actions/download-artifact@v4
