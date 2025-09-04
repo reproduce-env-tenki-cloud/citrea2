@@ -19,8 +19,9 @@ use crate::schema::tables::{
     CommitmentIndicesByJobId, CommitmentIndicesByL1, CommitmentMerkleRoots, CommitmentsByNumber,
     ExecutedMigrations, JobIdOfCommitment, L2BlockByHash, L2BlockByNumber, L2GenesisStateRoot,
     L2RangeByL1Height, L2StatusHeights, LastPrunedBlock, LightClientProofBySlotNumber, MempoolTxs,
-    PendingBonsaiSessionByJobId, PendingL1SubmissionJobs, PendingProofs, PendingSequencerCommitments, ProofByJobId, ProofsBySlotNumberV2,
-    ProverLastScannedSlot, ProverPendingCommitments, ProverStateDiffs, SequencerCommitmentByIndex,
+    PendingBonsaiSessionByJobId, PendingL1SubmissionJobs, PendingProofs,
+    PendingSequencerCommitments, ProofByJobId, ProofsBySlotNumberV2, ProverLastScannedSlot,
+    ProverPendingCommitments, ProverStateDiffs, SequencerCommitmentByIndex,
     ShortHeaderProofBySlotHash, SlotByHash, StateDiffByBlockNumber,
     VerifiedBatchProofsBySlotNumber, LEDGER_TABLES,
 };

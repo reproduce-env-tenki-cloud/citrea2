@@ -250,8 +250,7 @@ where
             .put_commitment_by_index(&commitment)
             .map_err(|_| anyhow!("Sequencer: Failed to store sequencer commitment by index"))?;
 
-        ledger_db
-            .delete_state_diff_by_range(commitment_range)?;
+        ledger_db.delete_state_diff_by_range(commitment_range)?;
 
         info!("New commitment. L2 range: #{}-{}", l2_start.0, l2_end.0);
 
@@ -307,14 +306,19 @@ where
         let last_index = last_commitment.map(|c| c.index).unwrap_or(0);
         commitments_to_store.retain(|c| c.index > last_index);
         assert!(
-            commitments_to_store.first().map_or(true, |c| c.index == last_index + 1), "First commitment to store must be the next after last stored commitment"
-        );
-        assert!(commitments_to_store.windows(2).all(|w| w[0].index + 1 == w[1].index), "Commitments to store must be consecutive");
-
-        info!(
-            "Commitments from DA to store: {:?}",
             commitments_to_store
+                .first()
+                .is_none_or(|c| c.index == last_index + 1),
+            "First commitment to store must be the next after last stored commitment"
         );
+        assert!(
+            commitments_to_store
+                .windows(2)
+                .all(|w| w[0].index + 1 == w[1].index),
+            "Commitments to store must be consecutive"
+        );
+
+        info!("Commitments from DA to store: {:?}", commitments_to_store);
 
         for commitment in commitments_to_store {
             let l2_start_block_number = if commitment.index == 1 {
