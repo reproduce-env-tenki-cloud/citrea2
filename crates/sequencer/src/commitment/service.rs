@@ -303,7 +303,7 @@ where
         commitments_to_store.sort();
         commitments_to_store.dedup();
 
-        let last_index = last_commitment.map(|c| c.index).unwrap_or(0);
+        let last_index = last_commitment.map_or(0, |c| c.index);
         commitments_to_store.retain(|c| c.index > last_index);
         assert!(
             commitments_to_store
