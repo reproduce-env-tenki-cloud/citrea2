@@ -324,6 +324,7 @@ async fn test_sequencer_sends_commitments_to_da_layer() -> Result<()> {
         .await
 }
 
+// Test commitment service fetching commitments from DA layer and storing them if their index is higher than the last stored one
 struct SequencerCommitmentsFromDaTest{
     task_manager: TaskManager,
 }
