@@ -92,7 +92,7 @@ where
             let working_set = WorkingSet::new(prestate.clone());
 
             // Store commitments on DA to db, skip it on first init
-            if let Err(e) = self.store_commitments_on_da(working_set).await {
+            if let Err(e) = self.store_commitments_from_da(working_set).await {
                 error!("Could not store commitments on DA: {:?}", e);
             }
         }
@@ -258,7 +258,7 @@ where
     }
 
     #[instrument(level = "trace", skip(self, working_set), err, ret)]
-    pub async fn store_commitments_on_da(
+    pub async fn store_commitments_from_da(
         &mut self,
         mut working_set: WorkingSet<ProverStorage>,
     ) -> anyhow::Result<()> {
