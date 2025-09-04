@@ -28,7 +28,7 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-autoscale
     environment: ${{ inputs.environment }}
 
     steps:
@@ -50,7 +50,7 @@ jobs:
         echo "Downloading binary from ${BINARY_URL}"
         # Download the binary using wget 
         wget -O devops/${SERVICE}/citrea "${BINARY_URL}"
-    
+
         # Make the downloaded file executable
         chmod +x devops/${SERVICE}/citrea
         chmod +x devops/${SERVICE}/run.sh
