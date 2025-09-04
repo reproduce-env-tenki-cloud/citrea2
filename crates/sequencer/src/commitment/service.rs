@@ -91,9 +91,9 @@ where
             let prestate = storage_manager.create_final_view_storage();
             let working_set = WorkingSet::new(prestate.clone());
 
-            // Store commitments on DA to db, skip it on first init
+            // Store commitments from DA to db, skip it on first init
             if let Err(e) = self.store_commitments_from_da(working_set).await {
-                error!("Could not store commitments on DA: {:?}", e);
+                error!("Could not store commitments from DA: {:?}", e);
             }
         }
 
