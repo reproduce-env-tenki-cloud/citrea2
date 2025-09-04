@@ -309,13 +309,16 @@ where
             commitments_to_store
                 .first()
                 .is_none_or(|c| c.index == last_index + 1),
-            "First commitment to store must be the next after last stored commitment"
+            "First commitment to store must be the next after last stored commitment {:?} != {:?}",
+            commitments_to_store.first().map(|c| c.index),
+            last_index + 1
         );
         assert!(
             commitments_to_store
                 .windows(2)
                 .all(|w| w[0].index + 1 == w[1].index),
-            "Commitments to store must be consecutive"
+            "Commitments to store must be consecutive {:?}",
+            commitments_to_store
         );
 
         info!("Commitments from DA to store: {:?}", commitments_to_store);
