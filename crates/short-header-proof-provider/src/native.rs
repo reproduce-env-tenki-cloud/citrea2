@@ -15,14 +15,16 @@ pub struct NativeShortHeaderProofProviderService<Da: DaSpec> {
     pub queried_and_verified_hashes: Arc<Mutex<HashMap<u64, Vec<[u8; 32]>>>>,
     pub ledger_db: LedgerDB,
     pub _phantom: PhantomData<Da>,
+    save_hashes: bool,
 }
 
 impl<Da: DaSpec> NativeShortHeaderProofProviderService<Da> {
-    pub fn new(ledger_db: LedgerDB) -> Self {
+    pub fn new(ledger_db: LedgerDB, save_hashes: bool) -> Self {
         Self {
             ledger_db,
             queried_and_verified_hashes: Arc::new(Mutex::new(HashMap::new())),
             _phantom: PhantomData,
+            save_hashes,
         }
     }
 }
@@ -58,7 +60,7 @@ impl<Da: DaSpec> ShortHeaderProofProvider for NativeShortHeaderProofProviderServ
                     && l1_height == l1_update_info.block_height
                     && coinbase_depth == l1_update_info.coinbase_txid_merkle_proof_height;
 
-                if return_cond {
+                if return_cond && self.save_hashes {
                     let mut queried_hashes_map = self.queried_and_verified_hashes.lock();
 
                     queried_hashes_map.try_reserve(1).map_err(|e| {
